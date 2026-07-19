@@ -120,20 +120,20 @@ MTP drafts are full model copies (~2GB), so dual-model memory caps context at
 
 | Config | Result | Time | Energy |
 |---|---|---|---|
-| E4B+MTP | ✅ | **61s** | **1059 J** |
-| A1+MTP | ✅ | 79s | 1381 J |
-| E2B+MTP | ✅ | 92s | 1467 J |
-| Bonsai-Q1_0 | ✅ (!) | 494s | 8811 J |
+| E4B+MTP | ✅ | **1m 01s** | **1059 J** |
+| A1+MTP | ✅ | 1m 19s | 1381 J |
+| E2B+MTP | ✅ | 1m 32s | 1467 J |
+| Bonsai-Q1_0 | ✅ (!) | 8m 14s | 8811 J |
 
 ### Arena 2: multi-file task (3 defects across 3 modules, 11 tests)
 
 | Config | Result | Time | Energy |
 |---|---|---|---|
-| E2B+MTP | ✅ 11/11 | **93s** | **1493 J** |
-| E4B+MTP | ✅ 11/11 | 154s | 2747 J |
-| A1+MTP | ✅ 11/11 | 198s | 3753 J |
-| Ornith-solo | ✅ 11/11 | 483s | 10243 J |
-| Qwen3.5-4B (base, non-agentic) | ❌ 8/11 | 183s | 3342 J |
+| E2B+MTP | ✅ 11/11 | **1m 33s** | **1493 J** |
+| E4B+MTP | ✅ 11/11 | 2m 34s | 2747 J |
+| A1+MTP | ✅ 11/11 | 3m 18s | 3753 J |
+| Ornith-solo | ✅ 11/11 | 8m 03s | 10243 J |
+| Qwen3.5-4B (base, non-agentic) | ❌ 8/11 | 3m 03s | 3342 J |
 
 **Finding:** base Qwen3.5-4B failed exactly where its same-size, same-architecture
 agent-tuned sibling (A1) passed — agentic fine-tuning is measurable.
@@ -142,14 +142,17 @@ agent-tuned sibling (A1) passed — agentic fine-tuning is measurable.
 
 | Config | Turns passed | Total | Energy |
 |---|---|---|---|
-| 🏆 **A1-4B solo @131K q4-KV** | **11/11 perfect** | **947s** | **18.0 kJ** |
-| E4B+MTP @98K | 10/11 (failed t8, recovered t9) | 1414s | 25.4 kJ |
-| E2B+MTP @131K | 3/11 (failed t4, never recovered) | 891s | 14.4 kJ |
+| 🏆 **A1-4B solo @131K q4-KV** | **11/11 perfect** | **15m 47s** | **18.0 kJ** |
+| **Ornith-1.0-9B @131K q4-KV** | **11/11 perfect** (run later as tiebreaker) | 18m 06s | 22.1 kJ |
+| E4B+MTP @98K | 10/11 (failed t8, recovered t9) | 23m 34s | 25.4 kJ |
+| E2B+MTP @131K | 3/11 (failed t4, never recovered) | 14m 51s | 14.4 kJ |
 | A1+MTP @16K | server failed to start (fragmentation OOM) | — | — |
 
 **The headline of the whole campaign:** the one-shot winners inverted under
-session depth. Small models sprint; they don't run marathons. The agent-tuned
-model with room to remember beat both bigger and faster rivals.
+session depth. Small models sprint; they don't run marathons. The two
+agent-tuned Qwen3.5-family models delivered the only perfect sessions — A1 the
+fastest, Ornith equally flawless with remarkable per-turn frugality (82–4,477
+prefill tokens/turn vs the gemmas' 2–17K).
 
 ### The thinking-model cache tax (A/B tested)
 
@@ -204,7 +207,7 @@ Pick by workload:
    Wins through natural context frugality (10.7K peak where others need 60–114K);
    window-agnostic; the most cache-friendly prefill pattern measured
 2. **Feature-grind speed alternative:** **Agents-A1-4B solo @131K** — fastest
-   perfect marathon (947s vs Ornith's 1086s) and the unique 262K native ceiling;
+   perfect marathon (15m 47s vs Ornith's 18m 06s) and the unique 262K native ceiling;
    avoid small windows (structural overshoot)
 3. **Best quality-per-minute with tight memory:** **gemma-4-E4B-qat + MTP @32K**
    — perfect arena4 run *because of* compaction, 5× less KV than big-window configs
@@ -234,13 +237,21 @@ scripts. Core commands:
 cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=87 -DLLAMA_CURL=OFF
 cmake --build build --config Release -j3 --target llama-server llama-bench
 
-# the champion, served
-llama-server -m Agents-A1-4B-Q4_K_M.gguf -ngl 99 -fa on \
-  -ctk q4_0 -ctv q4_0 -c 131072 --jinja --host 0.0.0.0 --port 8080
+# the overall champion (Ornith), served — the deployed production config
+llama-server -m Ornith-1.0-9B-MTP-IQ3_M.gguf -ngl 99 -fa on \
+  -ctk q4_0 -ctv q4_0 -c 65536 -ub 128 -np 1 --jinja --host 0.0.0.0 --port 8080
 
-# gemma with MTP (note the REQUIRED --spec-type)
+# fastest perfect marathon + 262K native ceiling (A1)
+llama-server -m Agents-A1-4B-Q4_K_M.gguf -ngl 99 -fa on \
+  -ctk q4_0 -ctv q4_0 -c 131072 -np 1 --jinja --host 0.0.0.0 --port 8080
+
+# gemma with MTP (note the REQUIRED --spec-type); E4B quality pick
 llama-server -m gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf -md mtp-gemma-4-E4B-it.gguf \
-  --spec-type draft-mtp -ngl 99 -ngld 99 -fa on -ctk q8_0 -ctv q8_0 -c 98304 --jinja
+  --spec-type draft-mtp -ngl 99 -ngld 99 -fa on -ctk q8_0 -ctv q8_0 -c 32768 --jinja
+
+# E2B interactive speed (~50 tok/s); use a 32K window + compaction for sessions
+llama-server -m gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf -md mtp-gemma-4-E2B-it.gguf \
+  --spec-type draft-mtp -ngl 99 -ngld 99 -fa on -ctk q8_0 -ctv q8_0 -c 32768 --jinja
 ```
 
 Models: [unsloth gemma-4 QAT](https://huggingface.co/unsloth/gemma-4-E4B-it-qat-GGUF) ·
