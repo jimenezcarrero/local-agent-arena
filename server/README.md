@@ -72,24 +72,27 @@ gemma.
 
 ## Updating llama.cpp
 
+The serving stack runs the **official prebuilt** from
+[llama.app](https://llama.app) (`~/.local/bin/llama serve` in the systemd
+unit). It works on this board — the installer's CUDA probe picks an sm_86
+build that runs on the Orin's sm_87 via binary compatibility (verified:
+85–99% GPU utilization, ~17 W under load; E2B 35 tok/s and Ornith 10.3 tok/s
+— exact parity with the source build, same upstream commit). Updating:
+
 ```bash
-cd ~/Repositories/llama.cpp && git pull
-cmake --build build --config Release -j3 --target llama-server
+llama update        # seconds
+llm start && llm load ornith   # absorb the one-time PTX JIT recompile (~minutes)
 ```
 
-The systemd unit and the `/usr/local/bin/{llama-server,llama-cli,llama-bench}`
-symlinks all point into `build/bin/`, so a rebuild is the whole update.
-(`-j3`, not more — `-j6` OOMs the board during CUDA compilation.)
+That JIT stall happens once per new version and is cached afterwards — pay it
+right after updating, not mid-session. If a release misbehaves, roll back
+with `LLAMA_VERSION=<tag> bash <(curl -fsSL https://llama.app/install.sh)`.
 
-Alternative: the official prebuilt distribution at [llama.app](https://llama.app)
-**does work on this board** — its CUDA probe picks an sm_86 build that runs on
-the Orin's sm_87 via binary compatibility (verified: 85–99% GPU utilization,
-~17 W under load, 29.7 tok/s E2B solo — parity with our source build). First
-run stalls several minutes on one-time PTX JIT compilation; that's normal and
-cached afterwards. It installs a separate `~/.local/bin/llama` launcher and
-doesn't conflict with this setup. Trade-off: `llama update` tracks upstream
-`latest`, which is convenient but gives up version pinning — this serving
-stack stays on the source build for reproducibility.
+The source tree at `~/Repositories/llama.cpp` stays parked for
+`llama-bench`, experiments, and building patched branches
+(`cmake --build build -j3` — not more, `-j6` OOMs during CUDA compilation);
+the `/usr/local/bin/{llama-server,llama-cli,llama-bench}` symlinks still
+point into its `build/bin/`.
 
 ## Known issues
 
