@@ -5,6 +5,8 @@ Developer Kit (8GB) running JetPack 7.2: **5 inference engines, 10 models, 3
 validated agent arenas (including an 11-turn session), KV-cache matrices,
 speculative decoding across 6 models, and energy-per-task accounting.**
 
+![Results overview: model × arena report card and 11-turn marathon results](results-chart.png)
+
 **TL;DR — the three lessons:**
 1. **Packaging beats engine.** Ollama and llama.cpp are within ~7% when running
    the same file fully on GPU; model packaging (bundled vision encoders, missing
