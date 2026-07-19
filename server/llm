@@ -78,10 +78,49 @@ case "${1:-}" in
   pick)   running || { sudo systemctl start llama-server; sleep 3; }; menu ;;
   models) curl -s "$API/models" | python3 -c "import json,sys; [print(f\"{m['id']:<12} {m['status']['value']}\") for m in json.load(sys.stdin)['data']]" ;;
   logs)   exec journalctl -u llama-server -f -n "${2:-100}" ;;
+  help)   cat <<EOF
+${bold}llm — on-demand model serving on this Jetson${rst}
+Full docs: ~/llm-server/README.md (same file: repo server/README.md)
+
+${bold}Commands${rst}
+  llm start        start the router via systemd (no model loaded, GPU stays
+                   free) and show the model menu. Logs go to journald.
+  llm stop         stop router + loaded model, free the GPU
+  llm status       running? which model is loaded? memory use
+  llm pick         show the recommendation menu again
+  llm load NAME    preload a model (warm-up request; previous one unloads first)
+  llm models       list every preset and its loaded/unloaded state
+  llm logs [N]     follow the server log live (last N lines first, default 100)
+  llm fg           run the router in THIS terminal with visible logs (Ctrl-C
+                   stops; refuses if the systemd service is already running)
+
+${bold}How it works${rst}
+  llama-server runs in router mode (--models-preset ~/llm-server/jetson-models.ini
+  --models-max 1). Any request naming a preset in its "model" field makes the
+  router load that model with its tuned flags, unloading the previous one first
+  — so switching models inside pi (/model) is all you ever need.
+
+${bold}Add a new model (3 steps)${rst}
+  1. put the GGUF in ~/Repositories/llama.cpp/models/  (weights+KV ≤ ~5GB)
+  2. add a section to ~/llm-server/jetson-models.ini:
+       [mymodel-64k]
+       model = /full/path/to/model.gguf
+       c = 65536
+       ctk = q4_0
+       ctv = q4_0
+     then: sudo systemctl restart llama-server
+  3. add a matching entry (id + contextWindow) in ~/.pi/agent/models.json
+     so pi can select it and compaction triggers at the right size
+
+${bold}Updating llama.cpp${rst}
+  cd ~/Repositories/llama.cpp && git pull && cmake --build build -j3 --target llama-server
+  (systemd unit and /usr/local/bin symlinks point at build/bin — nothing else to change)
+EOF
+  ;;
   fg)     # run in the foreground with logs in this terminal (Ctrl-C stops it)
           running && { echo "already running as a service — 'llm stop' first"; exit 1; }
           exec /home/JetsonOrin/Repositories/llama.cpp/build/bin/llama-server \
             --models-preset /home/JetsonOrin/llm-server/jetson-models.ini \
             --models-max 1 --host 0.0.0.0 --port 8080 ;;
-  *) echo "usage: llm [status|start|stop|pick|load <model>|models|logs [N]|fg]"; exit 1 ;;
+  *) echo "usage: llm [help|status|start|stop|pick|load <model>|models|logs [N]|fg]"; exit 1 ;;
 esac
