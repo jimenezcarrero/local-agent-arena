@@ -160,14 +160,54 @@ the server's prefix cache dies at that edit → near-full re-prefill every turn
 tripled energy** — the model drowned in its own old reasoning. **Verdict: pay
 the re-prefill tax.**
 
+### Arena 4: the context crusher (4,200-line project, 8 turns, recall anchors, compaction study)
+
+Three ~1500-line modules with deeply buried bugs; turns demanding complete file
+reads; two "recall anchors" planted in turn 1 (a naming rule and a secret build
+tag) that later turns must use — testing whether pi's auto-compaction (on by
+default; triggers at window−16K, keeps recent 20K, LLM-written summaries)
+preserves standing instructions. Each model ran twice: a big window (98–131K)
+and a deliberately small 32K window to force compaction.
+
+| Model | Big window | 32K + compaction |
+|---|---|---|
+| gemma-4-E2B-qat+MTP | ❌ bloated >114K, failed bugs (49 min) | ✅ passed, anchors held, **4 compactions** (9 min) |
+| gemma-4-E4B-qat+MTP | ❌ bloated >82K, failed everything (23 min) | ✅ **perfect**, 5 compactions, summaries carried both anchors verbatim (16 min) |
+| Ornith-1.0-9B | ✅ **perfect** (13 min) | ✅ **perfect** — peak context 10.7K, never compacted (9.5 min) |
+| Agents-A1-4B | ✅ **perfect** (42 min, greedy 67K peak) | ❌ structurally incapable: overshoots the window faster than compaction shrinks it |
+
+**The counterintuitive headline: for gemma-class models, a small window with
+aggressive compaction beats a big window.** Forced summarization acts as a
+rolling focus mechanism — the model works from a curated brief instead of
+drowning in its own transcript. Ornith wins by never needing context (surgical
+reads, 10.7K peak). A1 is a big-window specialist: flawless with room, unable
+to fit its 15K-per-read work style through a small window at all.
+
+**Context ceiling found:** A1-4B allocates its **full native 262,144-token
+context** on this 8GB board (hybrid-SSM KV = 2.3GB at q4_0) — the only model in
+the roster whose native maximum fits. The cost of living deep: 5.25 tok/s
+generation at 131K depth (vs 15.4 fresh) and ~5.5 min to prefill 131K.
+
+**Compaction facts (pi-coding-agent):** on by default; the summary is written by
+the *serving model itself*, so summarization quality tracks model quality; the
+summaries are iterative (each feeds the next); and a dead server also kills
+compaction — it's an LLM call.
+
 ---
 
 ## Final rankings — local agent on Jetson Orin Nano 8GB
 
-1. **Agents-A1-4B solo @131K (q4 KV)** — session champion, perfect marathon
-2. **gemma-4-E4B-qat + MTP @98K (q8 KV)** — best single-task time/energy, near-champion sessions
-3. **gemma-4-E2B-qat + MTP @131K** — interactive/one-shot use (~50 tok/s), avoid for long sessions
-4. Ornith-1.0-9B IQ3_M — quality is real, 10 tok/s thinking isn't agent-viable
+Pick by workload:
+
+1. **Heavy/long-context sessions:** **Ornith-1.0-9B IQ3_M** (perfect at every
+   window through natural context frugality) or **Agents-A1-4B @131–262K** (perfect
+   when given room; unique 262K native ceiling; avoid small windows)
+2. **Feature-grind sessions (many small turns):** **Agents-A1-4B solo @131K** —
+   the only perfect 11-turn marathon
+3. **Best quality-per-minute with tight memory:** **gemma-4-E4B-qat + MTP @32K**
+   — perfect arena4 run *because of* compaction, 5× less KV than big-window configs
+4. **Interactive/one-shot speed:** gemma-4-E2B-qat + MTP (~50 tok/s) — prefer a
+   32K window with compaction over 131K for anything long
 5. Bonsai-27B Q1_0 — historic tech demo, 8× the energy per task
 6. Base (non-agentic) models — measurably below their agent-tuned siblings
 
