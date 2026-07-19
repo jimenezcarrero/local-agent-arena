@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# llm — on-demand llama-server router control for the Jetson Orin Nano.
+# Model recommendations come from the benchmark campaign:
+#   github.com/jimenezcarrero/jetson-llm-benchmarks
+set -euo pipefail
+
+PORT=8080
+API="http://localhost:$PORT"
+
+bold=$(tput bold 2>/dev/null || true); dim=$(tput dim 2>/dev/null || true)
+grn=$(tput setaf 2 2>/dev/null || true); ylw=$(tput setaf 3 2>/dev/null || true)
+rst=$(tput sgr0 2>/dev/null || true)
+
+running() { curl -sf -m 2 "$API/models" >/dev/null 2>&1; }
+
+loaded_model() {
+  curl -sf -m 2 "$API/models" 2>/dev/null \
+    | python3 -c "import json,sys; print(next((m['id'] for m in json.load(sys.stdin)['data'] if m['status']['value']=='loaded'), 'none'))" 2>/dev/null \
+    || echo "none"
+}
+
+status() {
+  if running; then
+    echo "${grn}● router running${rst} on :$PORT — loaded model: ${bold}$(loaded_model)${rst}"
+    free -m | awk 'NR==2 {printf "  memory: %d MB used / %d MB total\n", $3, $2}'
+  else
+    echo "${dim}○ router stopped${rst} (start with: llm start)"
+  fi
+}
+
+start() {
+  if running; then echo "already running"; status; return; fi
+  echo "starting llama-server router..."
+  sudo systemctl start llama-server
+  for _ in $(seq 1 20); do running && break; sleep 1; done
+  running || { echo "failed to start — check: journalctl -u llama-server -n 30"; exit 1; }
+  status
+  echo "${dim}no model loaded yet — first request auto-loads, or pick one now:${rst}"
+  menu
+}
+
+stop() { sudo systemctl stop llama-server; echo "router stopped (GPU memory freed)"; }
+
+load() {
+  local m="$1"
+  echo "loading ${bold}$m${rst} (previous model is unloaded first)..."
+  curl -sf -m 300 "$API/v1/chat/completions" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$m\",\"messages\":[{\"role\":\"user\",\"content\":\"ok\"}],\"max_tokens\":1}" >/dev/null \
+    && echo "${grn}✓ $m loaded and warm${rst}" \
+    || echo "load failed — check: journalctl -u llama-server -n 30"
+}
+
+menu() {
+  cat <<EOF
+
+${bold}Which model? (benchmark-based recommendations)${rst}
+  1) ornith     ${grn}★ CHAMPION${rst} — agent work, long sessions, best default (65K ctx)
+  2) a1-131k    speed pick — fastest perfect marathon, agent-tuned (131K ctx)
+  3) a1-262k    max context — only full 262K native window that fits 8GB
+  4) e4b-32k    quality gemma +MTP — use with 32K window + compaction
+  5) e2b-32k    chat speed ~58 tok/s +MTP — quick questions, not long sessions
+  6) qwen-131k  baseline Qwen3.5-4B — not agent-tuned
+  q) skip (auto-loads on first request)
+EOF
+  read -rp "> " ans || ans=q
+  case "$ans" in
+    1) load ornith ;;   2) load a1-131k ;; 3) load a1-262k ;;
+    4) load e4b-32k ;;  5) load e2b-32k ;; 6) load qwen-131k ;;
+    *) echo "ok — the router will load whatever model pi requests." ;;
+  esac
+}
+
+case "${1:-}" in
+  start)  start ;;
+  stop)   stop ;;
+  status|"") status ;;
+  load)   running || start; load "${2:?usage: llm load <model>}" ;;
+  pick)   running || { sudo systemctl start llama-server; sleep 3; }; menu ;;
+  models) curl -s "$API/models" | python3 -c "import json,sys; [print(f\"{m['id']:<12} {m['status']['value']}\") for m in json.load(sys.stdin)['data']]" ;;
+  *) echo "usage: llm [status|start|stop|pick|load <model>|models]"; exit 1 ;;
+esac

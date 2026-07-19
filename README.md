@@ -271,6 +271,47 @@ llama-server -m gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf -md mtp-gemma-4-E2B-it.gguf \
   --spec-type draft-mtp -ngl 99 -ngld 99 -fa on -ctk q8_0 -ctv q8_0 -c 32768 --jinja
 ```
 
+## Serving it — router mode + on-demand launcher
+
+The single-model commands above are what the benchmarks ran, but the deployed
+setup evolved into something better: llama-server's **router mode**. Started
+with no model, the server idles at near-zero GPU memory and loads whichever
+preset a request names in its `model` field — unloading the previous one first,
+which is what makes it safe on 8GB (`--models-max 1`). Each preset carries the
+exact flags the campaign tuned for that model, so picking a model in your agent
+client is all it takes: no restarts, no flag juggling, swap in ~13–25s.
+
+Everything lives in [`server/`](server/):
+
+- [`jetson-models.ini`](server/jetson-models.ini) — the six presets
+  (`ornith` champion 65K · `a1-131k` speed · `a1-262k` max context ·
+  `e4b-32k`/`e2b-32k` gemma+MTP · `qwen-131k` baseline). MTP draft flags pass
+  through to the child process — verified 58 tok/s on E2B through the router.
+  Adapt the model paths to your machine.
+- [`llm`](server/llm) — a small launcher (`llm start|stop|status|pick|load|models`)
+  that starts the router on demand via systemd and offers an interactive menu
+  with the benchmark-based recommendations. The systemd unit is just
+  `ExecStart=llama-server --models-preset .../jetson-models.ini --models-max 1
+  --host 0.0.0.0 --port 8080`, left disabled so the GPU stays free until asked.
+- [`models.json`](server/models.json) — pi's provider config (`~/.pi/agent/models.json`)
+  with IDs matching the preset names and **per-model context windows**, so
+  switching models inside pi (`/model`) swaps what the server runs *and* keeps
+  pi's auto-compaction trigger correct for that window.
+
+```bash
+llm start          # router up (nothing loaded yet), interactive model menu
+llm load ornith    # or preload the champion explicitly
+llm stop           # free the GPU
+```
+
+Caveat from the ops lessons above: Jetson NvMap fragmentation still applies —
+after many load/unload cycles in one uptime, loads can start failing; reboot
+and the router comes back clean.
+
+(pi note: the coding agent now ships as `@earendil-works/pi-coding-agent` on
+npm — the old `@mariozechner` scope stopped at 0.73.1 and silently looks
+current. 0.80+ works with this setup as-is.)
+
 Models: [unsloth gemma-4 QAT](https://huggingface.co/unsloth/gemma-4-E4B-it-qat-GGUF) ·
 [InternScience Agents-A1-4B](https://huggingface.co/InternScience/Agents-A1-4B-Q4_K_M-GGUF) ·
 [unsloth Qwen3.5-4B-MTP](https://huggingface.co/unsloth/Qwen3.5-4B-MTP-GGUF) ·
