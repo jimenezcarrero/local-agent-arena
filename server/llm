@@ -77,5 +77,11 @@ case "${1:-}" in
   load)   running || start; load "${2:?usage: llm load <model>}" ;;
   pick)   running || { sudo systemctl start llama-server; sleep 3; }; menu ;;
   models) curl -s "$API/models" | python3 -c "import json,sys; [print(f\"{m['id']:<12} {m['status']['value']}\") for m in json.load(sys.stdin)['data']]" ;;
-  *) echo "usage: llm [status|start|stop|pick|load <model>|models]"; exit 1 ;;
+  logs)   exec journalctl -u llama-server -f -n "${2:-100}" ;;
+  fg)     # run in the foreground with logs in this terminal (Ctrl-C stops it)
+          running && { echo "already running as a service — 'llm stop' first"; exit 1; }
+          exec /home/JetsonOrin/Repositories/llama.cpp/build/bin/llama-server \
+            --models-preset /home/JetsonOrin/llm-server/jetson-models.ini \
+            --models-max 1 --host 0.0.0.0 --port 8080 ;;
+  *) echo "usage: llm [status|start|stop|pick|load <model>|models|logs [N]|fg]"; exit 1 ;;
 esac
