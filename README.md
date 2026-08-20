@@ -225,7 +225,7 @@ harness change doesn't explain anything below.
 | Model | Arena 1 | Arena 2 | Arena 3 | Arena 4 big | Arena 4 32K |
 |---|---|---|---|---|---|
 | Nanbeige4.2-3B Q4_K_M | PASS 6m 55s | PASS 11m 42s | 1/11 (600s/turn cap) | FAIL 3h 08m | **PASS 23m 41s** |
-| Ling-3.0-tiny Q3_K_M | PASS 1m 22s (1.0 kJ) | PASS 5m 29s (on retry) | 9/11 | **PASS 38m 01s** | FAIL ×2 (overshoot) |
+| Ling-3.0-tiny Q3_K_M | PASS 55s (0.67 kJ) | PASS 5m 29s (on retry) | 9/11 | **PASS 38m 01s** | FAIL ×2 (overshoot) |
 | LFM2.5-2.6B Q4_K_M | FAIL ×4 configs | — | — | — | — |
 
 ### Nanbeige4.2-3B — the context thesis, reproduced on a third architecture
@@ -255,13 +255,16 @@ at 32K** (f16), so even with q4 KV it maxes at ~49K on this board.
 ### Ling-3.0-tiny — the efficiency outlier, and the exception to the rule
 
 7.9B total / **1.3B activated** per token (128 experts, 8 active), 3:1 KDA↔MLA
-hybrid attention. Two setup costs worth knowing before you try it: `bailingmoe3`
-is **not in llama.cpp** (upstream PR
-[#26608](https://github.com/ggml-org/llama.cpp/pull/26608) still open — built
-[aetherbird's fork](https://github.com/aetherbird/llama.cpp/tree/bailingmoe3-support)
-with `-DCMAKE_CUDA_ARCHITECTURES=87`), and **Q4_K_M does not fit** this board
-with a desktop session (needs 4.46 GB contiguous, ~4.0 GB free) — everything
-below is **Q3_K_M**, a notch below every other model's quant.
+hybrid attention. One setup cost worth knowing: **Q4_K_M does not fit** this board with a
+desktop session (needs 4.46 GB contiguous, ~4.0 GB free), so everything below
+is **Q3_K_M**, a notch below every other model's quant.
+`bailingmoe3` support was merged upstream on 2026-08-20
+([PR #26608](https://github.com/ggml-org/llama.cpp/pull/26608)); arena 1 was
+re-verified on **stock llama.cpp master** (build 459, commit `9ee9fc0`) —
+**PASS in 55s on 669 J**, the best energy-per-task figure in the campaign, and
+faster than the original fork run (82s / 1,017 J) thanks to `temp 0.3`.
+No fork is needed any more; the prebuilt llama.app channel just has to catch up
+past `b10217`.
 
 What it buys: 21.5 tok/s decode, the **full 131K context** with q4 KV (its
 KDA layers carry fixed-size state instead of a growing cache), and by far the
@@ -300,6 +303,37 @@ use, data extraction, RAG, and long-context workflows… **not recommended for
 agentic coding**."* Its strengths are real and measured: 26.6 tok/s, correct tool
 calls, and the cheapest KV of anything tested — **it fits 262K context on 8GB**
 (f16 KV at 131K), 5× Nanbeige's ceiling at 60% of the parameters.
+
+### Qwen3.8-27B (Unsloth Dynamic 3.0) — runs, but only on the CPU
+
+Tested UD-IQ2_XXS (7.27 GB), UD-IQ1_M (6.73 GB) and UD-IQ1_S (6.19 GB), a dense
+27B. Two separate walls, and it is worth keeping them apart:
+
+**Memory** (measured, `-ngl` stepped down until load succeeded):
+
+| Quant | with desktop (5.2 GB free) | headless (6.9 GB free) |
+|---|---|---|
+| UD-IQ2_XXS | 40 layers | 56 layers |
+| UD-IQ1_M | 56 layers | **all layers** |
+| UD-IQ1_S | **all layers** (191 MB spare) | all layers (534 MB spare) |
+
+So a 27B *does* fit an 8GB Jetson, and headless is worth ~1.7 GB.
+
+**Kernels** — the actual blocker. Every GPU configuration dies at the first
+token with `CUDA error: the requested functionality is not supported`. This is
+**not** flash attention (it fails with `-fa on` and `-fa off` alike), **not**
+memory (it fails at `ngl=8`, `ctx=512`, with 5.7 GB free), and **not** the
+prebuilt binary (it persists on stock master `9ee9fc0`, which runs gemma at
+24.9 tok/s on the same GPU). The Dynamic IQ1/IQ2 tensor types simply have no
+CUDA kernel path on sm_87.
+
+Forced fully onto the CPU (`CUDA_VISIBLE_DEVICES=""`, `-ngl 0`) it works and is
+coherent, at **pp 1.15 / tg 0.78 tok/s** — roughly 8× slower than Bonsai-27B
+Q1_0 (6 tok/s), which had working CUDA kernels. A milestone, not an agent.
+
+*(A partial-GPU run also hits a fixed 178.94 MiB `cudaMalloc` failure regardless
+of `-ngl`, with GBs free: the output/embedding tensor, starved of contiguous
+pages by the mmap'd 5.9 GB file filling page cache.)*
 
 ### The packaging trap, second sighting
 
@@ -378,8 +412,8 @@ llama-server -m gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf -md mtp-gemma-4-E2B-it.gguf \
 llama-server -m Nanbeige4.2-3B-owao-Q4_K_M.gguf -ngl 99 -fa on \
   -ctk q4_0 -ctv q4_0 -c 32768 -np 1 --jinja
 
-# round 5: Ling-3.0-tiny — needs the FORK build (bailingmoe3 unmerged) + a big window
-~/Repositories/llama.cpp-bailing/build/bin/llama-server -m Ling-3.0-tiny-Q3_K_M.gguf \
+# round 5: Ling-3.0-tiny — stock llama.cpp >= build 459 (9ee9fc0); needs a BIG window
+llama-server -m Ling-3.0-tiny-Q3_K_M.gguf \
   -ngl 99 -fa on -ctk q4_0 -ctv q4_0 -c 131072 -np 1 --jinja \
   --temp 0.3 --top-p 0.95 --top-k 20   # temp 0.3 beats the card's 1.0 for coding
 

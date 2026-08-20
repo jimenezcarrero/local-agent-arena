@@ -1,0 +1,56 @@
+=== QWEN3.8-27B partial-offload run Thu Aug 20 09:26:48 AM CEST 2026 ===
+free at start: 5152 MB
+IQ2_XXS ngl=99: FAIL allocating 6521.13 MiB
+IQ2_XXS ngl=56: FAIL allocating 5798.61 MiB
+IQ2_XXS ngl=48: FAIL allocating 5220.73 MiB
+IQ2_XXS: LOADED at ngl=40 | speed-probe-failed | free after: 668 MB
+IQ1_M ngl=99: FAIL allocating 6009.10 MiB
+IQ1_M: LOADED at ngl=56 | speed-probe-failed | free after: 309 MB
+IQ2_XXS note: loaded at ngl=40 but CRASHED on first token — CUDA error 'requested functionality is not supported' (missing sm_87 kernel for IQ2_XXS under mixed CPU/GPU offload), not a memory failure
+IQ1_S: LOADED at ngl=99 | speed-probe-failed | free after: 191 MB
+=== RUN COMPLETE Thu Aug 20 09:31:01 AM CEST 2026 ===
+--- flag isolation (IQ1_S, ngl=99, desktop up) ---
+-fa on  + q4_0 KV : CUDA error "requested functionality is not supported"
+-fa on  + f16  KV : CUDA error "requested functionality is not supported"  -> flash attention itself is unsupported for this model on sm_87 in b10217
+-fa off + f16  KV : loads and starts, then OOM (only ~191 MB free with desktop)
+CONCLUSION: Qwen3.8-27B needs -fa off, which needs ~1 GB more RAM than the desktop leaves -> headless required.
+NOTE: llama.app b10217 was built Aug 9; Qwen3.8-27B released Aug 13 - the binary predates the model, so a newer build may add FA support.
+=== QWEN3.8-27B partial-offload run (fa=off kv=f16 ctx=2048) Thu Aug 20 10:01:14 AM CEST 2026 ===
+free at start: 6865 MB
+IQ2_XXS ngl=99: FAIL allocating 6521.13 MiB
+IQ2_XXS: LOADED at ngl=56 | speed-probe-failed | free after: 180 MB
+IQ1_M: LOADED at ngl=99 | speed-probe-failed | free after: 118 MB
+IQ1_S: LOADED at ngl=99 | speed-probe-failed | free after: 534 MB
+=== RUN COMPLETE Thu Aug 20 10:03:39 AM CEST 2026 ===
+=== QWEN3.8-27B partial-offload run (fa=off kv=f16 ctx=2048) Thu Jan  1 01:00:29 AM CET 1970 ===
+free at start: 6833 MB
+IQ2_XXS ngl=99: FAIL allocating 6521.13 MiB
+IQ2_XXS: LOADED at ngl=56 | speed-probe-failed | free after: 205 MB
+IQ1_M: LOADED at ngl=99 | speed-probe-failed | free after: 98 MB
+IQ1_S: LOADED at ngl=99 | speed-probe-failed | free after: 487 MB
+=== RUN COMPLETE Thu Aug 20 02:53:06 PM CEST 2026 ===
+
+--- CORRECTION (decisive isolation test, graphical mode) ---
+IQ1_S ngl=30, -fa off, ctx=512, ~5.3 GB free (memory NOT constrained):
+  -> CUDA error "the requested functionality is not supported"
+Flash attention is NOT the blocker. The earlier -fa off OOM happened BEFORE
+reaching the unsupported op, which made FA look like the cause.
+REAL BLOCKER: the Unsloth Dynamic IQ1_S/IQ1_M/IQ2_XXS tensor types have no
+CUDA kernel path on sm_87 in llama.app build b10217 (built Aug 9; the model
+released Aug 13). Memory ladder results stand as a separate measurement.
+NEXT: build llama.cpp master (has newer quant kernels + bailingmoe3 for Ling)
+and retest.
+
+--- FINAL VERDICT (llama.cpp master 9ee9fc0, built from source) ---
+Sanity: master binary is good (gemma-4-E2B 24.9 tok/s on GPU).
+IQ1_S ngl=8 / ngl=30 : FAIL - cudaMalloc of a FIXED 178.94 MiB fails even with
+  5.7 GB free (output/embed tensor; mmap page-cache starves NvMap of contiguous
+  pages). Not layer-count dependent.
+IQ1_S ngl=0, CUDA_VISIBLE_DEVICES="" (pure CPU): WORKS
+  pp 1.15 t/s | tg 0.78 t/s - coherent output.
+CONCLUSION: Qwen3.8-27B Unsloth Dynamic quants RUN on this board only on CPU.
+The GPU path is blocked by missing CUDA kernels for these IQ1/IQ2 Dynamic
+tensor types on sm_87 (persists on master, independent of flash attention,
+offload level, and memory headroom). At 0.78 tok/s it is an "it runs"
+milestone, not a usable agent - and ~8x slower than Bonsai-27B Q1_0 (6 tok/s),
+which had working CUDA kernels.

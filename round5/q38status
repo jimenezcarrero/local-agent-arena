@@ -1,0 +1,48 @@
+#!/bin/bash
+# Report progress of the Qwen3.8 ceiling test: state, step X of Y, phase, errors.
+# Parses the status file field-by-field (never sources it) so values with spaces
+# or shell metacharacters can't break or execute.
+R5=/home/JetsonOrin/Repositories/round5-newmodels
+STATUS="$R5/qwen38-status.env"
+OUT="$R5/qwen38-results.txt"
+grn=$(tput setaf 2 2>/dev/null); ylw=$(tput setaf 3 2>/dev/null)
+red=$(tput setaf 1 2>/dev/null); dim=$(tput dim 2>/dev/null); rst=$(tput sgr0 2>/dev/null)
+
+[ -f "$STATUS" ] || { echo "no run found (test has never been started)"; exit 0; }
+g() { grep -m1 "^$1=" "$STATUS" 2>/dev/null | cut -d= -f2- ; }
+
+STATE=$(g STATE); STEP=$(g STEP); TOTAL=$(g TOTAL_STEPS); LABEL=$(g STEP_LABEL)
+PHASE=$(g PHASE); ERRORS=$(g ERRORS); PID=$(g PID); MODE=$(g MODE)
+RUN_STARTED=$(g RUN_STARTED); STEP_STARTED=$(g STEP_STARTED); FINISHED=$(g FINISHED)
+
+hms() { printf "%dm %02ds" $(( ${1:-0} / 60 )) $(( ${1:-0} % 60 )); }
+now=$(date +%s)
+alive=""; [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null && alive=1
+
+case "$STATE" in
+  running)  if [ -n "$alive" ]; then
+              echo "${grn}● RUNNING${rst}  step ${STEP:-?} of ${TOTAL:-?}  —  ${LABEL:-?}"
+            else
+              echo "${red}✗ STOPPED UNEXPECTEDLY${rst}  (process gone during step ${STEP:-?}/${TOTAL:-?} ${LABEL:-})"
+            fi ;;
+  complete) echo "${grn}✓ COMPLETE${rst}  all ${TOTAL:-?} steps finished" ;;
+  aborted)  echo "${ylw}◑ ABORTED${rst}  (cancelled at step ${STEP:-?})" ;;
+  *)        echo "state: ${STATE:-unknown}" ;;
+esac
+
+if [ "$STATE" = "running" ] && [ -n "$alive" ]; then
+  echo "  phase:    ${PHASE:-?}   ${dim}(this step: $(hms $(( now - ${STEP_STARTED:-$now} ))))${rst}"
+fi
+echo "  elapsed:  $(hms $(( ${FINISHED:-$now} - ${RUN_STARTED:-$now} )))   mode: ${MODE:-?}"
+if [ "${ERRORS:-0}" -gt 0 ] 2>/dev/null; then
+  echo "  ${ylw}errors:   ${ERRORS}${rst}  ${dim}(a load that FAILs is normal data, not an error)${rst}"
+else
+  echo "  ${grn}errors:   none${rst}"
+fi
+
+echo
+echo "${dim}--- results so far ---${rst}"
+if [ -s "$OUT" ]; then grep -vE "^===" "$OUT" | tail -14 | sed 's/^/  /'
+else echo "  (nothing recorded yet)"; fi
+echo
+echo "${dim}watch live:  watch -n10 q38status     full log: $OUT${rst}"
