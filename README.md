@@ -319,21 +319,42 @@ Tested UD-IQ2_XXS (7.27 GB), UD-IQ1_M (6.73 GB) and UD-IQ1_S (6.19 GB), a dense
 
 So a 27B *does* fit an 8GB Jetson, and headless is worth ~1.7 GB.
 
-**Kernels** — the actual blocker. Every GPU configuration dies at the first
-token with `CUDA error: the requested functionality is not supported`. This is
-**not** flash attention (it fails with `-fa on` and `-fa off` alike), **not**
-memory (it fails at `ngl=8`, `ctx=512`, with 5.7 GB free), and **not** the
-prebuilt binary (it persists on stock master `9ee9fc0`, which runs gemma at
-24.9 tok/s on the same GPU). The Dynamic IQ1/IQ2 tensor types simply have no
-CUDA kernel path on sm_87.
+**Why the GPU path fails** — three distinct problems stacked, which is why
+single-cause diagnoses kept being wrong:
 
-Forced fully onto the CPU (`CUDA_VISIBLE_DEVICES=""`, `-ngl 0`) it works and is
-coherent, at **pp 1.15 / tg 0.78 tok/s** — roughly 8× slower than Bonsai-27B
-Q1_0 (6 tok/s), which had working CUDA kernels. A milestone, not an agent.
+1. **CUDA VMM is broken on Tegra.** llama.cpp asks the driver whether Virtual
+   Memory Management is supported; on Jetson the driver answers yes, then
+   `cuMemCreate(...)` fails at `ggml-cuda.cu:589` — surfacing as
+   `CUDA error: the requested functionality is not supported`, or as
+   `out of memory`, depending on conditions. Fix: rebuild with
+   `-DGGML_CUDA_NO_VMM=ON` to use the classic `cudaMalloc` pool. This is a
+   **llama.cpp/Tegra issue — not CUDA, not JetPack, not the hardware**; the
+   capability probe lying about support is the root cause.
+2. **mmap starves NvMap.** By default the 5.9 GB file fills page cache and the
+   GPU allocator cannot find contiguous pages for a fixed 178.94 MiB embedding
+   tensor — the identical size fails at any `-ngl`. `--no-mmap` fixes loading,
+   but then CPU-side weights stay resident instead of being evictable.
+3. **It is genuinely ~1 GB short.** With 1 and 2 fixed, every GPU config still
+   dies in the compute pool (`ggml-cuda.cu:508`) — at `ngl=12`, with
+   `-b 64 -ub 32`, headless with 6,863 MB free. 5.9 GB of weights plus runtime
+   buffers exceeds what a 7.4 GiB board can offer.
 
-*(A partial-GPU run also hits a fixed 178.94 MiB `cudaMalloc` failure regardless
-of `-ngl`, with GBs free: the output/embedding tensor, starved of contiguous
-pages by the mmap'd 5.9 GB file filling page cache.)*
+**Verdict: no GPU acceleration for this model on this board — CPU only.**
+
+| config | result |
+|---|---|
+| any `-ngl` >= 12 (NO_VMM build, `--no-mmap`, headless) | loads, generation OOMs |
+| `-ngl 0` pure CPU, headless | **works** — pp 3.90 / **tg 1.01 tok/s** |
+| `-ngl 0` pure CPU, desktop up | works — pp 1.15 / tg 0.78 tok/s |
+
+IQ1_M and IQ2_XXS have no working configuration at all: too large to load on
+GPU, and CPU-only generation OOMs.
+
+At ~1 tok/s this is an "it runs" milestone, not an agent — and ~6x slower than
+Bonsai-27B Q1_0 (6 tok/s), which is smaller (3.53 GiB) and fully GPU-resident.
+Two lessons worth keeping: **fitting in memory and running are different
+questions**, and an "unsupported" error often means a capability probe lied
+rather than that the hardware lacks the feature.
 
 ### The packaging trap, second sighting
 

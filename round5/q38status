@@ -4,13 +4,14 @@
 # or shell metacharacters can't break or execute.
 R5=/home/JetsonOrin/Repositories/round5-newmodels
 STATUS="$R5/qwen38-status.env"
-OUT="$R5/qwen38-results.txt"
+OUT="$R5/qwen38-results.txt"   # default; overridden by RESULTS_FILE below
 grn=$(tput setaf 2 2>/dev/null); ylw=$(tput setaf 3 2>/dev/null)
 red=$(tput setaf 1 2>/dev/null); dim=$(tput dim 2>/dev/null); rst=$(tput sgr0 2>/dev/null)
 
 [ -f "$STATUS" ] || { echo "no run found (test has never been started)"; exit 0; }
 g() { grep -m1 "^$1=" "$STATUS" 2>/dev/null | cut -d= -f2- ; }
 
+RF=$(g RESULTS_FILE); [ -n "$RF" ] && OUT="$RF"
 STATE=$(g STATE); STEP=$(g STEP); TOTAL=$(g TOTAL_STEPS); LABEL=$(g STEP_LABEL)
 PHASE=$(g PHASE); ERRORS=$(g ERRORS); PID=$(g PID); MODE=$(g MODE)
 RUN_STARTED=$(g RUN_STARTED); STEP_STARTED=$(g STEP_STARTED); FINISHED=$(g FINISHED)
@@ -41,7 +42,7 @@ else
 fi
 
 echo
-echo "${dim}--- results so far ---${rst}"
+echo "${dim}--- results so far ($(basename "$OUT")) ---${rst}"
 if [ -s "$OUT" ]; then grep -vE "^===" "$OUT" | tail -14 | sed 's/^/  /'
 else echo "  (nothing recorded yet)"; fi
 echo
