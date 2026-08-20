@@ -255,9 +255,15 @@ at 32K** (f16), so even with q4 KV it maxes at ~49K on this board.
 ### Ling-3.0-tiny — the efficiency outlier, and the exception to the rule
 
 7.9B total / **1.3B activated** per token (128 experts, 8 active), 3:1 KDA↔MLA
-hybrid attention. One setup cost worth knowing: **Q4_K_M does not fit** this board with a
-desktop session (needs 4.46 GB contiguous, ~4.0 GB free), so everything below
-is **Q3_K_M**, a notch below every other model's quant.
+hybrid attention. Setup note: **Q4_K_M originally would not load** (needs 4.46 GB contiguous),
+so the arena campaign below ran on **Q3_K_M**. That limit turned out to be the
+Tegra VMM bug, not the board — see *The Jetson large-model recipe* under
+Qwen3.8. With `-DGGML_CUDA_NO_VMM=ON`, `-b 512 -ub 128`, and dropped caches,
+**Q4_K_M now runs at the full 131K context with the desktop up**, at
+**34.2 tok/s vs Q3_K_M's 21.5** (Q4_K has far better CUDA kernels than Q3_K).
+Arena 1 re-run at Q4: 60s / 929 J and 129s / 2,035 J across two runs — task time
+comparable to Q3's 55s within this model's known variance, but with better
+weights and 59% faster generation. **Q4_K_M is the config to use.**
 `bailingmoe3` support was merged upstream on 2026-08-20
 ([PR #26608](https://github.com/ggml-org/llama.cpp/pull/26608)); arena 1 was
 re-verified on **stock llama.cpp master** (build 459, commit `9ee9fc0`) —
@@ -356,6 +362,26 @@ Two lessons worth keeping: **fitting in memory and running are different
 questions**, and an "unsupported" error often means a capability probe lied
 rather than that the hardware lacks the feature.
 
+### The Jetson large-model recipe (what the Qwen3.8 dig produced)
+
+Three fixes, useful for *any* model that OOMs on this board with memory to spare:
+
+1. **Build with `-DGGML_CUDA_NO_VMM=ON`.** Jetson's driver claims CUDA Virtual
+   Memory Management support and then fails `cuMemCreate`. Without this, large
+   allocations fail as "requested functionality is not supported" or as spurious
+   OOM.
+2. **Shrink the compute buffers with `-b 512 -ub 128`.** The prompt-processing
+   buffer scales with batch size and is often the allocation that actually fails
+   (370 MiB at default batch for A1-Q8; 285 MiB at `-ub 128`).
+3. **Drop caches before loading** (`sync; echo 3 > /proc/sys/vm/drop_caches`).
+   A mmap'd multi-GB file fills page cache and starves NvMap of the contiguous
+   pages it needs — which is why a *fixed-size* allocation fails with GBs free.
+
+**It works:** Ling-3.0-tiny Q4_K_M went from "does not fit" to full 131K context
+at 34.2 tok/s. Re-tested and still blocked: Agents-A1-4B **Q8_0** — the compute
+buffer OOMs even at 65K with `-ub 128`, and a Q8 that only fits a small window is
+useless for A1 anyway, since A1 fails structurally at 32K.
+
 ### The packaging trap, second sighting
 
 Nanbeige failed arena 1 twice with one community GGUF: the model emitted tool
@@ -433,9 +459,10 @@ llama-server -m gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf -md mtp-gemma-4-E2B-it.gguf \
 llama-server -m Nanbeige4.2-3B-owao-Q4_K_M.gguf -ngl 99 -fa on \
   -ctk q4_0 -ctv q4_0 -c 32768 -np 1 --jinja
 
-# round 5: Ling-3.0-tiny — stock llama.cpp >= build 459 (9ee9fc0); needs a BIG window
-llama-server -m Ling-3.0-tiny-Q3_K_M.gguf \
-  -ngl 99 -fa on -ctk q4_0 -ctv q4_0 -c 131072 -np 1 --jinja \
+# round 5: Ling-3.0-tiny — needs a BIG window; Q4_K_M needs the NO_VMM build
+#   (stock llama.cpp >= build 459 for bailingmoe3; -DGGML_CUDA_NO_VMM=ON for Q4)
+llama-server -m Ling-3.0-tiny-Q4_K_M.gguf \
+  -ngl 99 -fa on -ctk q4_0 -ctv q4_0 -c 131072 -b 512 -ub 128 -np 1 --jinja \
   --temp 0.3 --top-p 0.95 --top-k 20   # temp 0.3 beats the card's 1.0 for coding
 
 # round 5: LFM2.5 — not for coding, but the 262K context champion on 8GB
