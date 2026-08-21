@@ -300,91 +300,51 @@ read style either way.
 (n=1 each, so read the score as unchanged rather than proven equal). The vendor's
 number is a general-purpose recommendation; for coding, turn it down.
 
-### LFM2.5-2.6B — excellent model, wrong job
+### LFM2.5-2.6B — a wrong verdict, corrected
 
-Failed arena 1 in **four** configurations: Q4_K_M twice, Q8_0, and Q4_K_M with
-Liquid's recommended sampling (`temp 0.1 / top_k 50 / repeat 1.1`). It always
-fails the same way — the exact-match string in an edit call doesn't match, so
-the diff is rejected. Sampling was verified to apply server-side (a `--temp 0`
-probe returned identical output three times, proving the client does not override).
+**This repo previously reported that LFM2.5 "cannot land reliable code edits."
+That was wrong, and the cause was our own toolchain.**
 
-This matches the vendor's own guidance: *"recommended for agentic workloads, tool
-use, data extraction, RAG, and long-context workflows… **not recommended for
-agentic coding**."* Its strengths are real and measured: 26.6 tok/s, correct tool
-calls, and the cheapest KV of anything tested — **it fits 262K context on 8GB**
-(f16 KV at 131K), 5× Nanbeige's ceiling at 60% of the parameters.
+Round 5 failed it four times at arena 1 (Q4_K_M ×2, Q8_0, and Q4 with Liquid's
+recommended sampling). Every failure looked identical: pi rejected the edit
+because the model's `oldText` came back mangled — escaping corrupted around a
+regex containing an apostrophe. Liquid's model card says *"not recommended for
+agentic coding"*, which appeared to corroborate it. Two independent signals
+agreeing turned out to be coincidence.
 
-### Qwen3.8-27B (Unsloth Dynamic 3.0) — runs, but only on the CPU
+**Bisect (same flags, same quant, same pi, same board — only the binary differs):**
 
-Tested UD-IQ2_XXS (7.27 GB), UD-IQ1_M (6.73 GB) and UD-IQ1_S (6.19 GB), a dense
-27B. Two separate walls, and it is worth keeping them apart:
-
-**Memory** (measured, `-ngl` stepped down until load succeeded):
-
-| Quant | with desktop (5.2 GB free) | headless (6.9 GB free) |
-|---|---|---|
-| UD-IQ2_XXS | 40 layers | 56 layers |
-| UD-IQ1_M | 56 layers | **all layers** |
-| UD-IQ1_S | **all layers** (191 MB spare) | all layers (534 MB spare) |
-
-So a 27B *does* fit an 8GB Jetson, and headless is worth ~1.7 GB.
-
-**Why the GPU path fails** — three distinct problems stacked, which is why
-single-cause diagnoses kept being wrong:
-
-1. **CUDA VMM is broken on Tegra.** llama.cpp asks the driver whether Virtual
-   Memory Management is supported; on Jetson the driver answers yes, then
-   `cuMemCreate(...)` fails at `ggml-cuda.cu:589` — surfacing as
-   `CUDA error: the requested functionality is not supported`, or as
-   `out of memory`, depending on conditions. Fix: rebuild with
-   `-DGGML_CUDA_NO_VMM=ON` to use the classic `cudaMalloc` pool. This is a
-   **llama.cpp/Tegra issue — not CUDA, not JetPack, not the hardware**; the
-   capability probe lying about support is the root cause.
-2. **mmap starves NvMap.** By default the 5.9 GB file fills page cache and the
-   GPU allocator cannot find contiguous pages for a fixed 178.94 MiB embedding
-   tensor — the identical size fails at any `-ngl`. `--no-mmap` fixes loading,
-   but then CPU-side weights stay resident instead of being evictable.
-3. **It is genuinely ~1 GB short.** With 1 and 2 fixed, every GPU config still
-   dies in the compute pool (`ggml-cuda.cu:508`) — at `ngl=12`, with
-   `-b 64 -ub 32`, headless with 6,863 MB free. 5.9 GB of weights plus runtime
-   buffers exceeds what a 7.4 GiB board can offer.
-
-**Verdict: no GPU acceleration for this model on this board — CPU only.**
-
-| config | result |
+| llama.cpp build | arena 1 |
 |---|---|
-| any `-ngl` >= 12 (NO_VMM build, `--no-mmap`, headless) | loads, generation OOMs |
-| `-ngl 0` pure CPU, headless | **works** — pp 3.90 / **tg 1.01 tok/s** |
-| `-ngl 0` pure CPU, desktop up | works — pp 1.15 / tg 0.78 tok/s |
+| `b10217` (llama.app prebuilt, 9 Aug) | **FAIL** — "Invalid diff", the original failure reproduced |
+| `9ee9fc0` (master, 20 Aug) | **PASS** ×4 |
 
-IQ1_M and IQ2_XXS have no working configuration at all: too large to load on
-GPU, and CPU-only generation OOMs.
+It was a defect in `b10217`'s handling of this model's tool-call arguments.
+LFM2.5 emits *Pythonic* calls between `<|tool_call_start|>` tokens rather than
+JSON, and that build mis-serialized them. Fixed upstream sometime in the eleven
+days between the two builds. We only found out because the fix arrived
+incidentally — master was rebuilt for `bailingmoe3` and Tegra VMM, nothing to do
+with LFM.
 
-At ~1 tok/s this is an "it runs" milestone, not an agent — and ~6x slower than
-Bonsai-27B Q1_0 (6 tok/s), which is smaller (3.53 GiB) and fully GPU-resident.
-Two lessons worth keeping: **fitting in memory and running are different
-questions**, and an "unsupported" error often means a capability probe lied
-rather than that the hardware lacks the feature.
+**Its actual record**, on a 2.6B model:
 
-### The Jetson large-model recipe (what the Qwen3.8 dig produced)
+| Arena | Result |
+|---|---|
+| 1 — single task | PASS ×3 (both quants) |
+| 2 — multi-file | PASS 3m 32s |
+| 3 — **marathon** | **11/11 PERFECT** · 22m 29s |
+| 4 — crusher @131K | **PASS** · 14m 18s · 0 compactions · anchors held |
+| 4 — crusher @32K | FAIL · 5 compactions · anchors lost |
 
-Three fixes, useful for *any* model that OOMs on this board with memory to spare:
+11/11 puts a 2.6B model level with Ornith-1.0, A1-4B and base Qwen3.5-4B — the
+only models to go perfect. Its profile matches Ling and A1: **thrives on a big
+window, breaks under compaction**, which fits a model whose KV cache is the
+cheapest measured here (262K fits on this board).
 
-1. **Build with `-DGGML_CUDA_NO_VMM=ON`.** Jetson's driver claims CUDA Virtual
-   Memory Management support and then fails `cuMemCreate`. Without this, large
-   allocations fail as "requested functionality is not supported" or as spurious
-   OOM.
-2. **Shrink the compute buffers with `-b 512 -ub 128`.** The prompt-processing
-   buffer scales with batch size and is often the allocation that actually fails
-   (370 MiB at default batch for A1-Q8; 285 MiB at `-ub 128`).
-3. **Drop caches before loading** (`sync; echo 3 > /proc/sys/vm/drop_caches`).
-   A mmap'd multi-GB file fills page cache and starves NvMap of the contiguous
-   pages it needs — which is why a *fixed-size* allocation fails with GBs free.
-
-**It works:** Ling-3.0-tiny Q4_K_M went from "does not fit" to full 131K context
-at 34.2 tok/s. Re-tested and still blocked: Agents-A1-4B **Q8_0** — the compute
-buffer OOMs even at 65K with `-ub 128`, and a Q8 that only fits a small window is
-useless for A1 anyway, since A1 fails structurally at 32K.
+**The lesson, for the third time in this campaign:** LM Studio shipped no sm_87
+kernels; an Ollama blob bundled a vision encoder; and now a llama.cpp build
+mangled tool calls. Each time a model looked incapable and the tooling was at
+fault. *Suspect the packaging before the model* — including your own stack.
 
 ### The packaging trap, second sighting
 
@@ -442,13 +402,21 @@ Base Qwen3.5-9B IQ4_XS vs its agentic tunes — same architecture, same size,
 | Ornith-1.5 (tuned) | **103s** | 367s | 10/11 |
 | Ornith-1.0 (tuned) | 248s | 483s¹ | **11/11** |
 
-Adding arena 4 makes it sharper still:
+Both crusher windows, and a second quantization, sharpen it further:
 
-| Model | Arena 1 | Arena 2 | Marathon | Crusher 32K |
-|---|---|---|---|---|
-| base Qwen3.5-9B | 119s | **337s** | 8/11 | **FAIL 334s** — all anchors lost |
-| Ornith-1.5 (tuned) | **103s** | 367s | 10/11 | PASS 792s |
-| Ornith-1.0 (tuned) | 248s | 483s¹ | **11/11** | **PASS 518s** |
+| Model | Arena 1 | Arena 2 | Marathon | Crusher 65K | Crusher 32K |
+|---|---|---|---|---|---|
+| base Qwen3.5-9B UD-IQ3_XXS | 116s | **302s** | 9/11 | **PASS** (peak 50K) | **FAIL** |
+| base Qwen3.5-9B IQ4_XS | 119s | 337s | 8/11 | — | **FAIL** |
+| Ornith-1.5 (tuned) | **103s** | 367s | 10/11 | PASS | PASS 792s |
+| Ornith-1.0 (tuned) | 248s | 483s¹ | **11/11** | PASS | **PASS 518s** |
+
+The base model **passes the big-window crusher** — 50K of heavy raw context,
+anchors intact — and fails only at 32K, where the window forces compaction. The
+failure reproduces across both quants. So the tuning gap is not "heavy context"
+in general; it is **the marathon and the compaction case specifically**.
+Quantization barely moves the one-shot numbers (116s vs 119s, 302s vs 337s),
+which is reassuring for every other single-quant comparison in this campaign.
 
 **Tuning is worth nothing one-shot at 9B, and is the difference between pass and
 fail under session/context load.** The base model matched or beat both tunes on
@@ -531,11 +499,12 @@ Pick by workload:
 6. **Capable but slow: Nanbeige4.2-3B** (owao GGUF) — passes both one-shot arenas
    and the context crusher at 32K, but only with generous per-turn deadlines;
    cap it at 32K, never give it its full 49K
-7. Bonsai-27B Q1_0 — historic tech demo, 8× the energy per task
+7. Bonsai-27B Q1_0 — historic tech demo: passes arenas 1 **and 2** (10m 03s),
+   at 8× the energy per task; arenas 3-4 not run (2h+ each at 6 tok/s)
 8. Base (non-agentic) models — measurably below their agent-tuned siblings
-9. Not for coding: **LFM2.5-2.6B** — strong tool-use/RAG model (and a 262K context
-   champion on this board), but it cannot land reliable code edits, as its own
-   model card warns
+9. **LFM2.5-2.6B** — 11/11 marathon from a 2.6B model, passes the heavy-context
+   crusher, and the cheapest KV measured (262K fits). Needs a big window; fails
+   under compaction. *Earlier "not for coding" verdict here was a toolchain bug.*
 
 ## Operational lessons (Jetson-specific)
 
