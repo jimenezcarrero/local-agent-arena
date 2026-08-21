@@ -473,9 +473,15 @@ draft for a 4.66 GB Ornith-1.0:
 | +0.8B draft, `n_max=4` @32K | 10.04 | +1% | 64% |
 | +0.8B draft, `n_max=8` @32K | 10.07 | +2% | 44% |
 
-Two rules fall out: **acceptance decays with context depth** (78% → 64%), and
-**drafting more tokens is worse** — `n_max=8` halves acceptance for no gain,
-because every rejected token is wasted compute.
+| solo @65K (production) | 10.42 | — | — |
+| +0.8B draft @65K | **does not fit** — 497 MiB OOM | — | — |
+
+Three rules fall out: **acceptance decays with context depth** (78% → 64%),
+**drafting more tokens is worse** (`n_max=8` halves acceptance for no gain —
+every rejected token is wasted compute), and **the win is unavailable where we
+actually serve**: at the 65K production window the draft's extra weights and
+buffers no longer fit. Useful for short-window interactive use; not a
+production upgrade on this board.
 
 **The enabling flag is `-ctkd q4_0 -ctvd q4_0`.** The draft's KV cache defaults
 to f16 *and inherits the target's context size*; at 32K that is a 384 MiB
