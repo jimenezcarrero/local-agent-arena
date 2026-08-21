@@ -31,6 +31,7 @@ status() {
 start() {
   if running; then echo "already running"; status; return; fi
   echo "starting llama-server router..."
+  free_pagecache
   sudo systemctl start llama-server
   for _ in $(seq 1 20); do running && break; sleep 1; done
   running || { echo "failed to start — check: journalctl -u llama-server -n 30"; exit 1; }
@@ -41,8 +42,13 @@ start() {
 
 stop() { sudo systemctl stop llama-server; echo "router stopped (GPU memory freed)"; }
 
+# Jetson: a big mmap'd model fills page cache and starves NvMap of the
+# contiguous pages a large CUDA buffer needs. Reclaim before loading.
+free_pagecache() { sync; sudo -n sh -c 'echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null || true; sleep 1; }
+
 load() {
   local m="$1"
+  free_pagecache
   echo "loading ${bold}$m${rst} (previous model is unloaded first)..."
   curl -sf -m 300 "$API/v1/chat/completions" -H 'Content-Type: application/json' \
     -d "{\"model\":\"$m\",\"messages\":[{\"role\":\"user\",\"content\":\"ok\"}],\"max_tokens\":1}" >/dev/null \
@@ -53,19 +59,25 @@ load() {
 menu() {
   cat <<EOF
 
-${bold}Which model? (benchmark-based recommendations)${rst}
-  1) ornith     ${grn}★ CHAMPION${rst} — agent work, long sessions, best default (65K ctx)
-  2) a1-131k    speed pick — fastest perfect marathon, agent-tuned (131K ctx)
-  3) a1-262k    max context — only full 262K native window that fits 8GB
-  4) e4b-32k    quality gemma +MTP — use with 32K window + compaction
-  5) e2b-32k    chat speed ~58 tok/s +MTP — quick questions, not long sessions
-  6) qwen-131k  baseline Qwen3.5-4B — not agent-tuned
+${bold}Which model? (arena-validated recommendations)${rst}
+  1) ornith       ${grn}★ CHAMPION${rst} — undefeated, best for sessions      (65K)
+  2) ornith15     faster one-shot than champion, 10/11 marathon   (65K)
+  3) ling         ${grn}fastest overall${rst} 34 t/s, best energy — needs big ctx (131K)
+  4) a1-131k      fastest perfect marathon                        (131K)
+  5) a1-262k      max context on this board                       (262K)
+  6) e2b-32k      ~58 t/s chat +MTP, weak in long sessions          (32K)
+  7) e4b-32k      quality gemma +MTP, keep at 32K                   (32K)
+  8) nanbeige-32k cap at 32K (8x slower at 49K)                     (32K)
+  9) lfm25        tool-use/RAG only, NOT for coding               (262K)
+  0) qwen9b-base  control: no agentic tuning                        (32K)
   q) skip (auto-loads on first request)
 EOF
   read -rp "> " ans || ans=q
   case "$ans" in
-    1) load ornith ;;   2) load a1-131k ;; 3) load a1-262k ;;
-    4) load e4b-32k ;;  5) load e2b-32k ;; 6) load qwen-131k ;;
+    1) load ornith ;;       2) load ornith15 ;;  3) load ling ;;
+    4) load a1-131k ;;      5) load a1-262k ;;   6) load e2b-32k ;;
+    7) load e4b-32k ;;      8) load nanbeige-32k ;; 9) load lfm25 ;;
+    0) load qwen9b-base ;;
     *) echo "ok — the router will load whatever model pi requests." ;;
   esac
 }
@@ -76,7 +88,15 @@ case "${1:-}" in
   status|"") status ;;
   load)   running || start; load "${2:?usage: llm load <model>}" ;;
   pick)   running || { sudo systemctl start llama-server; sleep 3; }; menu ;;
-  models) curl -s "$API/models" | python3 -c "import json,sys; [print(f\"{m['id']:<12} {m['status']['value']}\") for m in json.load(sys.stdin)['data']]" ;;
+  models) running || { echo "${dim}router is not running — start it with: llm start${rst}"; exit 0; }
+          curl -s "$API/models" | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)['data']
+except Exception:
+    print('could not read model list from the router'); sys.exit(1)
+for m in sorted(d, key=lambda x: x['id']):
+    print(f\"  {m['id']:<14} {m['status']['value']}\")" ;;
   logs)   exec journalctl -u llama-server -f -n "${2:-100}" ;;
   help)   cat <<EOF
 ${bold}llm — on-demand model serving on this Jetson${rst}
@@ -113,13 +133,23 @@ ${bold}Add a new model (3 steps)${rst}
      so pi can select it and compaction triggers at the right size
 
 ${bold}Updating llama.cpp${rst}
-  cd ~/Repositories/llama.cpp && git pull && cmake --build build -j3 --target llama-server
-  (systemd unit and /usr/local/bin symlinks point at build/bin — nothing else to change)
+  cd ~/Repositories/llama.cpp && git pull
+  cmake --build build-novmm -j3 --target llama-server
+  The router uses build-novmm (NOT the llama.app binary): it has bailingmoe3
+  for Ling and disables CUDA VMM, which is broken on Tegra.
+
+${bold}If a model "failed to load"${rst}
+  It is almost always memory, not a bad preset. Free RAM decides which models
+  fit: ~5 GB with a desktop session, ~6.9 GB headless.
+    llm load NAME   reclaims page cache first (that alone fixes most failures)
+    llm stop        then close browsers/Claude and retry
+  Models near 4.9 GB (ornith15-fast) need a nearly idle board. Switching models
+  from inside pi does NOT reclaim cache - use `llm load NAME` for the big ones.
 EOF
   ;;
   fg)     # run in the foreground with logs in this terminal (Ctrl-C stops it)
           running && { echo "already running as a service — 'llm stop' first"; exit 1; }
-          exec /home/JetsonOrin/.local/bin/llama serve \
+          exec /home/JetsonOrin/Repositories/llama.cpp/build-novmm/bin/llama-server \
             --models-preset /home/JetsonOrin/llm-server/jetson-models.ini \
             --models-max 1 --host 0.0.0.0 --port 8080 ;;
   *) echo "usage: llm [help|status|start|stop|pick|load <model>|models|logs [N]|fg]"; exit 1 ;;
