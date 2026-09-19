@@ -174,5 +174,6 @@ FP4 releases target NVIDIA hardware.
   (too large, not needed for audit).
 - `results/lunar-lake/README.md`: a matrix in the same shape as the Jetson one
   (5 arena columns), plus a calibration section comparing L0 with the Jetson.
-- Commit after each model. The commit message says what was measured. Never
+- Work on the `lunar-lake` branch (see `CLAUDE.md`). Commit after each model, push,
+  and open a PR to `main` per batch. The commit message says what was measured. Never
   commit any file matching `*draft*` (it's gitignored; keep it that way).

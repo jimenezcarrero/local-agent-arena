@@ -30,7 +30,7 @@ COLS = [
 
 # (label, badge, [(state, sub, sub2) x5])
 ROWS = [
-    ("Ornith-1.0-9B · IQ3_M", "UNDEFEATED", [
+    ("Ornith-1.0-9B · IQ3_M", "BEST OVERALL", [
         ("P", "4m 08s", ""), ("P", "8m 03s", ""), ("P", "11/11 · 18m 45s", ""),
         ("P", "12m 40s", "used 50K @131K"), ("P", "8m 38s", "peak only 9.2K")]),
     ("Ornith-1.5-9B · IQ4_XS", "NEW", [
@@ -111,14 +111,14 @@ def draw(fname, W, H, square=False):
     y = grid_top - hdr_h
     for label, badge, cells in ROWS:
         y -= row_h
-        if badge == "UNDEFEATED":
+        if badge == "BEST OVERALL":
             rounded(ax, 0.035, y - gap * 0.4, right - 0.035 + 0.005, row_h + gap * 0.8,
                     "#f2f7f2", r=0.008, z=0)
         ax.text(left - 0.022, y + row_h * 0.60, label, fontsize=10 if not square else 8.8,
                 color=INK, ha="right", va="center",
-                fontweight="bold" if badge == "UNDEFEATED" else "normal")
+                fontweight="bold" if badge == "BEST OVERALL" else "normal")
         if badge:
-            bc = "#0a7d0a" if badge == "UNDEFEATED" else BLUE
+            bc = "#0a7d0a" if badge == "BEST OVERALL" else BLUE
             ax.text(left - 0.022, y + row_h * 0.22, badge, fontsize=6.6 if not square else 6.0,
                     color=bc, ha="right", va="center", fontweight="bold")
 

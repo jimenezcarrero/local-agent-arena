@@ -10,3 +10,13 @@ coding agent, scored on four pytest-validated arenas.
 Never run arenas inside this repository. pi would read this file and pass it to
 the model under test. Runs go to `~/bench-runs` (the suite enforces this).
 Never commit files matching `*draft*`.
+
+## Branches (Jetson and laptop work run in parallel)
+
+- Each platform works on its own branch and only touches its own
+  `platforms/<machine>/` folder: `lunar-lake` for the laptop, `jetson-*` for the Jetson.
+- Before starting a batch: `git pull --rebase origin main`, so every machine runs the same suite.
+- Changes to shared files (`suite/`, root `README.md`, `CLAUDE.md`) go in a
+  separate small PR to `main`, never mixed into a results batch.
+- When a batch of models is done, open a PR from the platform branch to `main`
+  with the results. A person reviews it before merging.
