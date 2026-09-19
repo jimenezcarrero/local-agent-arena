@@ -2,7 +2,7 @@
 
 Quick reference: `llm help`. This file is the long version.
 Model choices come from the benchmark campaign in the repo root
-([github.com/jimenezcarrero/jetson-llm-benchmarks](https://github.com/jimenezcarrero/jetson-llm-benchmarks)).
+([github.com/jimenezcarrero/local-agent-arena](https://github.com/jimenezcarrero/local-agent-arena)).
 
 ## Architecture
 
