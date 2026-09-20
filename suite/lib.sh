@@ -169,6 +169,17 @@ manifest() {
     echo "pi: $(pi --version 2>&1 | head -1)  provider: $PI_PROVIDER"
     echo "python: $(python3 -c 'import sys,pytest;print(sys.version.split()[0],"pytest",pytest.__version__)')"
     echo "power_source: $POWER_SRC"
+    # what the server will actually sample with: llama.cpp applies the GGUF's
+    # general.sampling.* metadata when present, so the effective settings are
+    # not always the flags on the command line
+    curl -s -m 5 "$API/props" 2>/dev/null | python3 -c "
+import json,sys
+try:
+    p=json.load(sys.stdin).get('default_generation_settings',{})
+    p=p.get('params',p)
+    keys=('temperature','top_p','top_k','min_p','typ_p','presence_penalty','frequency_penalty','repeat_penalty','repeat_last_n','dry_multiplier','seed')
+    print('sampling: ' + '  '.join(f'{k}={p[k]}' for k in keys if k in p))
+except Exception: print('sampling: unavailable')"
     printf 'server_cmd:'; printf ' %q' "${SRV_CMD[@]}"; echo
   } > "$L/env.txt"
 }
