@@ -20,6 +20,25 @@ curl -s localhost:8080/props | python3 -m json.tool | grep -A2 -E 'temperature|t
 
 The suite records this in every run's `env.txt` (`sampling:` line).
 
+## When to check
+
+Run [`check_sampling.sh`](check_sampling.sh) before a model's **first** run and paste its output into
+the platform's `files.txt`:
+
+```bash
+suite/check_sampling.sh ~/models/<file>.gguf <hf-gguf-repo> [<hf-base-repo>]
+```
+
+It prints the GGUF's embedded settings, the card's recommendation *with the
+card's revision id*, and llama.cpp's defaults. Checking at run time rather than
+from this table means a card updated since the table was written still gets
+caught.
+
+Then **pin it**: every repeat of that model's cells uses the same profile.
+Changing sampling between repeats makes a pass count meaningless. If a card
+changes mid-campaign, note it in the results and decide whether the model is
+worth re-running; don't silently switch.
+
 ## Policy
 
 - **Run each model at its vendor-recommended settings** when the card publishes
