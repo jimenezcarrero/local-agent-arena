@@ -77,9 +77,12 @@ Download GGUFs to `~/models/`. For every file, record the **HF repo, file name a
 sha256** in the results. The same weights from another publisher once flipped a
 verdict in this campaign.
 
-**Sampling: check the model card before the first run of every model.** Follow
-[`suite/sampling-reference.md`](../../suite/sampling-reference.md) — it holds the policy and the
-settings already looked up for the models below. Pass the vendor's profile as
+**Sampling: run `suite/check_sampling.sh <file.gguf> <hf-repo> [<base-repo>]`
+before each model's first run** and paste its output into `files.txt`. It reads
+the card live, so a recommendation updated since
+[`suite/sampling-reference.md`](../../suite/sampling-reference.md) was written still gets caught; that
+file holds the policy and the values looked up so far. Pin the profile for all
+of that model's repeats. Pass the vendor's profile as
 server flags (e.g. `--temp 1.0 --top-p 0.95 --top-k 20 --min-p 0
 --presence-penalty 1.5`), check `env.txt`'s `sampling:` line matches what you
 intended, and record the profile next to the model's sha256 in `files.txt`.
