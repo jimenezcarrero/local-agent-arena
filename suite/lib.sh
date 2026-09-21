@@ -169,6 +169,14 @@ manifest() {
     echo "pi: $(pi --version 2>&1 | head -1)  provider: $PI_PROVIDER"
     echo "python: $(python3 -c 'import sys,pytest;print(sys.version.split()[0],"pytest",pytest.__version__)')"
     echo "power_source: $POWER_SRC"
+    # thermal + memory headroom at load time: a throttled board and a
+    # swap-starved one both produce results that look like model failures
+    for z in /sys/devices/virtual/thermal/thermal_zone*; do
+      [ -r "$z/temp" ] || continue
+      t=$(( $(cat "$z/temp")/1000 )); tp=$(cat "$z/trip_point_0_temp" 2>/dev/null || echo 0)
+      echo "thermal: $(cat "$z/type")=${t}C trip0=$(( tp/1000 ))C"
+    done
+    free -m | awk 'NR==2{printf "mem_mb: total=%s used=%s avail=%s\n",$2,$3,$7} NR==3{printf "swap_mb: total=%s used=%s\n",$2,$3}'
     # what the server will actually sample with: llama.cpp applies the GGUF's
     # general.sampling.* metadata when present, so the effective settings are
     # not always the flags on the command line
