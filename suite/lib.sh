@@ -172,9 +172,11 @@ manifest() {
     # thermal + memory headroom at load time: a throttled board and a
     # swap-starved one both produce results that look like model failures
     for z in /sys/devices/virtual/thermal/thermal_zone*; do
-      [ -r "$z/temp" ] || continue
-      t=$(( $(cat "$z/temp")/1000 )); tp=$(cat "$z/trip_point_0_temp" 2>/dev/null || echo 0)
-      echo "thermal: $(cat "$z/type")=${t}C trip0=$(( tp/1000 ))C"
+      # some zones exist but return no data; an empty $(( )) is a fatal
+      # expansion error that would abort the rest of this manifest
+      raw=$(cat "$z/temp" 2>/dev/null)
+      case "$raw" in ''|*[!0-9-]*) continue;; esac
+      echo "thermal: $(cat "$z/type" 2>/dev/null)=$(( raw/1000 ))C"
     done
     free -m | awk 'NR==2{printf "mem_mb: total=%s used=%s avail=%s\n",$2,$3,$7} NR==3{printf "swap_mb: total=%s used=%s\n",$2,$3}'
     # what the server will actually sample with: llama.cpp applies the GGUF's
