@@ -60,10 +60,14 @@ worth re-running; don't silently switch.
 |---|---|---|---|
 | Spark-X2.5-4B / 1.7B | temp 1.0, top_p 0.95, top_k -1 | **yes** — runs at these automatically | Jetson runs used them; sessions were unstable (see phase-a results) |
 | NeoHorse-1-4B | temp 1.0, top_p 0.95, top_k 20, min_p 0, presence_penalty **1.5**, repetition_penalty 1.0 | no | Jetson Phase A3/A5 ran llama.cpp defaults; Phase A6 runs the vendor profile |
-| Ornith-1.0-9B / 1.5-9B | temp 1.0, top_p 0.95 (agent harnesses); top_p 1.0 on Terminal-Bench | no | The whole Jetson campaign ran these at llama.cpp defaults |
+| Ornith-1.0-9B | **temp 0.6, top_p 0.95, top_k 20** ("recommended"; temp 1.0 only to reproduce their benchmarks) | no | Jetson headless @65K: no measurable difference vs defaults (phase H) |
+| Ornith-1.5-9B | precise coding: temp 0.6, top_p 0.95, top_k 20, min_p 0, presence_penalty 0; general: temp 1.0, presence_penalty 1.5 | no | Jetson headless @65K: no measurable difference vs defaults (phase H) |
 | Ling-3.0-tiny | temp 1.0, top_p 0.95, top_k 20 | **yes** | At temp 0.3: same marathon score, 27% faster, 32% less energy |
 | Qwen3.8-27B | thinking: temp 1.0, top_p 0.95, top_k 20, min_p 0; non-thinking: temp 0.7, top_p 0.80, presence_penalty 1.5 | check the file | Card suggests raising presence_penalty up to 2 against endless repetition |
 | Granite 4.1 3B / 8B / 30B | none published | no | llama.cpp defaults; record that |
+| Agents-A1-4B | temp 0.85, top_p 0.95, top_k 20, min_p 0, presence_penalty 1.1 | no | Jetson: marathon 11/11 at both defaults and vendor (phase C) |
+| LFM2.5-2.6B | temp 0.1, top_k 50, repetition_penalty 1.1 | no | Jetson: marathon **dropped to 5/11** at vendor vs 11/11 at defaults (phase C, first run) |
+| K2-Horizon-3.7B / 7B | temp 1.0, top_p 0.95, reasoning_effort high | no | Jetson ran the vendor profile throughout (phase B) |
 
 Add a row whenever you test a new model, and put the same information next to
 its sha256 in the platform's `files.txt`.
