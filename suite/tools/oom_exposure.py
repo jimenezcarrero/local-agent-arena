@@ -10,10 +10,27 @@ import glob, os, subprocess, datetime, sys
 
 since = sys.argv[1] if len(sys.argv) > 1 else "2026-09-19"
 root = os.path.expanduser(sys.argv[2] if len(sys.argv) > 2 else "~/bench-runs")
-out = subprocess.run(["journalctl", "-k", "--since", since, "-o", "short-iso"],
-                     capture_output=True, text=True).stdout
+res = subprocess.run(["journalctl", "-k", "--since", since, "-o", "short-iso"],
+                     capture_output=True, text=True)
 kills = [datetime.datetime.fromisoformat(l.split()[0].split("+")[0])
-         for l in out.splitlines() if "Killed process" in l and "llama-server" in l]
+         for l in res.stdout.splitlines() if "Killed process" in l and "llama-server" in l]
+
+# An empty or unreadable journal must not be reported as "no kills". journalctl
+# is boot-scoped, and without /var/log/journal a reboot destroys the history, so
+# silence here means "unknown coverage", never "clean".
+coverage_ok = res.returncode == 0 and res.stdout.strip() != ""
+persistent = os.path.isdir("/var/log/journal")
+if not coverage_ok:
+    sys.exit(f"ERROR: journalctl returned no kernel log since {since} "
+             f"(rc={res.returncode}). Kill exposure is UNKNOWN, not zero. "
+             f"Persistent journal: {persistent}. Re-run with a readable journal, "
+             f"or record exposure as unknown for these runs.")
+if not persistent:
+    print("# WARNING: /var/log/journal is absent, so the kernel log is volatile and")
+    print("#          boot-scoped. These counts cannot be reproduced after a reboot.")
+if not kills:
+    print(f"# NOTE: no llama-server kills found since {since}. This is only "
+          f"meaningful if the journal actually covers the runs below.")
 
 rows = []
 for d in sorted(glob.glob(f"{root}/arena*/*/")):
