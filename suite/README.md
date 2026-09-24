@@ -118,12 +118,20 @@ only the middle one is an external failure:
 
 | What happened | How to read it |
 |---|---|
-| The turn hit its timeout and the harness restarted the server (`rc=124`) | the model's own slowness — a result, not an excuse |
+| The turn exceeded its wall-clock budget (`rc=124`) | a recorded outcome. The cause may be generation, tool use, the client, or system pressure — one campaign turn spent 30 minutes before its request ever reached the server. Do not attribute it without evidence |
 | A confirmed OOM kill in the run's window (`tools/oom_exposure.py`) | external: the kernel killed the server |
 | `Connection error.` with no kill recorded | unexplained; say so, don't assume a cause |
 
-A restart on its own does not establish an external failure. Check for the kill
-before calling a run damaged.
+A restart on its own does not establish an external failure: restarts follow a
+timeout **or** an unhealthy server. Check for the kill before calling a run
+damaged, and report `server_restarts=N` (always available in the ledger)
+separately from OOM exposure (only available where the kernel log was captured).
+
+**Capture kill records durably.** `journalctl -k` is boot-scoped and, on a
+system without `/var/log/journal`, volatile: a reboot destroys the campaign's
+kill history and `oom_exposure.py` can no longer reconstruct it. Enable a
+persistent journal, or snapshot the kill list into each run directory, before
+starting a batch.
 
 ## Rules the scripts enforce
 

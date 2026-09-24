@@ -43,7 +43,10 @@ that machine.
 
 ## Memory and the environment
 
-8. **Watch for OOM kills directly.** `journalctl -k | grep 'Killed process.*llama-server'`.
+8. **Make the kernel log durable first** (`/var/log/journal`, or snapshot kills
+   per run). This campaign lost its kill history to a reboot because the journal
+   was volatile, leaving restart counts as the only surviving interruption
+   signal for later runs. **Watch for OOM kills directly.** `journalctl -k | grep 'Killed process.*llama-server'`.
    78 kills damaged 37 of 85 runs before they were counted properly. Track the
    newest kill's *timestamp*, not a count of `dmesg` lines: the ring buffer drops
    old entries and a count can stay flat while new kills happen. Tag every run
