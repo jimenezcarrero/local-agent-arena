@@ -19,9 +19,14 @@ that machine.
 3. **Audit every failure before recording it.** A turn log containing exactly
    `Connection error.` never reached the model. An empty log with rc=124 is a
    real timeout. `guard=MODIFIED!` voids the run.
-4. **A harness artifact can only remove turns, never add passes.** So a run that
-   passed despite an OOM kill or a lost turn stands as a pass; only failures and
-   sub-perfect scores need a clean replay.
+4. **Do not treat an interrupted run as equivalent to an uninterrupted one, in
+   either direction.** A restart empties the prompt cache and the server's slot
+   state, which can change behaviour either way, so an interruption is not a
+   one-way penalty that a pass survives. Keep the original denominator, name the
+   interruption, report interrupted and uninterrupted runs separately, and apply
+   the same rule to good and bad outcomes. The full policy, including how to
+   aggregate repeats and how to tell a timeout-triggered restart from a
+   confirmed OOM kill, is in [`README.md`](README.md#interrupted-runs).
 5. **Verify strong claims against the raw lines, not your running tally.** Twice
    in this campaign a summary said something the logs did not.
 
