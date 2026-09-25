@@ -35,7 +35,7 @@ Merge PRs #13 and #14 on GitHub first (the batch's OOM audit depends on them). T
 ```bash
 cd ~/Repositories/local-agent-arena
 git fetch && git checkout jetson-closeout && git pull
-git merge --no-edit origin/main && git push    # brings in #13
+git merge --no-edit origin/main && git push    # brings in #13 and #14
 grep -c "clock segment" suite/tools/oom_exposure.py   # must be ≥1 (PR #14), or the batch refuses
 ```
 

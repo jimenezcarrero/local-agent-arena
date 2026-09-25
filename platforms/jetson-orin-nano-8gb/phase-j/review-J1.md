@@ -134,9 +134,12 @@ unless J2–J3 give a reason to reconsider.
   table above.
 - **Proposal 1** done (above). **Proposal 2** (keep the board awake): a
   `systemd-inhibit` wrapper is not possible, because polkit refuses this
-  account a sleep lock (`Access denied`), so the start guard instead refuses
-  unless logind's `IdleAction` is `ignore` (it is). Headless, nothing else
-  suspends the board; the overnight suspend came from the desktop session.
+  account a sleep lock (`Access denied`). The overnight suspend was requested
+  from the desktop session, which stages now require to be off, and the start
+  guard refuses unless logind's `IdleAction` is `ignore` (it is). That removes
+  the known idle and desktop paths, not every one: an explicit request, a
+  suspend key or a lid switch could still suspend the board, and if one does,
+  the audit marks the affected run `unknown` rather than miscounting it.
   **Proposal 3** done: `start_stage.sh` now waits for the desktop to be off
   as well as for Claude Code to exit.
 - With PR #14 merged into `main` and `main` merged into `jetson-closeout`, J2

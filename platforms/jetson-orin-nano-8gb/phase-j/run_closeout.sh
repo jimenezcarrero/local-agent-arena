@@ -42,10 +42,12 @@ if [ -z "${DRY_RUN:-}" ]; then
     || fail "lingering is off, so the batch dies at logout. sudo loginctl enable-linger $USER"
   grep -q "clock segment" "$S/tools/oom_exposure.py" \
     || fail "suite/tools/oom_exposure.py predates the suspend fix (PR #14): merge main into this branch first."
-  # J1 found an overnight desktop suspend shifting the audit; headless, only
-  # logind could suspend the board, and it must be set not to
+  # J1's audit was shifted by an overnight suspend requested from the desktop.
+  # This removes the known idle path (logind's own idle action); explicit
+  # requests, keys or lid switches can still suspend the board, and then
+  # oom_exposure.py marks the affected run unknown rather than miscounting it.
   [ "$(busctl get-property org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager IdleAction 2>/dev/null)" = 's "ignore"' ] \
-    || fail "logind's IdleAction is not 'ignore', so the board could suspend mid-stage. Check /etc/systemd/logind.conf."
+    || fail "logind's IdleAction is not 'ignore', so the board could idle-suspend mid-stage. Check /etc/systemd/logind.conf."
   [ -z "${ALLOW_DESKTOP:-}" ] && systemctl is-active -q graphical.target \
     && fail "the desktop is running (~1.4GB). sudo systemctl isolate multi-user.target"
   [ -z "${ALLOW_CLAUDE:-}" ] && pgrep -x claude >/dev/null \
