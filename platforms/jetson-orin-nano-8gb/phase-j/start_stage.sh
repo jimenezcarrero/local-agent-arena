@@ -22,7 +22,8 @@ case "$STAGE" in J1|J2|J3|J4) ;; *) echo "unknown stage: $STAGE"; exit 2;; esac
 note() { echo "$(date -Is) $STAGE: $*" | tee -a "$HOME/closeout-status.txt"; }
 
 if [ "${2:-}" != --detached ]; then
-XX
+  setsid nohup "$0" "$STAGE" --detached > "$HOME/closeout-$STAGE.log" 2>&1 < /dev/null &
+  echo "Stage $STAGE queued: it starts once Claude Code has exited."
   echo "Log ~/closeout-$STAGE.log, status ~/closeout-status.txt"
   exit 0
 fi
