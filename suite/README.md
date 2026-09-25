@@ -131,13 +131,16 @@ separately from OOM exposure (only available where the kernel log was captured).
 system without `/var/log/journal`, volatile: a reboot destroys the campaign's
 kill history and `oom_exposure.py` can no longer reconstruct it. Enable a
 persistent journal, or snapshot the kill list into each run directory, before
-starting a batch. `oom_exposure.py` works out, per boot, the interval the
-journal actually covers, and reports `oom_kills=unknown` (exiting non-zero) for
-any run outside it — a non-empty journal from a later boot proves nothing about
-an earlier run. Treat `unknown` as unattributed, never as zero. Coverage and
-kill times are computed from the boot clock, not the wall clock: a board
-without an RTC battery (the Jetson) stamps its early-boot entries with stale
-dates until NTP syncs, which would otherwise shift the covered interval.
+starting a batch. `oom_exposure.py` reports a run as `oom_kills=0` only when
+the kernel log provably covers its whole window; anything else is
+`oom_kills=unknown` and the tool exits non-zero. A failed journal query is an
+error, not "no kills". Coverage comes from kernel entries in the *system*
+journal, which the auditing account must be able to read (groups `adm` or
+`systemd-journal`): readable user-journal entries prove nothing about kernel
+history. Times come from the boot clock rather than the wall clock, because a
+board without an RTC battery (the Jetson) stamps early-boot entries with stale
+dates. Run windows keep the UTC offset recorded in `env.txt`. Treat `unknown`
+as unattributed, never as zero. Tests: `python3 -m pytest suite/tools/test_oom_exposure.py`.
 
 ## Rules the scripts enforce
 
