@@ -1,0 +1,71 @@
+0.00.001.670 I srv  llama_server: initializing ...
+0.00.249.542 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.251.913 W srv  llama_server: security: no API key is set and CORS allows all origins (see https://github.com/ggml-org/llama.cpp/pull/25655)
+0.00.254.849 I srv    load_model: loading model '/home/JetsonOrin/Repositories/llama.cpp/models/gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf'
+0.04.097.834 E llama_init_from_model: failed to initialize the context: Gemma4Assistant requires ctx_other to be set (this warning is normal during memory fitting)
+0.04.439.414 W operator(): failed to measure the memory of the extra model, fitting without it: failed to create llama_context from model
+0.05.768.098 W load: control-looking token:    212 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.05.769.579 W load: control-looking token:     50 '<|tool_response>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.05.877.247 W load: special_eog_ids contains '<|tool_response>', removing '</s>' token from EOG list
+0.56.102.136 I cmn          init: llama threadpool init, n_threads = 6
+0.56.460.419 I common_speculative_init_result: loading draft model '/home/JetsonOrin/Repositories/llama.cpp/models/mtp-gemma-4-E4B-it.gguf'
+0.57.988.943 W load: control-looking token:    212 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.57.990.452 W load: control-looking token:     50 '<|tool_response>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.58.097.696 W load: special_eog_ids contains '<|tool_response>', removing '</s>' token from EOG list
+0.58.709.180 W llama_kv_cache: layer   3: sharing with layer 41. k = 0x1b385d000, v = 0x1b6e5d000
+0.58.709.536 W llama_kv_cache: layer   0: sharing with layer 40. k = 0x1bac61000, v = 0x1bac97000
+0.58.709.545 W llama_kv_cache: layer   1: sharing with layer 40. k = 0x1bac61000, v = 0x1bac97000
+0.58.709.549 W llama_kv_cache: layer   2: sharing with layer 40. k = 0x1bac61000, v = 0x1bac97000
+0.59.034.097 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 98304, kv_unified = 'false'
+NvMapMemAllocInternalTagged failed: error 12
+Failed ioctlCmd: 1075858947
+NvMapMemHandleAlloc failed: error 12
+NvMapMemAllocInternalTagged failed: error 12
+Failed ioctlCmd: 1075858947
+NvMapMemHandleAlloc failed: error 12
+0.59.073.072 E ggml_backend_cuda_buffer_type_alloc_buffer: allocating 412.97 MiB on device 0: cudaMalloc failed: out of memory
+0.59.073.097 E ggml_gallocr_reserve_n_impl: failed to allocate CUDA0 buffer of size 433029760
+0.59.073.100 E graph_reserve: failed to allocate compute buffers
+[New LWP 241387]
+[New LWP 241386]
+[New LWP 241385]
+[New LWP 241384]
+[New LWP 241383]
+[New LWP 241382]
+[New LWP 241381]
+[New LWP 241380]
+[New LWP 241379]
+[New LWP 241378]
+[New LWP 241377]
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) [answered N; input not from terminal]
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/aarch64-linux-gnu/libthread_db.so.1".
+0x0000ffffbc987a34 in __GI___wait4 (pid=241547, stat_loc=0x0, options=0, usage=0x0) at ../sysdeps/unix/sysv/linux/wait4.c:30
+warning: 30	../sysdeps/unix/sysv/linux/wait4.c: No such file or directory
+#0  0x0000ffffbc987a34 in __GI___wait4 (pid=241547, stat_loc=0x0, options=0, usage=0x0) at ../sysdeps/unix/sysv/linux/wait4.c:30
+30	in ../sysdeps/unix/sysv/linux/wait4.c
+#1  0x0000ffffbbe4951c in ggml_print_backtrace () from /home/JetsonOrin/Repositories/llama.cpp-master/build-novmm/bin/libggml-base.so.0
+#2  0x0000ffffbbe5d1fc in ggml_uncaught_exception() () from /home/JetsonOrin/Repositories/llama.cpp-master/build-novmm/bin/libggml-base.so.0
+#3  0x0000ffffbcb5a570 in ?? () from /lib/aarch64-linux-gnu/libstdc++.so.6
+#4  0x0000ffffbcb50e04 [PAC] in std::terminate() () from /lib/aarch64-linux-gnu/libstdc++.so.6
+#5  0x0000ffffbcb5a908 [PAC] in __cxa_throw () from /lib/aarch64-linux-gnu/libstdc++.so.6
+#6  0x0000ffffbc0f555c [PAC] in llama_context::sched_reserve() () from /home/JetsonOrin/Repositories/llama.cpp-master/build-novmm/bin/libllama.so.0
+#7  0x0000ffffbc0f94d0 in llama_context::decode(llama_batch const&) () from /home/JetsonOrin/Repositories/llama.cpp-master/build-novmm/bin/libllama.so.0
+#8  0x0000ffffbc0fabc0 in llama_decode () from /home/JetsonOrin/Repositories/llama.cpp-master/build-novmm/bin/libllama.so.0
+#9  0x0000ffffbc635674 in common_context_can_seq_rm(llama_context*) () from /home/JetsonOrin/Repositories/llama.cpp-master/build-novmm/bin/libllama-common.so.0
+#10 0x0000ffffbce85c20 in server_context_impl::load_model(common_params&) () from /home/JetsonOrin/Repositories/llama.cpp-master/build-novmm/bin/libllama-server-impl.so
+#11 0x0000ffffbcdef434 in llama_server(common_params&, int, char**) () from /home/JetsonOrin/Repositories/llama.cpp-master/build-novmm/bin/libllama-server-impl.so
+#12 0x0000ffffbcdf1108 in llama_server(int, char**) () from /home/JetsonOrin/Repositories/llama.cpp-master/build-novmm/bin/libllama-server-impl.so
+#13 0x0000ffffbc8d84c4 in __libc_start_call_main (main=main@entry=0xaaaaae001140 <main>, argc=argc@entry=33, argv=argv@entry=0xffffc1b7e878) at ../sysdeps/nptl/libc_start_call_main.h:58
+warning: 58	../sysdeps/nptl/libc_start_call_main.h: No such file or directory
+#14 0x0000ffffbc8d8598 in __libc_start_main_impl (main=0xaaaaae001140 <main>, argc=33, argv=0xffffc1b7e878, init=<optimized out>, fini=<optimized out>, rtld_fini=<optimized out>, stack_end=<optimized out>) at ../csu/libc-start.c:360
+warning: 360	../csu/libc-start.c: No such file or directory
+#15 0x0000aaaaae0011b0 in _start ()
+[Inferior 1 (process 241371) detached]
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  failed to allocate compute pp buffers
