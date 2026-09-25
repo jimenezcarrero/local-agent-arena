@@ -20,6 +20,8 @@ sudo mkdir -p /var/log/journal
 sudo systemd-tmpfiles --create --prefix /var/log/journal
 sudo systemctl restart systemd-journald
 journalctl --header | grep -m1 'File path'    # must show /var/log/journal/...
+journalctl --system -k -n 1 -o short-iso      # must print a kernel line: the audit reads
+                                              # kernel history as this account
 
 # let the batch survive logout (the 2026-09-24 reboot reset this)
 sudo loginctl enable-linger $USER

@@ -36,6 +36,8 @@ fail() { echo "REFUSING TO START: $*" >&2; exit 2; }
 if [ -z "${DRY_RUN:-}" ]; then
   journalctl --header 2>/dev/null | grep -q '/var/log/journal/' \
     || fail "journal is volatile. sudo mkdir -p /var/log/journal && sudo systemctl restart systemd-journald"
+  journalctl --system -k -n 1 -o cat 2>/dev/null | grep -q . \
+    || fail "this account can't read the kernel log, so every run's OOM exposure would be unknown. sudo usermod -aG adm $USER, then log in again"
   [ "$(loginctl show-user "$USER" -p Linger --value)" = yes ] \
     || fail "lingering is off, so the batch dies at logout. sudo loginctl enable-linger $USER"
   grep -q btime "$S/tools/oom_exposure.py" \
