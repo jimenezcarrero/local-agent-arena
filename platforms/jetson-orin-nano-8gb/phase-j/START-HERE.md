@@ -23,10 +23,13 @@ loginctl show-user $USER -p Linger            # Linger=yes
 
 ## 2. Get the code
 
+Merge PR #13 on GitHub first (the batch's OOM audit depends on it). Then:
+
 ```bash
 cd ~/Repositories/local-agent-arena
-git checkout jetson-closeout && git pull
-grep -c btime suite/tools/oom_exposure.py     # must be ≥1 (the boot-clock fix, PR #13)
+git fetch && git checkout jetson-closeout && git pull
+git merge --no-edit origin/main && git push    # brings in #13
+grep -c btime suite/tools/oom_exposure.py      # must be ≥1, or the batch refuses
 ```
 
 ## 3. Exit Claude Code
