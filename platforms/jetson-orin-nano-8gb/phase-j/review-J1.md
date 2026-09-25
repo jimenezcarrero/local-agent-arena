@@ -123,3 +123,25 @@ unless J2–J3 give a reason to reconsider.
    runbook does) would make that certain.
 3. *(carried over)* Make `start_stage.sh` also wait until the desktop is off,
    so a stage can't start in the gap between `/exit` and going headless.
+
+## Resolution (added 2026-09-25, interactive session)
+
+- **Audit tool fixed** in PR #14 (`suite-oom-suspend`): kills and runs are
+  matched within clock segments, so a suspend can't move a kill; runs record
+  `boot_id:`; 18 regression tests, including a suspend in the running boot.
+- **`oom-exposure-J1.txt` regenerated** with that tool from the same persistent
+  journal: **11 kills in 10 runs**, identical run by run to the attribution
+  table above.
+- **Proposal 1** done (above). **Proposal 2** (keep the board awake): a
+  `systemd-inhibit` wrapper is not possible, because polkit refuses this
+  account a sleep lock (`Access denied`), so the start guard instead refuses
+  unless logind's `IdleAction` is `ignore` (it is). Headless, nothing else
+  suspends the board; the overnight suspend came from the desktop session.
+  **Proposal 3** done: `start_stage.sh` now waits for the desktop to be off
+  as well as for Claude Code to exit.
+- With PR #14 merged into `main` and `main` merged into `jetson-closeout`, J2
+  is GO:
+
+```bash
+platforms/jetson-orin-nano-8gb/phase-j/start_stage.sh J2
+```

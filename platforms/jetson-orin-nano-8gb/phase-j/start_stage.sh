@@ -4,8 +4,9 @@
 #
 #   1. detaches itself and returns at once, so the caller (you, or a Claude
 #      review session) can exit
-#   2. waits until no Claude Code process is running: its ~400MB is part of the
-#      margin these runs need
+#   2. waits until no Claude Code process is running and the desktop is off:
+#      Claude's ~400MB and the desktop's ~1.4GB are part of the margin these
+#      runs need
 #   3. runs the stage's queue with its publisher, then commits the stage's
 #      kernel-recorded OOM exposure
 #   4. handoff.sh resumes the campaign's Claude Code session headless with
@@ -23,13 +24,15 @@ note() { echo "$(date -Is) $STAGE: $*" | tee -a "$HOME/closeout-status.txt"; }
 
 if [ "${2:-}" != --detached ]; then
   setsid nohup "$0" "$STAGE" --detached > "$HOME/closeout-$STAGE.log" 2>&1 < /dev/null &
-  echo "Stage $STAGE queued: it starts once Claude Code has exited."
+  echo "Stage $STAGE queued: it starts once Claude Code has exited and the desktop is off."
   echo "Log ~/closeout-$STAGE.log, status ~/closeout-status.txt"
   exit 0
 fi
 
-note "queued; waiting for Claude Code to exit"
-while pgrep -x claude >/dev/null; do sleep 30; done
+# Wait for both: Claude Code's memory, and the desktop's (~1.4GB). Starting
+# when only Claude had exited let J1 start in the gap before going headless.
+note "queued; waiting for Claude Code to exit and the desktop to stop"
+while pgrep -x claude >/dev/null || systemctl is-active -q graphical.target; do sleep 30; done
 note "starting"
 "$HERE/run_closeout.sh" "$STAGE" &
 QUEUE_PID=$!
