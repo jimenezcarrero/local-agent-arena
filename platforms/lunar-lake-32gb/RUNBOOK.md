@@ -228,7 +228,7 @@ will run.
    server logs. Speed only: MTP's effect on correctness is measured in S4.
 
 One CSV row per configuration in `phase-s1/screen.csv`:
-`family,file,quant,size_gb,threads,batch,ubatch,ctx,fits,fits_with_draft,rss_mb,free_mb,pp_cold32k,pp512_d0,pp512_d16k,pp512_d32k,tg128_d0,tg128_d16k,tg128_d32k,srv_tg_d16k_off,srv_tg_d16k_on,draft_accept`.
+`family,file,quant,size_gb,threads,batch,ubatch,ctx,fits,fits_with_draft,rss_mb,free_mb,pp_cold32k,pp512_d0,pp512_d16k,pp512_d32k,tg128_d0,tg128_d16k,tg128_d32k,srv_tg_d16k_off,srv_tg_d16k_on,draft_accept,qualifying_arm`.
 Screening a configuration takes minutes; the whole table fits in a day or two.
 
 ### S2: the screening rule
@@ -239,9 +239,12 @@ one input among several — output length, prefill, tool execution and retries
 all consume the arenas' time limits — and only the arenas measure the whole.
 Excluded configurations are reported as excluded, with their S1 numbers.
 
-The speed used is generation at depth 16K: `srv_tg_d16k_on` where MTP fits
-with its draft, otherwise `srv_tg_d16k_off` (or `tg128_d16k` for families with
-no draft head). A configuration admitted on its MTP speed runs S3 with MTP.
+The speed used is generation at depth 16K from **the faster measured arm that
+fits**: the larger of `srv_tg_d16k_off` and, only if the configuration fits
+with its draft loaded, `srv_tg_d16k_on` (families with no draft head use
+`srv_tg_d16k_off`). MTP can be slower than plain decoding, so it is never
+chosen just because it fits. Record which arm qualified (`qualifying_arm`:
+`off` or `on`), and run S3 with that setting; S4 then measures the other arm.
 
 | Speed at depth 16K | Label |
 |---|---|
@@ -288,7 +291,8 @@ production window is 65K, or 32K for configurations shortlisted as 32K-only. Big
 On the best one or two configurations per family, change one thing and re-run
 the session cells ×3:
 
-- **MTP on vs off** — report pass counts and times for both arms. Any
+- **MTP on vs off** — S3 ran the arm that qualified in S2; this runs the other
+  one (where the draft fits). Report pass counts and times for both arms. Any
   difference is audited; neither arm is assumed to match or to win.
 - **KV cache q8_0 vs q4_0** — does halving KV memory cost correctness?
 - **Window 32K vs 65K vs 131K** — on the Jetson, most models did better with a
