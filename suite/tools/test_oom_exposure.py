@@ -1,8 +1,13 @@
 """Regression tests for oom_exposure.py, run against synthetic journals.
 
-A fake `journalctl` on PATH serves a fixture (boots, entries, and which queries
-fail or which journal the account can read); OOM_PROC_ROOT supplies the boot
-id and btime. Every test asserts on the tool's real output and exit code.
+A fake `journalctl` on PATH serves a fixture (boots in order, their entries,
+which queries fail, and whether the account can read the system journal);
+OOM_PROC_ROOT supplies the running boot's id and btime. Every test asserts on
+the tool's real output and exit code.
+
+Entries carry a wall-clock stamp and a monotonic one, as journald's do: the
+monotonic clock stops during a suspend, the wall clock doesn't, and a board
+without an RTC battery stamps early-boot entries with a stale wall clock.
 
     python3 -m pytest suite/tools/test_oom_exposure.py   (or: python3 -m unittest)
 """
@@ -10,6 +15,7 @@ import json, os, subprocess, sys, tempfile, textwrap, time, unittest
 
 TOOL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "oom_exposure.py")
 KILL = "Out of memory: Killed process 4242 (llama-server) total-vm:9000000kB"
+STALE = 1785251085  # the Jetson's early-boot wall clock: 2026-07-28
 
 FAKE = textwrap.dedent(r'''
     #!/usr/bin/env python3
@@ -18,28 +24,26 @@ FAKE = textwrap.dedent(r'''
     a = sys.argv[1:]
     fail = fx.get("fail", {})
     system = "--system" in a and fx.get("system_access", True)
-    def out(entries):
-        for e in entries:
-            print(json.dumps(e))
+    def out(rows):
+        for r in rows:
+            print(json.dumps(r))
     def entry(b, e):
-        return {"_BOOT_ID": b["id"], "__MONOTONIC_TIMESTAMP": str(e["mono"]),
-                "__REALTIME_TIMESTAMP": str(e["rt"]), "MESSAGE": e["msg"],
-                **({"_TRANSPORT": "kernel"} if e.get("kernel") else {})}
+        return {"_BOOT_ID": b["id"], "__MONOTONIC_TIMESTAMP": str(int(e["mono"] * 1e6)),
+                "__REALTIME_TIMESTAMP": str(int(e["rt"] * 1e6)), "MESSAGE": e["msg"]}
     if "--list-boots" in a:
         if fail.get("list"): sys.exit(1)
         # boots are visible either way: the user journal records them too
-        print(json.dumps([{"index": i, "boot_id": b["id"]} for i, b in enumerate(fx["boots"])]))
+        print(json.dumps([{"index": i - len(fx["boots"]) + 1, "boot_id": b["id"]}
+                          for i, b in enumerate(fx["boots"])]))
     elif "_TRANSPORT=kernel" in a:
+        rows = [entry(b, e) for b in fx["boots"] for e in b["entries"] if e.get("kernel")]
         if fail.get("kernel") == "partial":   # printed some entries, then failed
-            out(entry(b, e) for b in fx["boots"] for e in b["entries"] if e.get("kernel") and "Killed" not in e["msg"])
-            sys.exit(1)
+            out(r for r in rows if "Killed" not in r["MESSAGE"]); sys.exit(1)
         if fail.get("kernel"): sys.exit(1)
-        if system:
-            out(entry(b, e) for b in fx["boots"] for e in b["entries"] if e.get("kernel"))
-    elif "-b" in a:
-        if fail.get("last"): sys.exit(1)
-        b = next(b for b in fx["boots"] if b["id"] == a[a.index("-b") + 1])
-        out([entry(b, b["entries"][-1])] if system else [])
+        if system: out(rows)
+    elif any(x.startswith("--output-fields") for x in a):
+        if fail.get("all"): sys.exit(1)
+        if system: out(entry(b, e) for b in fx["boots"] for e in b["entries"])
     else:
         sys.exit(2)
 ''').lstrip()
@@ -53,33 +57,45 @@ class OomExposure(unittest.TestCase):
             f.write(FAKE)
         os.chmod(f"{self.tmp}/bin/journalctl", 0o755)
         self.now = time.time()
-        self.btime = int(self.now - 10_000)        # running boot started 10,000s ago
+        self.btime = self.now - 10_000             # running boot started 10,000s ago
         self.cur = "c" * 32
         with open(f"{self.tmp}/proc/sys/kernel/random/boot_id", "w") as f:
             f.write("cccccccc-cccc-cccc-cccc-cccccccccccc\n")
         with open(f"{self.tmp}/proc/stat", "w") as f:
-            f.write(f"cpu  1 2 3\nbtime {self.btime}\n")
-        self.fixture = {"boots": [self.boot(self.cur, self.btime, [(1, "Linux version"),
-                                                                  (9_000, "last kernel msg")])]}
+            f.write(f"cpu  1 2 3\nbtime {int(self.btime)}\n")
+        self.fixture = {"boots": [self.boot(self.cur, self.btime, 9_900)]}
 
-    def boot(self, bid, start, kernel_msgs, stale_clock=False):
-        """A boot whose entries sit at `start + offset`. With stale_clock, the
-        early entries carry a July-2026 wall time, as on the Jetson."""
-        entries = []
-        for off, msg in kernel_msgs:
-            rt = (1785251085 + off) if stale_clock and off < 60 else start + off
-            entries.append({"mono": int(off * 1e6), "rt": int(rt * 1e6), "msg": msg, "kernel": True})
-        return {"id": bid, "entries": entries}
+    def boot(self, bid, start, length, stale=False, suspend=None):
+        """Entries every 100s of boot time from `start` for `length` seconds of
+        wall time. stale: the first 60s carry a wrong (July 2026) wall clock.
+        suspend=(at, dur): asleep for `dur` wall seconds starting at wall
+        offset `at`; the monotonic clock doesn't advance meanwhile."""
+        entries, off = [], 1.0
+        at, dur = suspend or (float("inf"), 0)
+        while off <= length:
+            if at <= off < at + dur:
+                off = at + dur                     # nothing is logged while asleep
+            mono = off - (dur if off >= at + dur else 0)
+            rt = STALE + off if stale and off < 60 else start + off
+            entries.append({"mono": mono, "rt": rt, "msg": "tick", "kernel": off < 10 or off % 1000 < 100})
+            off += 100 if not (stale and off < 60) else 20
+        return {"id": bid, "entries": entries, "start": start, "suspend": [at, dur]}
 
-    def kill_at(self, t, bid=None, start=None):
+    def kill_at(self, t, bid=None):
         b = next(b for b in self.fixture["boots"] if b["id"] == (bid or self.cur))
-        off = t - (start if start is not None else self.btime)
-        b["entries"].insert(-1, {"mono": int(off * 1e6), "rt": int(t * 1e6), "msg": KILL, "kernel": True})
+        at, dur = b["suspend"]
+        off = t - b["start"]
+        mono = off - (dur if off >= at + dur else 0)
+        b["entries"].append({"mono": mono, "rt": t, "msg": KILL, "kernel": True})
+        b["entries"].sort(key=lambda e: e["mono"])
 
-    def run_dir(self, name, start, end, date=None):
+    def run_dir(self, name, start, end, date=None, boot=None):
         d = f"{self.tmp}/runs/arena3/{name}"; os.makedirs(d)
+        if date is None:
+            z = time.strftime("%z", time.localtime(start))
+            date = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(start)) + z[:3] + ":" + z[3:]
         with open(f"{d}/env.txt", "w") as f:
-            f.write(f"date: {date or time.strftime('%Y-%m-%dT%H:%M:%S%z', time.localtime(start))[:-2] + ':' + time.strftime('%z', time.localtime(start))[-2:]}\n")
+            f.write(f"date: {date}\n" + (f"boot_id: {boot}\n" if boot else ""))
         os.utime(f"{d}/env.txt", (end, end))
 
     def audit(self, tz=None):
@@ -95,9 +111,14 @@ class OomExposure(unittest.TestCase):
         line = next(l for l in out.splitlines() if l.startswith(name + " "))
         return line.split("oom_kills=")[1].split()[0]
 
-    # --- the #11 fix: coverage runs to now, not to the last kernel message
+    def add_past_boot(self, bid, start, length, **kw):
+        b = self.boot(bid, start, length, **kw)
+        self.fixture["boots"].insert(len(self.fixture["boots"]) - 1, b)
+        return b
+
+    # --- coverage basics
     def test_run_after_last_kernel_message_is_covered(self):
-        self.run_dir("after", self.now - 300, self.now - 60)   # last kernel msg was at btime+9000
+        self.run_dir("after", self.now - 300, self.now - 60)
         rc, out = self.audit()
         self.assertEqual((rc, self.kills(out, "after")), (0, "0"), out)
 
@@ -113,17 +134,15 @@ class OomExposure(unittest.TestCase):
         rc, out = self.audit()
         self.assertEqual((rc, self.kills(out, "old")), (1, "unknown"), out)
 
-    # --- review finding 1: a failed query must not read as "no kills"
+    # --- failed or partial queries are errors, never "no kills"
     def test_failed_kernel_query_is_an_error(self):
-        self.kill_at(self.now - 200)
-        self.run_dir("hit", self.now - 300, self.now - 60)
+        self.kill_at(self.now - 200); self.run_dir("hit", self.now - 300, self.now - 60)
         self.fixture["fail"] = {"kernel": True}
         rc, out = self.audit()
         self.assertNotEqual(rc, 0, out); self.assertNotIn("oom_kills=0", out)
 
     def test_kernel_query_failing_partway_is_an_error(self):
-        self.kill_at(self.now - 200)
-        self.run_dir("hit", self.now - 300, self.now - 60)
+        self.kill_at(self.now - 200); self.run_dir("hit", self.now - 300, self.now - 60)
         self.fixture["fail"] = {"kernel": "partial"}
         rc, out = self.audit()
         self.assertNotEqual(rc, 0, out); self.assertNotIn("oom_kills=0", out)
@@ -134,24 +153,21 @@ class OomExposure(unittest.TestCase):
         rc, out = self.audit()
         self.assertNotEqual(rc, 0, out); self.assertNotIn("oom_kills=0", out)
 
-    def test_failed_past_boot_query_is_an_error(self):
-        prev = "p" * 32
-        self.fixture["boots"].insert(0, self.boot(prev, self.btime - 50_000, [(1, "Linux version"), (100, "x")]))
+    def test_failed_full_journal_query_is_an_error(self):
         self.run_dir("r", self.now - 300, self.now - 60)
-        self.fixture["fail"] = {"last": True}
+        self.fixture["fail"] = {"all": True}
         rc, out = self.audit()
         self.assertNotEqual(rc, 0, out); self.assertNotIn("oom_kills=0", out)
 
-    # --- review finding 2: user-journal access is not kernel-history access
+    # --- a readable user journal is not kernel-history access
     def test_no_system_journal_access_is_an_error(self):
-        self.kill_at(self.now - 200)
-        self.run_dir("hit", self.now - 300, self.now - 60)
+        self.kill_at(self.now - 200); self.run_dir("hit", self.now - 300, self.now - 60)
         self.fixture["system_access"] = False
         rc, out = self.audit()
         self.assertNotEqual(rc, 0, out); self.assertNotIn("oom_kills=0", out)
         self.assertIn("system journal", out)
 
-    # --- review finding 3: the recorded UTC offset decides the window
+    # --- run windows keep their UTC offset
     def test_offset_is_kept_when_auditing_in_another_zone(self):
         start = self.now - 300
         local = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(start + 7200))   # wall time at +02:00
@@ -171,28 +187,62 @@ class OomExposure(unittest.TestCase):
         rc, out = self.audit()
         self.assertEqual((rc, self.kills(out, "inverted")), (1, "unknown"), out)
 
-    # --- the past-boot path, with the Jetson's stale early-boot clock
-    def test_past_boot_is_covered_and_its_kills_counted(self):
-        prev, pstart = "p" * 32, self.btime - 50_000                # ran 50,000s before this boot
-        self.fixture["boots"].insert(0, self.boot(prev, pstart, [(1, "Linux version"), (30_000, "late")],
-                                                  stale_clock=True))
-        self.kill_at(pstart + 20_000, bid=prev, start=pstart)
-        self.run_dir("prev-hit", pstart + 19_000, pstart + 21_000)
-        self.run_dir("prev-clean", pstart + 25_000, pstart + 26_000)
-        self.run_dir("between-boots", pstart + 35_000, pstart + 36_000)   # after its last entry
+    # --- suspends: the J1 false zero (11 real kills read as 0)
+    def test_kill_after_a_suspend_in_the_running_boot_is_counted(self):
+        # asleep for 3,000s from boot offset 2,000; J1 ran after an overnight suspend
+        self.fixture["boots"] = [self.boot(self.cur, self.btime, 9_900, suspend=(2_000, 3_000))]
+        self.kill_at(self.now - 200)
+        self.run_dir("after-suspend", self.now - 300, self.now - 60)
+        self.run_dir("before-suspend", self.btime + 1_000, self.btime + 1_500)
         rc, out = self.audit()
-        self.assertEqual((self.kills(out, "prev-hit"), self.kills(out, "prev-clean"),
-                          self.kills(out, "between-boots")), ("1", "0", "unknown"), out)
+        self.assertEqual((rc, self.kills(out, "after-suspend"), self.kills(out, "before-suspend")),
+                         (0, "1", "0"), out)
 
-    def test_past_boot_without_readable_kernel_entries_covers_nothing(self):
-        prev, pstart = "p" * 32, self.btime - 50_000
-        b = self.boot(prev, pstart, [(1, "Linux version"), (30_000, "late")])
-        for e in b["entries"]:
-            e["kernel"] = False                                     # only non-kernel entries retained
-        self.fixture["boots"].insert(0, b)
-        self.run_dir("prev", pstart + 19_000, pstart + 21_000)
+    def test_run_spanning_a_suspend_is_unknown(self):
+        self.fixture["boots"] = [self.boot(self.cur, self.btime, 9_900, suspend=(2_000, 3_000))]
+        self.run_dir("across", self.btime + 1_500, self.btime + 5_500)
         rc, out = self.audit()
-        self.assertEqual((rc, self.kills(out, "prev")), (1, "unknown"), out)
+        self.assertEqual((rc, self.kills(out, "across")), (1, "unknown"), out)
+
+    def test_kill_after_a_suspend_in_a_past_boot_is_counted(self):
+        p0, p1 = "a" * 32, "b" * 32
+        self.add_past_boot(p0, self.btime - 90_000, 10_000)                 # gives p1 a floor
+        self.add_past_boot(p1, self.btime - 50_000, 30_000, suspend=(5_000, 8_000))
+        self.kill_at(self.btime - 30_000, bid=p1)
+        self.run_dir("p1-hit", self.btime - 30_500, self.btime - 29_500)
+        rc, out = self.audit()
+        self.assertEqual(self.kills(out, "p1-hit"), "1", out)
+
+    # --- stale early-boot clocks
+    def test_stale_clock_segment_does_not_cover_a_lost_boots_run(self):
+        # the running boot's first 60s are dated July 2026; a run from a boot
+        # whose journal is gone happens to fall inside that stale range
+        self.fixture["boots"] = [self.boot(self.cur, self.btime, 9_900, stale=True)]
+        self.run_dir("lost-boot", STALE + 5, STALE + 30)
+        rc, out = self.audit()
+        self.assertEqual((rc, self.kills(out, "lost-boot")), (1, "unknown"), out)
+
+    def test_oldest_boot_needs_a_boot_id_to_be_covered(self):
+        old = "o" * 32
+        self.add_past_boot(old, self.btime - 50_000, 30_000, stale=True)
+        self.kill_at(self.btime - 30_000, bid=old)
+        self.run_dir("no-id", self.btime - 30_500, self.btime - 29_500)
+        self.run_dir("with-id", self.btime - 30_500, self.btime - 29_400, boot=old)
+        rc, out = self.audit()
+        self.assertEqual((self.kills(out, "no-id"), self.kills(out, "with-id")), ("unknown", "1"), out)
+
+    def test_boot_id_that_the_journal_does_not_hold_is_unknown(self):
+        self.run_dir("elsewhere", self.now - 300, self.now - 60, boot="d" * 32)
+        rc, out = self.audit()
+        self.assertEqual((rc, self.kills(out, "elsewhere")), (1, "unknown"), out)
+
+    def test_past_boot_between_boots_is_unknown(self):
+        p0, p1 = "a" * 32, "b" * 32
+        self.add_past_boot(p0, self.btime - 90_000, 10_000)
+        self.add_past_boot(p1, self.btime - 50_000, 30_000)
+        self.run_dir("gap", self.btime - 15_000, self.btime - 14_000)   # after p1 ended, before this boot
+        rc, out = self.audit()
+        self.assertEqual((rc, self.kills(out, "gap")), (1, "unknown"), out)
 
 
 if __name__ == "__main__":

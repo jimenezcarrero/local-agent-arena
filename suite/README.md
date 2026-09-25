@@ -137,9 +137,15 @@ the kernel log provably covers its whole window; anything else is
 error, not "no kills". Coverage comes from kernel entries in the *system*
 journal, which the auditing account must be able to read (groups `adm` or
 `systemd-journal`): readable user-journal entries prove nothing about kernel
-history. Times come from the boot clock rather than the wall clock, because a
-board without an RTC battery (the Jetson) stamps early-boot entries with stale
-dates. Run windows keep the UTC offset recorded in `env.txt`. Treat `unknown`
+history. Kills and runs are matched on the wall clock, but only within one
+*clock segment* — a stretch where the wall clock advanced in step with the
+monotonic clock — so a suspend or a clock correction can't shift a kill out of
+its run (it once did: after an overnight suspend, 11 real kills read as 0), and
+a run that spans a suspend is `unknown`. Every run's `env.txt` records its
+`boot_id:`, which ties it to its boot even when the board's wall clock was
+stale (a board without an RTC battery, like the Jetson, stamps early-boot
+entries with wrong dates). Run windows keep the UTC offset recorded in
+`env.txt`. Treat `unknown`
 as unattributed, never as zero. Tests: `python3 -m pytest suite/tools/test_oom_exposure.py`.
 
 ## Rules the scripts enforce
