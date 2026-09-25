@@ -52,9 +52,19 @@ a text login. J1 starts within 30 seconds of Claude exiting; you can log out.
 ## 4. While a stage runs
 
 ```bash
-cat ~/closeout-status.txt          # one line per step: queued, starting, exit codes, review
-tail -3 ~/closeout-J1.log
+~/Repositories/local-agent-arena/platforms/jetson-orin-nano-8gb/phase-j/progress.sh
 ```
+One screen: the last events, steps done per stage (e.g. `J1 3/9 running: j-k2h37-r2`),
+the current run's finished turns, server restarts and minutes since its last
+write (a number that keeps growing past ~15 means a stuck turn), the latest
+results, and free memory. It only reads logs, so it's safe any time, over SSH
+too: `ssh <user>@<hostname>.local '~/Repositories/local-agent-arena/platforms/jetson-orin-nano-8gb/phase-j/progress.sh'`.
+
+**How you know a stage finished:** `progress.sh` shows the stage at `9/9` (or
+its total), and the last events end with `review finished`. On GitHub, the
+`jetson-closeout` branch gets one commit per model, then
+`phase-j J1: kernel-recorded OOM exposure`, then the review's
+`review-J1.md` — that last one is the signal to read it and decide.
 Results are pushed to the `jetson-closeout` branch as each model finishes.
 Don't start Claude Code on the board mid-stage: it takes back the memory the
 runs are using, and the automatic review won't start while another Claude is
