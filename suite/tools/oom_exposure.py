@@ -12,25 +12,27 @@ since = sys.argv[1] if len(sys.argv) > 1 else "2026-09-19"
 root = os.path.expanduser(sys.argv[2] if len(sys.argv) > 2 else "~/bench-runs")
 res = subprocess.run(["journalctl", "-k", "--since", since, "-o", "short-iso"],
                      capture_output=True, text=True)
+lines = res.stdout.splitlines()
 kills = [datetime.datetime.fromisoformat(l.split()[0].split("+")[0])
-         for l in res.stdout.splitlines() if "Killed process" in l and "llama-server" in l]
+         for l in lines if "Killed process" in l and "llama-server" in l]
 
-# An empty or unreadable journal must not be reported as "no kills". journalctl
-# is boot-scoped, and without /var/log/journal a reboot destroys the history, so
-# silence here means "unknown coverage", never "clean".
-coverage_ok = res.returncode == 0 and res.stdout.strip() != ""
+# What the journal can actually answer for. journalctl is boot-scoped, and
+# without /var/log/journal a reboot destroys the history, so a non-empty journal
+# says nothing about whether it covers a given run: a log that starts after the
+# run ended would otherwise report "0 kills" for it. Coverage is the interval
+# the kernel log really spans, and every run is checked against it.
+def stamp(line):
+    try:
+        return datetime.datetime.fromisoformat(line.split()[0].split("+")[0])
+    except (ValueError, IndexError):
+        return None
+
+stamps = [t for t in (stamp(l) for l in lines) if t]
+if res.returncode != 0 or not stamps:
+    sys.exit(f"ERROR: no readable kernel log since {since} (rc={res.returncode}). "
+             f"Kill exposure is UNKNOWN, not zero.")
+cov_start, cov_end = min(stamps), max(stamps)
 persistent = os.path.isdir("/var/log/journal")
-if not coverage_ok:
-    sys.exit(f"ERROR: journalctl returned no kernel log since {since} "
-             f"(rc={res.returncode}). Kill exposure is UNKNOWN, not zero. "
-             f"Persistent journal: {persistent}. Re-run with a readable journal, "
-             f"or record exposure as unknown for these runs.")
-if not persistent:
-    print("# WARNING: /var/log/journal is absent, so the kernel log is volatile and")
-    print("#          boot-scoped. These counts cannot be reproduced after a reboot.")
-if not kills:
-    print(f"# NOTE: no llama-server kills found since {since}. This is only "
-          f"meaningful if the journal actually covers the runs below.")
 
 rows = []
 for d in sorted(glob.glob(f"{root}/arena*/*/")):
@@ -43,10 +45,20 @@ for d in sorted(glob.glob(f"{root}/arena*/*/")):
         continue
     files = [os.path.join(d, f) for f in os.listdir(d) if os.path.isfile(os.path.join(d, f))]
     end = datetime.datetime.fromtimestamp(max(os.path.getmtime(f) for f in files))
-    n = sum(1 for k in kills if start <= k <= end)
+    covered = cov_start <= start and end <= cov_end
+    n = sum(1 for k in kills if start <= k <= end) if covered else None
     rows.append((os.path.basename(d.rstrip("/")), n, start.strftime("%m-%d %H:%M")))
 
-print(f"# OOM kills of llama-server per run ({len(kills)} kills since {since})")
-print(f"# {sum(1 for r in rows if r[1])} of {len(rows)} runs overlapped at least one kill")
+unknown = [r for r in rows if r[1] is None]
+print(f"# OOM kills of llama-server per run ({len(kills)} kills found)")
+print(f"# kernel log covers {cov_start:%Y-%m-%d %H:%M} .. {cov_end:%Y-%m-%d %H:%M}"
+      f"  (persistent journal: {persistent})")
+print(f"# {sum(1 for r in rows if r[1])} of {len(rows)} runs overlapped a kill; "
+      f"{len(unknown)} outside the covered interval -> unknown")
 for label, n, start in rows:
-    print(f"{label:<34} oom_kills={n:<3} start={start}")
+    val = "unknown" if n is None else str(n)
+    print(f"{label:<34} oom_kills={val:<8} start={start}")
+if unknown:
+    sys.exit(f"\nERROR: {len(unknown)} of {len(rows)} runs fall outside the kernel "
+             f"log's interval; their exposure is unknown, not zero. Treat those runs "
+             f"as unattributed, or re-run the audit on a host whose journal covers them.")

@@ -131,7 +131,10 @@ separately from OOM exposure (only available where the kernel log was captured).
 system without `/var/log/journal`, volatile: a reboot destroys the campaign's
 kill history and `oom_exposure.py` can no longer reconstruct it. Enable a
 persistent journal, or snapshot the kill list into each run directory, before
-starting a batch.
+starting a batch. `oom_exposure.py` checks the interval the kernel log actually
+spans against each run's window and reports `oom_kills=unknown` (exiting
+non-zero) for any run outside it — a non-empty journal from a later boot proves
+nothing about an earlier run. Treat `unknown` as unattributed, never as zero.
 
 ## Rules the scripts enforce
 

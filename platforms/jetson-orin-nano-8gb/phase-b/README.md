@@ -8,11 +8,12 @@ Q4_K_M, 3.16GB); hashes and the sampling check are in [`files.txt`](files.txt).
 Sampling is IFM's published profile — temp 1.0, top_p 0.95 — passed as flags,
 since the GGUF carries no metadata.
 > **Evidence limit for OOM attribution.** Kernel-derived kill records exist only
-> for runs started **before 2026-09-21 10:31** (phase A), preserved in
-> [`phase-a/oom-exposure.txt`](../phase-a/oom-exposure.txt). `journalctl` on this board is volatile and
-> boot-scoped, and the board rebooted on 2026-09-24, so kill records for every
-> later run — phases B and H, and the phase-C runs after 21 Sep — are gone and
-> cannot be regenerated. Where those runs mention kills, the source is
+> for exactly the **85 runs listed by name** in
+> [`phase-a/oom-exposure.txt`](../phase-a/oom-exposure.txt). That list *is* the coverage: a run absent
+> from it has no kernel record, whatever time it started. Every phase-B, phase-C
+> and phase-H run is absent. `journalctl` on this board is volatile and
+> boot-scoped, and the board rebooted on 2026-09-24, so those records are gone
+> and cannot be regenerated. Where those runs mention kills, the source is
 > **contemporaneous session notes**, which are not reproducible. Restart counts
 > (`server_restarts=N`) come from the result ledgers and are complete throughout.
 
@@ -61,7 +62,7 @@ also be rebuilt for each backend (a Vulkan build for the laptop tier).
 ## Caveats
 
 - Kill attribution for this phase rests on session notes: the preserved
-  exposure snapshot stops before K2 ran, and the kernel log is gone. Restart
+  exposure snapshot lists no K2 run, and the kernel log is gone. Restart
   counts (above) are from the ledger and are complete. Three of the five
   crushers and two of the three marathons were noted as overlapping a kill. Those runs are reported with their original scores and the interruption
   noted; a restart empties the prompt cache and slot state, so an interrupted
