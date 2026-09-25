@@ -32,10 +32,14 @@ window. Anything short of that is `unknown`, and the tool exits non-zero:
   early-boot entries dated July 2026, 1970 or the previous shutdown until NTP
   corrects the clock. A run is matched to its boot by the `boot_id:` line in
   env.txt when present, and then staleness doesn't matter (run and kills share
-  the clock). Without it, only segments that provably lie after the boot's
-  real start count: after /proc/stat's btime for the running boot, after the
-  previous boot's last entry for a past one. The oldest retained boot has no
-  such bound, so its runs without `boot_id:` are `unknown`.
+  the clock). Without it (every run before this line was added), only the
+  running boot's segments that start after /proc/stat's btime count. A past
+  boot offers no such proof — its last retained entry isn't its shutdown, and
+  its successor's stale clock can land on either side of it — so a past-boot
+  run without `boot_id:` is `unknown`.
+- Kernel history must reach back over the whole run: coverage within a segment
+  starts at the boot's oldest retained kernel entry, not at the oldest entry
+  of any kind. Retained service logs prove nothing about the kernel's.
 - Run windows come from env.txt, which records the UTC offset; a start without
   one, or a window that ends before it starts, is `unknown`.
 
@@ -92,7 +96,7 @@ def coverage():
     if current not in order:
         raise JournalError("the running boot is missing from journalctl --list-boots")
 
-    segments, previous_end = [], None
+    segments = []
     for bid in order:
         ents = sorted(entries.get(bid, []))
         if not ents:
@@ -105,13 +109,22 @@ def coverage():
             prev = (mono, rt)
         if bid == current:
             boot_segs[-1]["last"] = time.time()  # the running boot is covered up to now
+        # Kernel history is retained from the boot's oldest kernel entry on.
+        # A segment is covered from its start if that entry is in an earlier
+        # segment, from the entry itself if it falls inside, and not at all if
+        # it comes later (or the boot has no readable kernel entries).
+        kfloor = min((int(e["__MONOTONIC_TIMESTAMP"]) / 1e6, int(e["__REALTIME_TIMESTAMP"]) / 1e6)
+                     for e in kernel[bid]) if kernel.get(bid) else None
         for seg in boot_segs:
-            # no readable kernel history, no coverage; a stale clock, no trust
-            seg["kernel"] = bool(kernel.get(bid))
-            floor = btime if bid == current else previous_end
-            seg["trusted"] = floor is not None and seg["first"] >= floor - STEP
+            if kfloor is None or kfloor[0] > seg["mono"][1]:
+                seg["kernel_from"] = None
+            elif kfloor[0] <= seg["mono"][0]:
+                seg["kernel_from"] = seg["first"]
+            else:
+                seg["kernel_from"] = kfloor[1]
+            # without a boot_id, only the running boot's post-btime clock is proof
+            seg["trusted"] = bid == current and seg["first"] >= btime - STEP
         segments += boot_segs
-        previous_end = max(rt for _, rt in ents)
 
     kills = {i: [] for i in range(len(segments))}
     for bid, ents in kernel.items():
@@ -161,13 +174,14 @@ def main():
         if t1 < t0:
             rows.append((label, None, raw, "window ends before it starts")); continue
         if run_boot:   # the run says which boot it ran in: that boot's clock, stale or not
-            pool = [i for i, g in enumerate(segments) if g["boot"] == run_boot and g["kernel"]]
-        else:          # otherwise only segments whose wall clock is provably right
-            pool = [i for i, g in enumerate(segments) if g["trusted"] and g["kernel"]]
-        home = [i for i in pool if segments[i]["first"] <= t0 and t1 <= segments[i]["last"]]
+            pool = [i for i, g in enumerate(segments) if g["boot"] == run_boot]
+        else:          # otherwise only the running boot's provably right clock
+            pool = [i for i, g in enumerate(segments) if g["trusted"]]
+        pool = [i for i in pool if segments[i]["kernel_from"] is not None]
+        home = [i for i in pool if segments[i]["kernel_from"] <= t0 and t1 <= segments[i]["last"]]
         if len(home) != 1:
-            why = ("spans a suspend or clock step, or lies outside the journal's coverage"
-                   if not home else "matches more than one clock segment")
+            why = ("spans a suspend or clock step, lies outside the retained kernel log, "
+                   "or is a past-boot run without boot_id" if not home else "matches more than one clock segment")
             rows.append((label, None, raw, why)); continue
         rows.append((label, sum(1 for k in kills[home[0]] if t0 <= k <= t1), raw, ""))
 
@@ -175,10 +189,10 @@ def main():
     unknown = [r for r in rows if r[1] is None]
     print(f"# OOM kills of llama-server per run ({sum(len(k) for k in kills.values())} kills found)")
     for i, g in enumerate(segments):
-        if g["kernel"] and g["last"] - g["first"] >= 60:
-            print(f"# clock segment {fmt(g['first'])} .. {fmt(g['last'])}  (boot {g['boot'][:8]}"
+        if g["kernel_from"] is not None and g["last"] - g["first"] >= 60:
+            print(f"# clock segment {fmt(g['kernel_from'])} .. {fmt(g['last'])}  (boot {g['boot'][:8]}"
                   f"{', running' if g['boot'] == current else ''}"
-                  f"{'' if g['trusted'] else ', clock not verified'})  kills: {len(kills[i])}")
+                  f"{'' if g['trusted'] else ', only runs with its boot_id'})  kills: {len(kills[i])}")
     print(f"# persistent journal: {os.path.isdir('/var/log/journal')}")
     print(f"# {sum(1 for r in rows if r[1])} of {len(rows)} runs overlapped a kill; "
           f"{len(unknown)} unknown")

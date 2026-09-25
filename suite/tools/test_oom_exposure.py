@@ -65,11 +65,12 @@ class OomExposure(unittest.TestCase):
             f.write(f"cpu  1 2 3\nbtime {int(self.btime)}\n")
         self.fixture = {"boots": [self.boot(self.cur, self.btime, 9_900)]}
 
-    def boot(self, bid, start, length, stale=False, suspend=None):
+    def boot(self, bid, start, length, stale=False, suspend=None, kernel_after=0):
         """Entries every 100s of boot time from `start` for `length` seconds of
         wall time. stale: the first 60s carry a wrong (July 2026) wall clock.
         suspend=(at, dur): asleep for `dur` wall seconds starting at wall
-        offset `at`; the monotonic clock doesn't advance meanwhile."""
+        offset `at`; the monotonic clock doesn't advance meanwhile.
+        kernel_after: kernel entries were rotated away before this offset."""
         entries, off = [], 1.0
         at, dur = suspend or (float("inf"), 0)
         while off <= length:
@@ -77,7 +78,8 @@ class OomExposure(unittest.TestCase):
                 off = at + dur                     # nothing is logged while asleep
             mono = off - (dur if off >= at + dur else 0)
             rt = STALE + off if stale and off < 60 else start + off
-            entries.append({"mono": mono, "rt": rt, "msg": "tick", "kernel": off < 10 or off % 1000 < 100})
+            k = (off < 10 or off % 1000 < 100) and off >= kernel_after
+            entries.append({"mono": mono, "rt": rt, "msg": "tick", "kernel": k})
             off += 100 if not (stale and off < 60) else 20
         return {"id": bid, "entries": entries, "start": start, "suspend": [at, dur]}
 
@@ -205,13 +207,48 @@ class OomExposure(unittest.TestCase):
         self.assertEqual((rc, self.kills(out, "across")), (1, "unknown"), out)
 
     def test_kill_after_a_suspend_in_a_past_boot_is_counted(self):
-        p0, p1 = "a" * 32, "b" * 32
-        self.add_past_boot(p0, self.btime - 90_000, 10_000)                 # gives p1 a floor
+        p1 = "b" * 32
         self.add_past_boot(p1, self.btime - 50_000, 30_000, suspend=(5_000, 8_000))
         self.kill_at(self.btime - 30_000, bid=p1)
-        self.run_dir("p1-hit", self.btime - 30_500, self.btime - 29_500)
+        self.run_dir("p1-hit", self.btime - 30_500, self.btime - 29_500, boot=p1)
         rc, out = self.audit()
         self.assertEqual(self.kills(out, "p1-hit"), "1", out)
+
+    # --- kernel history must reach back over the run (review of #14, P1)
+    def test_run_before_the_oldest_retained_kernel_entry_is_unknown(self):
+        # service entries from the start of the boot, kernel entries only from +5,000s
+        self.fixture["boots"] = [self.boot(self.cur, self.btime, 9_900, kernel_after=5_000)]
+        self.run_dir("gap", self.btime + 1_000, self.btime + 1_500)
+        self.run_dir("after", self.btime + 6_000, self.btime + 6_500)
+        rc, out = self.audit()
+        self.assertEqual((rc, self.kills(out, "gap"), self.kills(out, "after")), (1, "unknown", "0"), out)
+
+    # --- past boots need a boot_id (review of #14, second issue)
+    def test_past_boot_run_without_boot_id_is_unknown_even_with_a_predecessor(self):
+        p0, p1 = "a" * 32, "b" * 32
+        self.add_past_boot(p0, self.btime - 90_000, 10_000)
+        self.add_past_boot(p1, self.btime - 50_000, 30_000)
+        self.kill_at(self.btime - 30_000, bid=p1)
+        self.run_dir("legacy", self.btime - 30_500, self.btime - 29_500)
+        rc, out = self.audit()
+        self.assertEqual((rc, self.kills(out, "legacy")), (1, "unknown"), out)
+
+    def test_successors_stale_clock_cannot_claim_a_past_boots_legacy_run(self):
+        # boot A's last retained entry is at T; a legacy run happened at T+1,800
+        # (after A's journal stops); boot B's stale early clock reads T+1,200..T+2,400
+        a, b = "a" * 32, "b" * 32
+        A = self.add_past_boot(a, self.btime - 90_000, 10_000)
+        T = A["entries"][-1]["rt"]
+        B = self.boot(b, self.btime - 50_000, 30_000)
+        # the stale clock ticks in step with the boot clock (one segment), then NTP jumps
+        B["entries"][:0] = [{"mono": 1 + i * 200, "rt": T + 1_200 + i * 200, "msg": "stale", "kernel": True}
+                            for i in range(7)]
+        for e in B["entries"][7:]:
+            e["mono"] += 1_400
+        self.fixture["boots"].insert(1, B)
+        self.run_dir("legacy", T + 1_800, T + 1_900)
+        rc, out = self.audit()
+        self.assertEqual((rc, self.kills(out, "legacy")), (1, "unknown"), out)
 
     # --- stale early-boot clocks
     def test_stale_clock_segment_does_not_cover_a_lost_boots_run(self):

@@ -141,11 +141,14 @@ history. Kills and runs are matched on the wall clock, but only within one
 *clock segment* — a stretch where the wall clock advanced in step with the
 monotonic clock — so a suspend or a clock correction can't shift a kill out of
 its run (it once did: after an overnight suspend, 11 real kills read as 0), and
-a run that spans a suspend is `unknown`. Every run's `env.txt` records its
-`boot_id:`, which ties it to its boot even when the board's wall clock was
-stale (a board without an RTC battery, like the Jetson, stamps early-boot
-entries with wrong dates). Run windows keep the UTC offset recorded in
-`env.txt`. Treat `unknown`
+a run that spans a suspend is `unknown`. Coverage within a boot starts at its
+oldest retained *kernel* entry: retained service logs prove nothing about the
+kernel's. Every run's `env.txt` records its `boot_id:`, which ties it to its
+boot even when the board's wall clock was stale (a board without an RTC
+battery, like the Jetson, stamps early-boot entries with wrong dates). A run
+without one is only matched against the running boot, whose start `btime`
+proves; a past-boot run without `boot_id:` is `unknown`. Run windows keep the
+UTC offset recorded in `env.txt`. Treat `unknown`
 as unattributed, never as zero. Tests: `python3 -m pytest suite/tools/test_oom_exposure.py`.
 
 ## Rules the scripts enforce
