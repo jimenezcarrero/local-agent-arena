@@ -9,7 +9,7 @@ REPO="$(git -C "$HERE" rev-parse --show-toplevel)"
 LEDGER="${BENCH_WORK:-$HOME/bench-runs}/results.txt"
 QUEUE="${QUEUE:-run_closeout.sh}"
 # the tag list comes from the queue itself, so the two can't drift apart
-TAGS="${TAGS:-$(DRY_RUN=1 "$HERE/$QUEUE" | sed -E 's/.*run_model\.sh ([^ ]+).*/\1/')}"
+TAGS="${TAGS:-$(DRY_RUN=1 "$HERE/$QUEUE" "${STAGE:?set STAGE=J1..J4}" | sed -E 's/.*run_model\.sh ([^ ]+).*/\1/')}"
 [ -n "$TAGS" ] || { echo "no tags from $QUEUE"; exit 1; }
 cd "$REPO" || exit 1
 # only ledger lines written after this publisher started count as "finished"
@@ -49,4 +49,4 @@ for tag in $TAGS; do
   done
   publish "$tag"
 done
-echo "$(date -Is) all phase-J runs published"
+echo "$(date -Is) all phase-J $STAGE runs published"
