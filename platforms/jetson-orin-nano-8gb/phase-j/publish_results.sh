@@ -43,10 +43,11 @@ Claude-Session: https://claude.ai/code/session_01NsDPrjxWYvcNbs2s3CjmKL"
 }
 
 for tag in $TAGS; do
-  until tail -n +"$START" "$LEDGER" 2>/dev/null | grep -qE "=== $tag done|GATE $tag:"; do
+  until tail -n +"$START" "$LEDGER" 2>/dev/null | grep -qE "=== $tag (done|skipped)|GATE $tag:"; do
     ps -eo args | grep -qE "^/bin/bash .*${QUEUE}" || { echo "$(date -Is) queue gone before $tag finished"; exit 1; }
     sleep 60
   done
+  if tail -n +"$START" "$LEDGER" | grep -q "=== $tag skipped"; then echo "$(date -Is) skipped $tag"; continue; fi
   publish "$tag"
 done
 echo "$(date -Is) all phase-J $STAGE runs published"

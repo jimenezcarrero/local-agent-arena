@@ -13,7 +13,7 @@ for st in J1 J2 J3 J4 J5; do
   tags=$(DRY_RUN=1 "$HERE/run_closeout.sh" "$st" | sed -nE 's/.*run_model\.sh ([^ ]+).*/\1/p')
   total=$(echo "$tags" | wc -l); done_=0; now=""
   for t in $tags; do
-    if grep -qE "=== $t done|GATE $t:" "$LEDGER" 2>/dev/null; then done_=$((done_+1))
+    if grep -qE "=== $t (done|skipped)|GATE $t:" "$LEDGER" 2>/dev/null; then done_=$((done_+1))
     elif [ -z "$now" ] && grep -q "=== $t  ctx=" "$LEDGER" 2>/dev/null; then now=$t; fi
   done
   printf "   %s  %2d/%-2d%s\n" "$st" "$done_" "$total" "${now:+   running: $now}"
