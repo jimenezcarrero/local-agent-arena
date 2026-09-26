@@ -10,14 +10,25 @@ pressure without the kernel killing it (J2: swap exhausted, 16MB available,
 a turn that timed out while the server never took its request), and a turn can
 simply run out of time. Each restart gets one of:
 
-  oom-kill                 the server was dead and the kernel logged killing its PID
-  died, no kill record     the server was dead and the kernel logged no kill of it
+  oom-kill                 the server was dead and the kernel logged killing its
+                           PID, in the run's own boot, inside the turn
+  died, no kill record     the server was dead and the kernel logged no such kill
   died, kill log unreadable  the server was dead; the kernel log couldn't be read
-  timeout, swap exhausted  alive, the turn hit its cap, and the sampler saw swap
-                           run out during the turn (a memory stall is likely)
-  timeout, no memory pressure  alive, the turn hit its cap, swap never ran out
-  timeout, no memory samples   alive, the turn hit its cap, sampler not running
+  died, not attributable   the server was dead and the run records no boot_id
+  timeout, swap exhausted  alive, the turn hit its cap, and a sample taken
+                           during the turn saw swap at 0
+  timeout, swap not exhausted  alive, the turn hit its cap, and no sample taken
+                           during it saw swap at 0 (the detail shows how close)
+  timeout, no memory samples   alive, the turn hit its cap, no sample fell
+                           inside the turn (sampler off, or a short turn)
   unhealthy                alive but not answering /health, turn not timed out
+
+Kills are looked up in the run's own boot (`boot_id` in restarts.log, else in
+env.txt): a PID is reused across boots, and wall-clock stamps around a boot
+can be stale, so a time window alone could pick up another boot's kill.
+Memory state comes only from samples taken inside the turn: the sampler's
+avail/swap values are instantaneous, and a sample after the turn describes
+whatever ran next.
 
 The labels state evidence, not blame: "swap exhausted" says what the sampler
 saw during the turn, not that it alone caused the timeout. Runs recorded before
@@ -26,9 +37,9 @@ restarts.log existed are reported as unrecorded, never as clean.
 import datetime, glob, json, os, re, subprocess, sys
 
 
-def kernel_kill(pid, t0, t1):
+def kernel_kill(pid, boot, t0, t1):
     """True/False, or None when the kernel log can't be read."""
-    r = subprocess.run(["journalctl", "--system", "_TRANSPORT=kernel", "-o", "json",
+    r = subprocess.run(["journalctl", "--system", "_TRANSPORT=kernel", f"_BOOT_ID={boot}", "-o", "json",
                         "--since", f"@{int(t0) - 5}", "--until", f"@{int(t1) + 5}"],
                        capture_output=True, text=True)
     if r.returncode != 0:
@@ -51,21 +62,24 @@ def samples(path):
     return out
 
 
-def classify(rec, vm):
+def classify(rec, vm, env_boot):
     t0, t1 = float(rec["turn_start"]), float(rec["at"])
     if rec["server_alive"] == "no":
-        k = kernel_kill(rec["server_pid"], t0, t1)
+        boot = rec.get("boot_id") or env_boot
+        if not boot:
+            return "died, not attributable", "no boot_id recorded"
+        k = kernel_kill(rec["server_pid"], boot, t0, t1)
         return {True: "oom-kill", False: "died, no kill record", None: "died, kill log unreadable"}[k], ""
     if rec["rc"] != "124":
         return "unhealthy", f"rc={rec['rc']}"
-    during = [s for s in vm if t0 <= s[0] <= t1 + 60]   # the sampler writes once a minute
+    during = [s for s in vm if t0 <= s[0] <= t1]   # instantaneous values: inside the turn only
     if not during:
         return "timeout, no memory samples", ""
     detail = (f"min avail {min(s[1] for s in during)}MB, min swap free {min(s[2] for s in during)}MB, "
               f"max majflt {max(s[3] for s in during)}/min")
     if min(s[2] for s in during) == 0:
         return "timeout, swap exhausted", detail
-    return "timeout, no memory pressure", detail
+    return "timeout, swap not exhausted", detail
 
 
 def main(argv):
@@ -80,9 +94,12 @@ def main(argv):
         if not os.path.exists(log):
             print(f"{name:<34} " + (f"{n_logs} restart(s) NOT RECORDED (run predates restarts.log)" if n_logs else "no restarts"))
             continue
+        env = os.path.join(d, "env.txt")
+        env_boot = next((l.split(":", 1)[1].strip().replace("-", "") for l in open(env)
+                         if l.startswith("boot_id:")), None) if os.path.exists(env) else None
         for line in open(log):
             rec = dict(kv.split("=", 1) for kv in line.split())
-            cause, detail = classify(rec, vm)
+            cause, detail = classify(rec, vm, env_boot)
             print(f"{name:<34} restart {rec['restart']} after turn {rec['turn']}: {cause}" + (f"  ({detail})" if detail else ""))
 
 
