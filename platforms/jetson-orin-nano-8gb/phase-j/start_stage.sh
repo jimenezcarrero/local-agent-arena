@@ -59,7 +59,7 @@ fi
 # Why each server restart happened (kill, memory stall, timeout), from the
 # restarts.log the harness writes; the OOM audit only sees kernel kills.
 if [ -n "$START" ]; then
-  tags=$(DRY_RUN=1 "$HERE/run_closeout.sh" "$STAGE" | sed -E 's/.*run_model\.sh ([^ ]+).*/\1/')
+  tags=$(DRY_RUN=1 "$HERE/run_closeout.sh" "$STAGE" | sed -nE 's/.*run_model\.sh ([^ ]+).*/\1/p')
   dirs=$(for t in $tags; do ls -d "${BENCH_WORK:-$HOME/bench-runs}"/arena*/"$t"-a* 2>/dev/null; done)
   [ -n "$dirs" ] && "$REPO/suite/tools/restart_causes.py" $dirs > "$HERE/restart-causes-$STAGE.txt" 2>&1
   (cd "$REPO" && git add "$HERE/restart-causes-$STAGE.txt" \
