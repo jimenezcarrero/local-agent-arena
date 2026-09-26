@@ -10,7 +10,7 @@ if [ -s "$STATUS" ]; then tail -4 "$STATUS" | sed 's/^/   /'; else echo "   none
 
 echo "== steps done per stage"
 for st in J1 J2 J3 J4; do
-  tags=$(DRY_RUN=1 "$HERE/run_closeout.sh" "$st" | sed -E 's/.*run_model\.sh ([^ ]+).*/\1/')
+  tags=$(DRY_RUN=1 "$HERE/run_closeout.sh" "$st" | sed -nE 's/.*run_model\.sh ([^ ]+).*/\1/p')
   total=$(echo "$tags" | wc -l); done_=0; now=""
   for t in $tags; do
     if grep -qE "=== $t done|GATE $t:" "$LEDGER" 2>/dev/null; then done_=$((done_+1))
