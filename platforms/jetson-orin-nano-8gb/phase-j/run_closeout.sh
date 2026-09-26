@@ -131,9 +131,9 @@ fi
 
 if want J4; then
 # J4 — Bonsai-27B (6.8GB resident with --no-mmap) ---------------------------
-# One clean attempt at the 32K crusher; both earlier ones were OOM-damaged.
-# Then arenas 1-2: its only numbers are August's, with a desktop resident.
-run "4s" j-bonsai-32k 32768 0 "$PRISM" "${BON[@]}"
+# Scope narrowed after the J3 review, before any J4 measurement: the 32K
+# crusher is dropped (the precommitted stop condition was met, see README),
+# and arenas 1-2 x3 stay, scored by the unchanged frozen rule.
 for r in 1 2 3; do run "1 2" j-bonsai-med-r$r 32768 0 "$PRISM" "${BON[@]}"; done
 fi
 
