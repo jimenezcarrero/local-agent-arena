@@ -159,6 +159,8 @@ EOF
 manifest() {
   {
     echo "date: $(date -Is)"
+    # lets oom_exposure.py match the run to its boot even if the wall clock was wrong
+    echo "boot_id: $(tr -d - < /proc/sys/kernel/random/boot_id)"
     echo "host: $(hostname)  kernel: $(uname -r)  arch: $(uname -m)"
     echo "cpu: $(lscpu 2>/dev/null | awk -F: '/^Model name/{gsub(/^ +/,"",$2); print $2; exit}')  cores: $(nproc)"
     [ -r /proc/device-tree/model ] && echo "board: $(tr -d '\0' < /proc/device-tree/model)"
