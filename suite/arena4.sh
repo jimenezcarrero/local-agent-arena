@@ -15,7 +15,7 @@ free_pagecache
 start_server "$L/server.log" || { record "RESULT $LABEL: SERVER_FAILED"; exit 1; }
 power_start 1000; manifest
 
-slotctx() { curl -s "$API/slots" 2>/dev/null | python3 -c "
+slotctx() { curl -s -m 5 "$API/slots" 2>/dev/null | python3 -c "
 import json,sys
 def toks(o):
     best=0
@@ -28,7 +28,7 @@ def toks(o):
 try:
     s=json.load(sys.stdin)
     print(max((toks(x) for x in s), default=0) if isinstance(s,list) else toks(s))
-except Exception: print(0)"; }
+except Exception: print('n/a')"; }
 
 declare -a PROMPTS=(
 "IMPORTANT project rules for this whole session: (1) every NEW function you create must be named with the prefix 'ord_'. (2) The secret build tag is 'JETSON-77' — you will need it later. Now run 'python3 -m pytest tests/ -q' and report which tests fail and what modules they involve. Do not fix anything yet."
@@ -52,10 +52,12 @@ for i in $(seq 1 8); do
   fi
   RC=$?
   T1=$(date +%s)
-  if [ $RC -eq 124 ] || ! server_ok; then
-    restart_server || echo "TURN $LABEL #$i: server could not be restarted"
-  fi
+  # read the context BEFORE any restart: a restarted server reports an empty slot
+  # (J2: a turn that really reached 88,595 tokens was logged as 0)
   CTX=$(slotctx)
+  if [ $RC -eq 124 ] || ! server_ok; then
+    restart_server "$i" "$RC" "$T0" || echo "TURN $LABEL #$i: server could not be restarted"
+  fi
   NCOMP=$(grep -ho '"type":"compaction"' "$L"/pisessions/*.jsonl 2>/dev/null | wc -l)
   echo "TURN $LABEL #$i: time=$((T1-T0))s peak_slot_ctx=$CTX compactions_so_far=$NCOMP rc=$RC" | tee -a "$L/turns.log"
 done
