@@ -125,3 +125,9 @@ session to start it.
    boundary, not only the ones whose first run was slowest. That means
    NeoHorse (vendor) against Ornith-1.5 in arena 1 first, then K2 and
    NeoHorse (defaults), whose desktop runs sit in the median.
+## Decision (2026-09-26, after this review)
+
+The user chose to narrow J4 rather than skip it: the 32K crusher is dropped
+per the stop condition above, and Bonsai's arenas 1–2 ×3 run, scored by the
+unchanged frozen rule. Recorded in README.md's J4 section and in
+`run_closeout.sh` before any J4 measurement.
