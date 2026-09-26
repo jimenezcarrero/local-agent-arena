@@ -90,8 +90,15 @@ stop_server() { kill $SRV 2>/dev/null; wait $SRV 2>/dev/null; wait_port_free; }
 # A turn killed by `timeout`, or one the server rejected for exceeding the
 # context window, leaves the single slot wedged: later turns die in ~16s with
 # "Connection error". Restart so one bad turn cannot poison the rest of a run.
+#
+# restart_server <turn> <rc> <turn start, epoch s> records the facts behind each
+# restart in restarts.log — was the server still alive, the turn's exit code
+# and window — so tools/restart_causes.py can tell an OOM kill from a memory
+# stall from a plain timeout afterwards. The cause is decided there, not here.
 restart_server() {
   RESTARTS=$((RESTARTS+1))
+  local alive=yes; kill -0 "$SRV" 2>/dev/null || alive=no
+  echo "restart=$RESTARTS turn=${1:-?} rc=${2:-?} turn_start=${3:-?} at=$(date +%s) server_pid=$SRV server_alive=$alive" >> "$L/restarts.log"
   echo "TURN $LABEL: restarting server (wedged or unhealthy) [restart #$RESTARTS]"
   stop_server
   free_pagecache
