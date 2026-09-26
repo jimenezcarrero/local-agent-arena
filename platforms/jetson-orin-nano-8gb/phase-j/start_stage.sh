@@ -22,35 +22,39 @@ STAGE="${1:?usage: start_stage.sh <J1|J2|J3|J4|J5>}"
 case "$STAGE" in J1|J2|J3|J4|J5) ;; *) echo "unknown stage: $STAGE"; exit 2;; esac
 note() { echo "$(date -Is) $STAGE: $*" | tee -a "$HOME/closeout-status.txt"; }
 
-# One stage at a time, from queueing through its review. J4 was launched twice
-# and the second launch truncated the first one's logs; the queue guard caught
-# the overlap, but nothing should get that far. The lock is a directory
-# (mkdir is atomic) holding the stage name and the detached process's PID.
+# One stage at a time, from queueing through its review (J4 was launched twice;
+# the second launch truncated the first one's logs). The lock is an flock on
+# ~/.closeout-stage.lock held through file descriptor 9, which every process of
+# the stage inherits: this wrapper, the queue, the publisher, each llama-server.
+# The kernel releases it only when the last of them exits, so a killed wrapper
+# cannot free it while the workload still runs, and no stale lock can exist.
+# Two processes are started without fd 9 on purpose: the swap sampler, which
+# would outlive a crashed queue, and the review's Claude, which this wrapper
+# waits for, still holding the lock.
 LOCK="$HOME/.closeout-stage.lock"
 if [ "${2:-}" != --detached ]; then
-  if ! mkdir "$LOCK" 2>/dev/null; then
-    held=$(cat "$LOCK/pid" 2>/dev/null); age=$(( $(date +%s) - $(stat -c %Y "$LOCK" 2>/dev/null || echo 0) ))
-    if { [ -n "$held" ] && kill -0 "$held" 2>/dev/null; } || { [ -z "$held" ] && [ "$age" -lt 60 ]; }; then
-      echo "REFUSING: stage $(cat "$LOCK/stage" 2>/dev/null) is already queued, running or under review (PID ${held:-starting}). One stage at a time."
-      exit 2
-    fi
-    echo "Removing a stale stage lock (PID ${held:-none} is gone)."
-    rm -rf "$LOCK"; mkdir "$LOCK" || exit 2
+  exec 9>>"$LOCK"
+  if ! flock -n 9; then
+    echo "REFUSING: a stage is already queued, running or under review ($(cat "$LOCK.info" 2>/dev/null)). One stage at a time."
+    exit 2
   fi
-  echo "$STAGE" > "$LOCK/stage"
-  setsid nohup "$0" "$STAGE" --detached >> "$HOME/closeout-$STAGE.log" 2>&1 < /dev/null &
-  echo "Stage $STAGE queued: it starts once Claude Code has exited and the desktop is off."
+  echo "stage $STAGE, queued $(date -Is) by PID $$" > "$LOCK.info"
+  setsid nohup "$0" "$STAGE" --detached >> "$HOME/closeout-$STAGE.log" 2>&1 < /dev/null &   # inherits fd 9
+  if [ -n "${ALLOW_CLAUDE:-}" ]; then
+    echo "Stage $STAGE queued (attended: Claude Code may stay running): it starts once the desktop is off."
+  else
+    echo "Stage $STAGE queued: it starts once Claude Code has exited and the desktop is off."
+  fi
   echo "Log ~/closeout-$STAGE.log, status ~/closeout-status.txt"
   exit 0
 fi
 
-# Wait for both: Claude Code's memory, and the desktop's (~1.4GB). Starting
-# when only Claude had exited let J1 start in the gap before going headless.
-echo $$ > "$LOCK/pid"
-trap 'rm -rf "$LOCK"' EXIT   # released after the hand-off, so a review can't overlap a stage
-trap 'exit 143' TERM INT       # so a killed stage still runs the EXIT trap and frees the lock
-note "queued; waiting for Claude Code to exit and the desktop to stop"
-while pgrep -x claude >/dev/null || systemctl is-active -q graphical.target; do sleep 30 & wait $!; done  # wait: signals interrupt it
+# Wait for the desktop (~1.4GB) and, unless ALLOW_CLAUDE=1 (an attended stage,
+# for a model small enough that Claude's ~400MB is immaterial), for Claude Code
+# to exit. Starting when only Claude had exited let J1 start before headless.
+if [ -n "${ALLOW_CLAUDE:-}" ]; then note "queued (attended); waiting for the desktop to stop"
+else note "queued; waiting for Claude Code to exit and the desktop to stop"; fi
+while { [ -z "${ALLOW_CLAUDE:-}" ] && pgrep -x claude >/dev/null; } || systemctl is-active -q graphical.target; do sleep 30 & wait $!; done
 note "starting"
 "$HERE/run_closeout.sh" "$STAGE" &
 QUEUE_PID=$!

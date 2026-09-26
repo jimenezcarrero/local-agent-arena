@@ -86,7 +86,7 @@ BON=(-m "$M/Bonsai-27B-Q1_0.gguf" "${BASE[@]}" --no-mmap)
 if [ -z "${DRY_RUN:-}" ]; then
   START=$(date '+%Y-%m-%dT%H:%M:%S')
   echo "=== Phase J $STAGE start $START  free: $(free -m | awk 'NR==2{print $7}')MB"
-  "$S/tools/vmstat_sampler.sh" >> "${BENCH_WORK:-$HOME/bench-runs}/vmstat.log" 2>&1 &
+  "$S/tools/vmstat_sampler.sh" >> "${BENCH_WORK:-$HOME/bench-runs}/vmstat.log" 2>&1 9>&- &   # no stage lock
   SAMPLER=$!
 fi
 
@@ -143,6 +143,10 @@ if want J5; then
 # the vendor's Think profile (the template thinks by default and pi does not
 # set enable_thinking); llama.cpp guide flags: temp 0.9, top_p 0.95, min_p 0.
 MC=(-m "$M/MiniCPM5-1B-Q8_0.gguf" "${BASE[@]}" --temp 0.9 --top-p 0.95 --min-p 0)
+# the decision reads only ledger lines written from here on, so an earlier or
+# interrupted J5 can't answer for this one
+J5_LEDGER="${BENCH_WORK:-$HOME/bench-runs}/results.txt"
+J5_FROM=$(( $(wc -l < "$J5_LEDGER" 2>/dev/null || echo 0) + 1 ))
 # arenas 1-2 x3 for medians (the arena-1 gate applies, per the frozen rule)
 for r in 1 2 3; do run "1 2" j-minicpm5-med-r$r 32768 0 "$MASTER" "${MC[@]}"; done
 # session cells x3, run apart from the arena-1 gate
@@ -161,20 +165,26 @@ ladder() {  # ladder <tag prefix> <server-args array name>
   for r in 1 2 3; do run "3 4s" $1-r$r 32768 0 "$MASTER" "${A[@]}"; done
   for r in 1 2 3; do run "4b" $1-big-r$r 32768 131072 "$MASTER" "${A[@]}"; done
 }
-skip() {  # skip <tag prefix>: the branch not taken
+skip() {  # skip <tag prefix> <why>: a branch not run
   local t
   for t in $1-med-r{1,2,3} $1-r{1,2,3} $1-big-r{1,2,3}; do
-    echo "=== $t skipped (J5 decision)" | tee -a "${BENCH_WORK:-$HOME/bench-runs}/results.txt"
+    echo "=== $t skipped ($2)" | tee -a "$J5_LEDGER"
   done
 }
 if [ -n "${DRY_RUN:-}" ]; then
   ladder j-minicpm5-q4 M4; ladder j-minicpm5-f16 MF     # both possible branches
-elif "$HERE/j5_decision.py" "${BENCH_WORK:-$HOME/bench-runs}/results.txt"; then
-  echo "=== J5 decision: all Q8 cells passed -> Q4_K_M" | tee -a "${BENCH_WORK:-$HOME/bench-runs}/results.txt"
-  ladder j-minicpm5-q4 M4; skip j-minicpm5-f16
 else
-  echo "=== J5 decision: not all Q8 cells passed -> F16" | tee -a "${BENCH_WORK:-$HOME/bench-runs}/results.txt"
-  skip j-minicpm5-q4; ladder j-minicpm5-f16 MF
+  # 0 and 1 are the two scientific outcomes; anything else is a tooling or
+  # evidence error, which must not choose an experiment: J5 stops there.
+  "$HERE/j5_decision.py" "$J5_LEDGER" --from-line "$J5_FROM"; D=$?
+  case $D in
+    0) echo "=== J5 decision: all Q8 cells passed -> Q4_K_M" | tee -a "$J5_LEDGER"
+       ladder j-minicpm5-q4 M4; skip j-minicpm5-f16 "J5 decision" ;;
+    1) echo "=== J5 decision: not all Q8 cells passed -> F16" | tee -a "$J5_LEDGER"
+       skip j-minicpm5-q4 "J5 decision"; ladder j-minicpm5-f16 MF ;;
+    *) echo "=== J5 decision ERROR (exit $D): no second ladder run" | tee -a "$J5_LEDGER"
+       skip j-minicpm5-q4 "J5 decision error"; skip j-minicpm5-f16 "J5 decision error"; J5_ERROR=1 ;;
+  esac
 fi
 fi
 
@@ -182,3 +192,4 @@ fi
 kill "$SAMPLER" 2>/dev/null
 echo "=== Phase J $STAGE done $(date -Is)"
 echo "$START" > "${BENCH_WORK:-$HOME/bench-runs}/.phase-j-$STAGE.start"   # for start_stage.sh
+[ -n "${J5_ERROR:-}" ] && exit 3   # the J5 decision failed: the review must see it

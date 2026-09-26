@@ -22,12 +22,13 @@ if [ -z "${CLAUDE_SESSION:-}" ] || [ -z "${CLAUDE_CWD:-}" ] || [ ! -x "${CLAUDE_
   note "review NOT started: $CONF is missing CLAUDE_SESSION, CLAUDE_CWD or CLAUDE_BIN. Run 'claude --resume' and ask for the $STAGE review."
   exit 1
 fi
-if [ -z "${ALLOW_CLAUDE:-}" ] && pgrep -x claude >/dev/null; then
+# (not ALLOW_CLAUDE: an attended stage sets that, and must never start a second Claude)
+if [ -z "${HANDOFF_TEST_ALLOW_CLAUDE:-}" ] && pgrep -x claude >/dev/null; then
   note "review NOT started: Claude Code is already running on this board. Ask that session for the $STAGE review."
   exit 1
 fi
 PROMPT="$(sed -e "s/{STAGE}/$STAGE/g" -e "s/{NEXT}/$NEXT/g" -e "s/{RC}/$RC/g" "$PROMPT_FILE")"
 note "headless review started (session ${CLAUDE_SESSION:0:8})"
 cd "$CLAUDE_CWD" && timeout 60m "$CLAUDE_BIN" -p --resume "$CLAUDE_SESSION" \
-  --permission-mode auto "$PROMPT" < /dev/null > "$HOME/closeout-review-$STAGE.log" 2>&1
+  --permission-mode auto "$PROMPT" < /dev/null > "$HOME/closeout-review-$STAGE.log" 2>&1 9>&-   # the wrapper waits and keeps the lock
 note "review finished, exit=$? (its reply: ~/closeout-review-$STAGE.log)"
