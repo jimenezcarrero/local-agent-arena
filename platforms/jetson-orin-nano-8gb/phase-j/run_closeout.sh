@@ -40,8 +40,16 @@ if [ -z "${DRY_RUN:-}" ]; then
     || fail "this account can't read the kernel log, so every run's OOM exposure would be unknown. sudo usermod -aG adm $USER, then log in again"
   [ "$(loginctl show-user "$USER" -p Linger --value)" = yes ] \
     || fail "lingering is off, so the batch dies at logout. sudo loginctl enable-linger $USER"
-  grep -q btime "$S/tools/oom_exposure.py" \
-    || fail "suite/tools/oom_exposure.py predates the boot-clock fix (PR #13). git pull first."
+  # kernel_from exists only in the final #14; its first version (4f7b6c9) had
+  # "clock segment" too, and two false-zero paths
+  grep -q "kernel_from" "$S/tools/oom_exposure.py" \
+    || fail "suite/tools/oom_exposure.py predates the final PR #14 coverage fixes: merge main into this branch first."
+  # J1's audit was shifted by an overnight suspend requested from the desktop.
+  # This removes the known idle path (logind's own idle action); explicit
+  # requests, keys or lid switches can still suspend the board, and then
+  # oom_exposure.py marks the affected run unknown rather than miscounting it.
+  [ "$(busctl get-property org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager IdleAction 2>/dev/null)" = 's "ignore"' ] \
+    || fail "logind's IdleAction is not 'ignore', so the board could idle-suspend mid-stage. Check /etc/systemd/logind.conf."
   [ -z "${ALLOW_DESKTOP:-}" ] && systemctl is-active -q graphical.target \
     && fail "the desktop is running (~1.4GB). sudo systemctl isolate multi-user.target"
   [ -z "${ALLOW_CLAUDE:-}" ] && pgrep -x claude >/dev/null \

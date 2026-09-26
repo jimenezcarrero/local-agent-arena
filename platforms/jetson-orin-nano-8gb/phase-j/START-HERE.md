@@ -30,13 +30,13 @@ loginctl show-user $USER -p Linger            # Linger=yes
 
 ## 2. Get the code
 
-Merge PR #13 on GitHub first (the batch's OOM audit depends on it). Then:
+Merge PRs #13 and #14 on GitHub first (the batch's OOM audit depends on them). Then:
 
 ```bash
 cd ~/Repositories/local-agent-arena
 git fetch && git checkout jetson-closeout && git pull
-git merge --no-edit origin/main && git push    # brings in #13
-grep -c btime suite/tools/oom_exposure.py      # must be ≥1, or the batch refuses
+git merge --no-edit origin/main && git push    # brings in #13 and #14
+grep -c kernel_from suite/tools/oom_exposure.py      # must be ≥1 (final PR #14), or the batch refuses
 ```
 
 ## 3. Start J1, then exit Claude Code
