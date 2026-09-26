@@ -1,0 +1,37 @@
+# J5 model files — MiniCPM5-1B, official GGUFs (openbmb/MiniCPM5-1B-GGUF, card revision 3d55fac80935)
+
+MiniCPM5-1B-Q8_0.gguf  1153529216 bytes  sha256 0dc7638539067268774c275a14a6ec9c7e01f7eeb2cff606c8590361fa527e4c
+MiniCPM5-1B-F16.gguf  2166551936 bytes  sha256 68c40b08b1242754a107b9510af89aa75b10c75843ca7844643c70956b7f1e3d
+MiniCPM5-1B-Q4_K_M.gguf  688065920 bytes  sha256 81b64d05a23b17b34c475f42b3e72fbde62d4b92cc34541f7a8031d0752deafa
+(Q4_K_M was measured, not run: see README J5)
+
+## Sampling check (suite/check_sampling.sh)
+# checked 2026-09-26T22:54:49+02:00
+## GGUF: MiniCPM5-1B-Q8_0.gguf
+  embedded sampling: none — llama.cpp defaults apply unless you pass flags
+## card: openbmb/MiniCPM5-1B-GGUF
+  revision: 3d55fac80935 2026-08-17T09:59:27.000Z
+  | **No Think** | `temperature=0.7, top_p=0.95` | `enable_thinking=False` |
+  "temperature": 0.7
+  | **Think** | `temperature=0.9, top_p=0.95` | `enable_thinking=True` |
+## card: openbmb/MiniCPM5-1B
+  revision: 87179e5c1f45 2026-08-17T09:59:02.000Z
+  | **No Think** | `temperature=0.7, top_p=0.95` | `enable_thinking=False` |
+  "temperature": 0.7
+  | **Think** | `temperature=0.9, top_p=0.95` | `enable_thinking=True` |
+## llama.cpp defaults if nothing above applies: temp 0.8, top_k 40, top_p 0.95, min_p 0.05, no penalties
+## after starting the server, confirm with: curl -s localhost:8080/props | grep -oE '"(temperature|top_k|top_p|min_p|presence_penalty)":[^,]*'
+
+## Tool-call probe, llama.cpp master 1af554f8, --jinja, Q8_0 (2026-09-26)
+7/7 requests offering a bash tool came back as parsed tool_calls (finish_reason=tool_calls):
+enable_thinking=false x1, true x3, unset (template default: the model thinks) x3.
+
+## llama-bench, campaign flags (-ngl 99 -fa 1 -ctk q4_0 -ctv q4_0 -b 512 -ub 128), tok/s
+| | Q4_K_M | Q8_0 | F16 |
+|---|---|---|---|
+| pp512 @0 | 2195 | 2429 | 2232 |
+| pp512 @8K | 1559 | 1649 | 1653 |
+| pp512 @16K | 1169 | 1229 | 1225 |
+| tg128 @0 | 63.1 | 49.3 | 29.9 |
+| tg128 @8K | 36.2 | 31.2 | 22.2 |
+| tg128 @16K | 22.7 | 23.0 | 17.7 |
