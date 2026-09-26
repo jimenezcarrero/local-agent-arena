@@ -128,7 +128,7 @@ unless J2–J3 give a reason to reconsider.
 
 - **Audit tool fixed** in PR #14 (`suite-oom-suspend`): kills and runs are
   matched within clock segments, so a suspend can't move a kill; runs record
-  `boot_id:`; 18 regression tests, including a suspend in the running boot.
+  `boot_id:`; 21 regression tests, including a suspend in the running boot.
 - **`oom-exposure-J1.txt` regenerated** with that tool from the same persistent
   journal: **11 kills in 10 runs**, identical run by run to the attribution
   table above.
