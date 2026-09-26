@@ -56,4 +56,15 @@ else
   note "no stage start marker: the queue never started (see ~/closeout-$STAGE.log)"
 fi
 
+# Why each server restart happened (kill, memory stall, timeout), from the
+# restarts.log the harness writes; the OOM audit only sees kernel kills.
+if [ -n "$START" ]; then
+  tags=$(DRY_RUN=1 "$HERE/run_closeout.sh" "$STAGE" | sed -E 's/.*run_model\.sh ([^ ]+).*/\1/')
+  dirs=$(for t in $tags; do ls -d "${BENCH_WORK:-$HOME/bench-runs}"/arena*/"$t"-a* 2>/dev/null; done)
+  [ -n "$dirs" ] && "$REPO/suite/tools/restart_causes.py" $dirs > "$HERE/restart-causes-$STAGE.txt" 2>&1
+  (cd "$REPO" && git add "$HERE/restart-causes-$STAGE.txt" \
+     && git commit -q -m "phase-j $STAGE: restart causes" && git push -q origin HEAD) \
+     || note "restart-causes commit/push FAILED (or no runs)"
+fi
+
 "$HERE/handoff.sh" "$STAGE" "$RC"

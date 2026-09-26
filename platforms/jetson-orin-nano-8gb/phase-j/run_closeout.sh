@@ -42,6 +42,8 @@ if [ -z "${DRY_RUN:-}" ]; then
     || fail "lingering is off, so the batch dies at logout. sudo loginctl enable-linger $USER"
   # kernel_from exists only in the final #14; its first version (4f7b6c9) had
   # "clock segment" too, and two false-zero paths
+  [ -x "$S/tools/restart_causes.py" ] && grep -q "restarts.log" "$S/lib.sh" \
+    || fail "the suite predates the J2 follow-ups (PR #16: restart causes, arena-4 peak, median rule): merge main into this branch first."
   grep -q "kernel_from" "$S/tools/oom_exposure.py" \
     || fail "suite/tools/oom_exposure.py predates the final PR #14 coverage fixes: merge main into this branch first."
   # J1's audit was shifted by an overnight suspend requested from the desktop.
