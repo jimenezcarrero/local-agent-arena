@@ -14,12 +14,12 @@ Each platform tier has its own results. Tiers are never ranked against each othe
 | 8GB unified | NVIDIA Jetson Orin Nano (JetPack 7.2, CUDA) | done: 16 models / 5 engines (Aug 2026), then round two re-audited 13 rows and added MiniCPM5-1B (Sept 2026) | [platforms/jetson-orin-nano-8gb](platforms/jetson-orin-nano-8gb/README.md) |
 | 32GB unified | Intel Core Ultra 5 238V laptop (Arc 130V, Vulkan) | runbook ready (configuration search S0–S4), not started | [platforms/lunar-lake-32gb](platforms/lunar-lake-32gb/RUNBOOK.md) |
 
-![Jetson Orin Nano 8GB results, August 2026](platforms/jetson-orin-nano-8gb/results-chart.png)
+![Jetson Orin Nano 8GB results, September 2026 (final)](platforms/jetson-orin-nano-8gb/charts/results-chart-2026-09.png)
 
-*The August chart. Round two's audited results, with arena 1–2 medians under
-a rule fixed before the numbers came in, are in the
-[Jetson README](platforms/jetson-orin-nano-8gb/README.md#round-two--september-2026-final);
-a redrawn chart is pending.*
+*Round two, final: arena 1–2 medians under a rule fixed before the numbers
+came in, session pass counts over every run, interruptions per cell. Details in
+the [Jetson README](platforms/jetson-orin-nano-8gb/README.md#round-two--september-2026-final);
+the August chart is kept there as history.*
 
 ## What the Jetson tier found
 

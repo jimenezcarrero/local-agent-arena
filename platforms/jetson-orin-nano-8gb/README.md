@@ -25,11 +25,12 @@ fixed before the final numbers came in. Write-ups:
 review each ([J1](phase-j/review-J1.md), [J2](phase-j/review-J2.md),
 [J3](phase-j/review-J3.md), [J4](phase-j/review-J4.md), [J5](phase-j/review-J5.md)).
 
-> The September chart below predates phase J: its arena 1–2 medals come from
-> single runs, which J3's medians overturned. A redraw from the frozen medians
-> is the next change.
+![September 2026 results matrix, final](charts/results-chart-2026-09.png)
 
-![September 2026 results matrix (pre-phase-J)](charts/results-chart-2026-09.png)
+Arena 1–2 cells show the pass count and median of three first attempts under
+the frozen rule (*mixed* = one attempt had a desktop resident); session cells
+show pass counts over every run with interruptions; medals in arenas 3–4 go to
+the fastest qualifying run.
 
 ### Arenas 1–2: medians under the frozen rule
 
