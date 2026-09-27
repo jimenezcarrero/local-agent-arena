@@ -35,10 +35,12 @@ a redrawn chart is pending.*
   Round two made it policy: three attempts per cell, pass counts, and arena 1–2
   medians under a rule fixed before the results. Single-run medals and a ~3×
   speed claim (now ~1.4×) did not survive it.
-- **8GB is a hard wall for 9B agent sessions.** With the desktop off and
-  nothing else running, a 9B model at 65K still lost a marathon turn to an OOM
-  kill in every run. Small models (1–4B) fit; whether they can do the job is a
-  separate question — MiniCPM5-1B, new in round two, failed every cell.
+- **Whether a model fits is a property of the configuration, not the
+  parameter count.** Two 9B models at 65K: Ornith-1.5 IQ4_XS took an OOM kill
+  in every marathon even on a fully free board, while the lighter Ornith-1.0
+  IQ3_M completed its sessions with no server restarts. Quantization, window
+  and runtime overhead decide the fit. Fitting is also not the same as working:
+  MiniCPM5-1B, new in round two, fits easily and failed every cell.
 - **Audit the evidence, including the auditor.** Kill records must survive a
   reboot (a volatile journal lost phase A's), and the exposure tool once
   reported 11 real kills as 0 after an overnight suspend; it was fixed and
