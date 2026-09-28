@@ -359,6 +359,32 @@ systemd-inhibit --what=idle:sleep:handle-lid-switch --why=bench \
     -m ~/models/<file>.gguf <native or parity flags>
 ```
 
+### Low priority: MiMo-V2.6-Distill-Qwen-9B, gated on a tool-call probe
+
+Xiaomi's Qwen3.5-9B fine-tune (`bartowski/MiMo-V2.6-Distill-Qwen-9B-GGUF`,
+vendor sampling `--temp 0.6 --top-k 20 --top-p 0.95 --min-p 0`, thinking left
+at the template default). It was not run on the Jetson: with llama.cpp
+`1af554f8` its compact tool-call tags are misparsed and most calls run to the
+token limit (evidence: `platforms/jetson-orin-nano-8gb/phase-j/files-J6.txt`).
+Here, with Q6_K, first run this probe against the laptop's `llama-server`
+(`--jinja`, the vendor sampling), 10 times:
+
+```bash
+for i in $(seq 10); do curl -s localhost:8080/v1/chat/completions -H 'Content-Type: application/json' -d '{
+ "max_tokens": 400,
+ "messages": [{"role":"system","content":"You are a coding agent. Use the bash tool to act."},
+              {"role":"user","content":"List the files in the current directory."}],
+ "tools": [{"type":"function","function":{"name":"bash","description":"Run a shell command",
+   "parameters":{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}}}]}' \
+ | python3 -c 'import json,sys; c=json.load(sys.stdin)["choices"][0]; t=c["message"].get("tool_calls") or []; print(c["finish_reason"], t[0]["function"]["arguments"] if t else "-")'; done
+```
+
+A pass is `tool_calls` with a plain command such as `{"command":"ls -la"}`; a
+fail is `length`, or arguments containing `</parameter>`. **10/10 → run the
+B0 ladder for it (tag `mimo9-q6-vp`). Anything less → record "tool calls
+misparsed by llama.cpp <commit>" and do not run it.** The probe decides; the
+arenas never see a model whose tool calls the engine can't read.
+
 ## Rules
 
 1. **Don't edit any script while a run is using it.** Wait for the run to finish.
