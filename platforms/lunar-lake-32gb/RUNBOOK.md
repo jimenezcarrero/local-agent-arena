@@ -361,29 +361,53 @@ systemd-inhibit --what=idle:sleep:handle-lid-switch --why=bench \
 
 ### Low priority: MiMo-V2.6-Distill-Qwen-9B, gated on a tool-call probe
 
-Xiaomi's Qwen3.5-9B fine-tune (`bartowski/MiMo-V2.6-Distill-Qwen-9B-GGUF`,
-vendor sampling `--temp 0.6 --top-k 20 --top-p 0.95 --min-p 0`, thinking left
-at the template default). It was not run on the Jetson: with llama.cpp
-`1af554f8` its compact tool-call tags are misparsed and most calls run to the
-token limit (evidence: `platforms/jetson-orin-nano-8gb/phase-j/files-J6.txt`).
-Here, with Q6_K, first run this probe against the laptop's `llama-server`
-(`--jinja`, the vendor sampling), 10 times:
+Xiaomi's Qwen3.5-9B fine-tune. It was not run on the Jetson with the stock
+llama.cpp/template path: the pinned build routed its template to the
+Qwen3-Coder tool-call parser, which misreads MiMo's compact tags (evidence and
+upstream references in `platforms/jetson-orin-nano-8gb/phase-j/files-J6.txt`;
+llama.cpp issue #29319; detection fixed upstream in #29257, release b11102).
+Here it enters B0 only through this gate, **fixed before any laptop run**.
 
-```bash
-for i in $(seq 10); do curl -s localhost:8080/v1/chat/completions -H 'Content-Type: application/json' -d '{
- "max_tokens": 400,
- "messages": [{"role":"system","content":"You are a coding agent. Use the bash tool to act."},
-              {"role":"user","content":"List the files in the current directory."}],
- "tools": [{"type":"function","function":{"name":"bash","description":"Run a shell command",
-   "parameters":{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}}}]}' \
- | python3 -c 'import json,sys; c=json.load(sys.stdin)["choices"][0]; t=c["message"].get("tool_calls") or []; print(c["finish_reason"], t[0]["function"]["arguments"] if t else "-")'; done
-```
+**File, frozen:** `bartowski/MiMo-V2.6-Distill-Qwen-9B-GGUF` at revision
+`4371da10c84fb26da3592d4cf312d24aa82b7b65`,
+`MiMo-V2.6-Distill-Qwen-9B-Q6_K.gguf`, 7793710624 bytes, sha256
+`ef96d05a2ddf2cbb450d1af1ac3860ec769d3575bafa70692ee5609bda3fad7d`.
+Check `sha256sum` before the first probe; a different file is a different
+experiment. **Sampling:** the vendor's `--temp 0.6 --top-k 20 --top-p 0.95`
+(also embedded in the GGUF) plus `--min-p 0` (the vendor sets none); thinking
+at the template default (on). **Flags:** `native`, 32K window for the probes.
 
-A pass is `tool_calls` with a plain command such as `{"command":"ls -la"}`; a
-fail is `length`, or arguments containing `</parameter>`. **10/10 → run the
-B0 ladder for it (tag `mimo9-q6-vp`). Anything less → record "tool calls
-misparsed by llama.cpp <commit>" and do not run it.** The probe decides; the
-arenas never see a model whose tool calls the engine can't read.
+**Evidence:** everything goes to
+`platforms/lunar-lake-32gb/phase-b0/mimo-probe.txt` (raw responses beside it
+as `mimo-probe.txt.<step>.jsonl`), written by
+[`tools/probe_toolcalls.py`](tools/probe_toolcalls.py): the server build, the
+model path, the chat template's sha256, the sha256 of a fixed conversation as
+the server renders it, the effective sampling, and each probe's class. Commit
+it whatever the outcome.
+
+1. **Stock template.** Start the server with the vendor sampling and no
+   template override, then, from `platforms/lunar-lake-32gb/`,
+   `tools/probe_toolcalls.py probe stock phase-b0/mimo-probe.txt`.
+   **10/10 pass → run the B0 ladder, tag `mimo9-q6-vp`.**
+2. **Only if step 1 failed and at least one failure is `sig-29319`**
+   (finish `length` with leaked `</parameter>`: the known parser mismatch),
+   apply the #29319 template workaround:
+   `tools/probe_toolcalls.py workaround ~/models/mimo-29319.jinja` against the
+   running stock server, restart it with `--chat-template-file
+   ~/models/mimo-29319.jinja`, then
+   `tools/probe_toolcalls.py probe workaround phase-b0/mimo-probe.txt`.
+   The two "rendered fixed conversation" hashes must be identical (the
+   workaround may change parser detection, never the prompt); if they differ,
+   stop and skip MiMo. **10/10 pass → run the B0 ladder under exactly that
+   template, tag `mimo9-q6-vp-tpl29319`, and label every result with the
+   template's sha256.** Otherwise skip MiMo.
+3. **Any other failure** (step 1 failed with no `sig-29319`, or step 2
+   failed): the probe failed; record the failure classes from the evidence
+   file (`no-call`, `server-error`, `other`) and skip MiMo. Call it the known
+   parser mismatch only where the probes show `sig-29319`.
+
+The probe decides whether the model enters the benchmark; the arenas never
+see a model whose tool calls the engine can't read.
 
 ## Rules
 
