@@ -17,7 +17,9 @@
 Classes: pass (finish=tool_calls, known tool, JSON arguments, no leaked tags);
 sig-29319 (finish=length and a leaked '</parameter>' in the arguments or text:
 the known parser mismatch); no-call (finished without a tool call);
-server-error; other.
+server-error; other (including arguments that aren't an object with a
+non-empty string "command"). If /props or /apply-template fails, the evidence
+file still gets a header-error block and the exit code is 2.
 """
 import hashlib, json, sys, urllib.request
 
@@ -54,8 +56,11 @@ def classify(r):
             if t["function"]["name"] != "bash" or "</" in a or "<tool_call>" in a:
                 return "other"
             try:
-                json.loads(a)
-            except ValueError:
+                obj = json.loads(a)
+            except (ValueError, TypeError):
+                return "other"
+            # the declared schema: an object with a non-empty string command
+            if not isinstance(obj, dict) or not isinstance(obj.get("command"), str) or not obj["command"].strip():
                 return "other"
         return "pass"
     if not calls and fin == "stop":
@@ -73,7 +78,15 @@ def header(url):
 
 
 def probe(label, out, url, n):
-    p, tmpl, rendered, samp = header(url)
+    try:
+        p, tmpl, rendered, samp = header(url)
+    except Exception as e:  # the gate's evidence is written whatever fails
+        err = f"{type(e).__name__}: {e}"
+        with open(out, "a") as f:
+            f.write(f"## {label}\nheader error (/props or /apply-template): {err}\n"
+                    f"RESULT {label}: header-error, no probes run\n\n")
+        print(f"RESULT {label}: header-error ({err})")
+        return 2
     lines = [f"## {label}",
              f"build: {p.get('build_info', 'unknown')}",
              f"model: {p.get('model_path', 'unknown')}",
