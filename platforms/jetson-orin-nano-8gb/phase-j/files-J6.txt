@@ -59,7 +59,23 @@ think=None finish=length calls=['{"command":"ls -la\\n</parameter></function></t
 0/10 parsed tool_calls
 
 ## Reading
-Thinking unset (what pi sends): 4 clean of at least 9 on the vendor template, 0/10 on the base
-template. The model emits its trained compact tag format whichever template asks; the fault is
-in this llama.cpp build's handling of it. Upstream master (checked 2026-09-28) has MiMo-V2.6
-conversion support (#29257) but no parser change for it. Not run on this board; see README.
+Thinking unset (what pi sends), vendor template: 4/9 clean (A 3/3, B 0/2, C 1/4); base Qwen3.5
+template: 0/10. The model emits its trained compact tag format whichever template asks.
+
+Cause, identified independently upstream: llama.cpp issue #29319 (opened 2026-09-23, closed) --
+common/chat.cpp detects the Qwen3-Coder XML parser by substring (<tool_call>, <function=,
+<parameter=) in the template source; MiMo's template contains all three, but its compact tags lack
+the newlines that parser requires, so a call never closes and generation runs to max_tokens. The
+issue documents a no-rebuild workaround: split the literal '<function=' in the template source
+(e.g. '<tool_call><func' ~ 'tion=' ~ tool_call.name) so detection no longer selects Qwen3-Coder
+while the rendered prompt is unchanged. Upstream #29257 (merged 2026-09-22, release b11102, after
+this campaign's pinned 1af554f8) fixes the detection in common/chat.cpp by excluding MiMo's compact
+form.
+
+Correction, same day: an earlier version of this file said #29257 carried "conversion support but
+no parser change"; that came from its title, and was wrong -- it changes common/chat.cpp for
+exactly this.
+
+Neither the workaround nor the upstream fix was evaluated in this Jetson campaign. MiMo was not run
+here with the stock llama.cpp/template path; moving it to the laptop tier is a scope decision, not
+a finding that it can't be tested on this board.
