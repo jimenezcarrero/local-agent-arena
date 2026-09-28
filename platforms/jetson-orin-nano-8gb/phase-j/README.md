@@ -163,3 +163,9 @@ in the [Jetson README](../README.md#round-two--september-2026-final).
 - [review-J5](review-J5.md) and [J5-nothink-check](J5-nothink-check.md):
   MiniCPM5-1B fails in this stack at Q8_0 and F16, and the vendor's No-Think
   profile did not rescue it.
+- [files-J6](files-J6.txt): **MiMo-V2.6-Distill-Qwen-9B, considered for a J6
+  and not run.** A pre-stage smoke test found its tool calls break in this
+  llama.cpp build (compact tag format misparsed; 4 clean of at least 9 probes
+  with the vendor template, 0/10 with the base Qwen3.5 template). A stage would
+  have measured the parser, not the model, so no board time was spent on it;
+  it moves to the laptop tier.
