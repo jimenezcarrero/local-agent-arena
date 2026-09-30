@@ -142,20 +142,32 @@ suite refuses to run under any directory with an `AGENTS.md`/`CLAUDE.md` above i
 Every phase's rules are fixed before its first run; thresholds are frozen from
 earlier measurements, never after seeing the results they judge.
 
-### V0b: setup sanity check against Arduino's numbers
+### V0b: setup sanity check against Arduino's published figures
 
-Reproduce Arduino's measurement before trusting any route: Qwen2.5-1.5B-Instruct
-**pure Q4_0**, made exactly as its tutorial says (the fp16 GGUF, then
+A sanity check, not a reproduction: it catches a route that is badly
+mis-set-up before anything is measured on it. The model is Qwen2.5-1.5B-Instruct
+**pure Q4_0**, made as Arduino's tutorial says (the fp16 GGUF, then
 `llama-quantize --pure ... Q4_0`; the ready-made Q4_0 keeps some tensors at
-higher precision). Arduino, Ubuntu 24.04, same file: llama.cpp OpenCL/GPU
-7.4 tok/s; GenieX GPU 9.2, CPU 11.4, CPU+NPU ("hybrid") 13.9, NPU ~25.
+higher precision). Arduino's figures, Ubuntu 24.04, that file: llama.cpp
+OpenCL/GPU 7.4 tok/s; GenieX GPU 9.2, CPU 11.4, CPU+NPU ("hybrid") 13.9, NPU
+~25.
 
-Measure each installed route's generation speed with
+Start the servers as close to Arduino's setup as the tools allow: llama.cpp
+with its flags, `llama-server -m <file> --no-warmup -b 128 -c 2048 -s 11 -n 128`
+(the log must show every layer offloaded, `offloaded 29/29 layers to GPU`, on
+the OpenCL route); GenieX with `geniex serve --compute <gpu|cpu|hybrid|npu>` at
+its defaults. Measure each route's generation speed with
 `suite/tools/speed_probe.py <route>-sanity phase-v0/speed.txt --depths 512`
-(for GenieX add `--url http://127.0.0.1:18181 --model <id>`).
+(for GenieX add `--url http://127.0.0.1:18181 --model <id>`). What still
+differs from Arduino: our ~512-token prompt (theirs were chat prompts), our
+llama.cpp revision (their guide pins its own), and our measurement tool; record
+all three.
+
 **A route more than 2× away from Arduino's figure is mis-set-up until
 explained** (the usual cause is a silent CPU fallback: check the server log
 for the device actually used). Nothing else runs on a route that fails this.
+The 40960-token context below applies from V0c on, where the 32K probes need
+it.
 
 ### V0c: capability matrix
 
@@ -209,6 +221,9 @@ Per route × file:
    GenieX has open reports of tool calls dropped after a validation-error
    correction turn (#1478) and of nested schemas flattened (#1479), and its
    server parses only one tool call per assistant turn.
+
+   The two gates cover the failure modes known today; they don't prove a
+   route agent-safe. The arenas are the real test.
 
    Anything short of a pass in steps 2–3 is a stack failure to classify from
    the evidence file (runtime, parser, template or model); it is not by
