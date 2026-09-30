@@ -12,7 +12,7 @@ Each platform tier has its own results. Tiers are never ranked against each othe
 | Tier | Machine | Status | Results |
 |---|---|---|---|
 | 8GB unified | NVIDIA Jetson Orin Nano (JetPack 7.2, CUDA) | done: 16 models / 5 engines (Aug 2026), then round two re-audited 13 rows and added MiniCPM5-1B (Sept 2026) | [platforms/jetson-orin-nano-8gb](platforms/jetson-orin-nano-8gb/README.md) |
-| 16GB unified | Arduino VENTUNO Q (Qualcomm Dragonwing IQ8, Debian) | runbook ready (backend screen V0, then V1–V2), not started | [platforms/ventuno-q-16gb](platforms/ventuno-q-16gb/RUNBOOK.md) |
+| 16GB unified | Arduino VENTUNO Q (Qualcomm Dragonwing IQ8, Ubuntu 24.04) | runbook ready (backend screen V0, then V1–V2), not started | [platforms/ventuno-q-16gb](platforms/ventuno-q-16gb/RUNBOOK.md) |
 | 32GB unified | Intel Core Ultra 5 238V laptop (Arc 130V, Vulkan) | runbook ready (configuration search S0–S4), not started | [platforms/lunar-lake-32gb](platforms/lunar-lake-32gb/RUNBOOK.md) |
 
 ![Jetson Orin Nano 8GB results, September 2026 (final)](platforms/jetson-orin-nano-8gb/charts/results-chart-2026-09.png)
