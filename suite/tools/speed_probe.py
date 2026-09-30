@@ -2,6 +2,7 @@
 """speed_probe.py — prompt-processing and generation speed through any OpenAI-compatible server.
 
   speed_probe.py <label> <evidence.txt> [--depths 8192,16384] [--gen 128] [--url URL] [--model ID]
+                 [--nctx N]
 
 One measurement method for every runtime (llama-server, GenieX serve, ...), so
 routes are compared like for like. Per depth: a fresh prompt of about that many
@@ -12,6 +13,13 @@ come from the server's usage report when it sends one ("method=usage"),
 otherwise from streamed chunks ("method=chunks", prompt size unknown).
 llama-server's own timings are logged beside ours as a cross-check.
 Appends one RESULT line per depth to <evidence.txt>.
+
+The server's context window must hold the deepest prompt plus the reply, and
+defaults differ (GenieX serve: 4096). --nctx N sends "nctx" in each request (a
+GenieX per-request field; llama-server ignores it and uses its -c) and is
+recorded; the evidence header also records the server's n_ctx when /props
+reports one. A depth whose prompt came back more than 20% short is TRUNCATED.
+Exit status: 0 only if every depth produced a valid measurement.
 """
 import json, pathlib, sys, time, urllib.request, uuid
 
@@ -26,7 +34,7 @@ def corpus(chars):
     return text[:chars]
 
 
-def measure(url, model, depth, gen, cpt):
+def measure(url, model, depth, gen, cpt, nctx=None):
     chars = int(depth * cpt)
     body = {"messages": [{"role": "user", "content": f"Run {uuid.uuid4()}.\n\n" + corpus(chars)
                           + "\n\nSummarize the text above in one paragraph."}],
@@ -34,6 +42,8 @@ def measure(url, model, depth, gen, cpt):
             "cache_prompt": False}
     if model:
         body["model"] = model
+    if nctx:
+        body["nctx"] = nctx
     req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(),
                                  {"Content-Type": "application/json"})
     t0 = time.monotonic(); first = last = None; chunks = 0; usage = timings = None
@@ -51,7 +61,7 @@ def measure(url, model, depth, gen, cpt):
                     now = time.monotonic()
                     first = first or now; last = now; chunks += 1
     if first is None:
-        return "no tokens generated", cpt
+        return f"depth={depth} ERROR no tokens generated", cpt
     ttft = first - t0
     if usage and usage.get("completion_tokens"):
         pt, gt, method = usage.get("prompt_tokens"), usage["completion_tokens"], "usage"
@@ -61,6 +71,8 @@ def measure(url, model, depth, gen, cpt):
     decode = f"{(gt - 1) / (last - first):.2f}" if gt > 1 and last > first else "n/a"
     s = (f"depth={depth} prompt_tokens={pt} ttft={ttft:.1f}s prefill_tps={prefill} "
          f"gen_tokens={gt} decode_tps={decode} method={method}")
+    if pt and pt < 0.8 * depth:
+        s += " ERROR TRUNCATED(prompt >20% short of the requested depth)"
     if gt < 32:
         s += " LOW_SAMPLE(<32 generated)"
     if timings:
@@ -70,25 +82,37 @@ def measure(url, model, depth, gen, cpt):
 
 
 def main(a):
-    opts = {"--depths": "8192,16384", "--gen": "128", "--url": "http://127.0.0.1:8080", "--model": None}
+    opts = {"--depths": "8192,16384", "--gen": "128", "--url": "http://127.0.0.1:8080", "--model": None,
+            "--nctx": None}
     for k in list(opts):
         if k in a:
             i = a.index(k); opts[k] = a[i + 1]; del a[i:i + 2]
     if len(a) != 2:
         raise SystemExit(__doc__)
     label, out = a
+    nctx = int(opts["--nctx"]) if opts["--nctx"] else None
+    try:
+        with urllib.request.urlopen(opts["--url"] + "/props", timeout=30) as r:
+            p = json.load(r)
+        server_ctx = p.get("default_generation_settings", {}).get("n_ctx") or p.get("n_ctx") or "unreported"
+    except Exception:
+        server_ctx = "unreported (no /props)"
+    failed = 0
     with open(out, "a") as f:
-        f.write(f"## {label}  url={opts['--url']} model={opts['--model'] or 'none'} gen={opts['--gen']}\n")
+        f.write(f"## {label}  url={opts['--url']} model={opts['--model'] or 'none'} gen={opts['--gen']}"
+                f" nctx_sent={nctx or 'none'} server_n_ctx={server_ctx}\n")
         cpt = 3.2  # characters per token, corrected after each measurement for this model's tokenizer
         for d in (int(x) for x in opts["--depths"].split(",")):
             try:
-                res, cpt = measure(opts["--url"], opts["--model"], d, int(opts["--gen"]), cpt)
+                res, cpt = measure(opts["--url"], opts["--model"], d, int(opts["--gen"]), cpt, nctx)
             except Exception as e:  # a failed depth is recorded, never skipped silently
                 res = f"depth={d} ERROR {type(e).__name__}: {e}"
+            failed += "ERROR" in res or "decode_tps=n/a" in res
             line = f"RESULT {label}: {res}"
             print(line, flush=True); f.write(line + "\n")
-        f.write("\n")
+        f.write(f"SUMMARY {label}: {'all depths measured' if not failed else f'{failed} depth(s) FAILED'}\n\n")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    sys.exit(main(sys.argv[1:]))
