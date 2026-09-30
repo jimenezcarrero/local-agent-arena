@@ -19,9 +19,12 @@ are never ranked against the Jetson or the laptop (suite rule 7).
    NPU path with Q4_0, and the GPU path needs a *pure* Q4_0 file. An
    unsupported quantization is a compatibility finding, never a verdict on the
    hardware.
-2. **Speed.** On Arduino's own measurements, Gemma 4 E2B Q4_0 generates at
-   12.7 tok/s on the NPU, 4.7 on the CPU and 4.6 on the GPU; the Jetson ran
-   E2B (Q4_K_XL) at 35.8. Agents re-read their transcript every turn, and the
+2. **Speed.** In Arduino's GenieX tutorial ([source](https://github.com/arduino/docs-content/blob/main/content/hardware/ventuno/boards/ventuno-q/tutorials/ai-workflows/geniex/geniex.md):
+   Ubuntu 24.04, GenieX, Google's Gemma 4 E2B QAT Q4_0 GGUF, a 128-token
+   prompt), generation runs at 12.7 tok/s on the NPU, 4.7 on the CPU and 4.6 on
+   the GPU. The Jetson ran E2B (a different file, Q4_K_XL, llama.cpp) at 35.8.
+   Other stacks report other figures for this chip, so these numbers belong to
+   GenieX, not to the hardware. Agents re-read their transcript every turn, and the
    arenas have time caps, so 16GB buys nothing if the board is too slow. V0
    ends in a go/no-go gate, fixed below, before any arena runs.
 
@@ -164,36 +167,53 @@ Routes, each recorded as runtime + compute unit + version:
 | llama.cpp OpenCL, Adreno (`qcom-adreno-cl1`) | supported by Arduino, but slower than the CPU in its numbers: low priority |
 | llama.cpp Vulkan (Mesa Turnip) | exploratory: quality on the Adreno 623 unknown |
 | llama.cpp `ggml-hexagon`, NPU (upstream) | experimental; needs the Hexagon SDK. Time-box to one day |
-| GenieX llama_cpp runtime, NPU (and CPU, hybrid for reference) | Arduino's recommended path. It is a Qualcomm-pinned llama.cpp with the same `ggml-hexagon` backend, so a difference from the upstream route is a version difference |
+| GenieX llama_cpp runtime, NPU (and CPU, hybrid for reference) | Arduino's recommended path. It shares the `ggml-hexagon` backend family with the upstream route; a difference between them may come from the pinned backend version, device selection, context and batch defaults, HTP power mode or GenieX's own integration, so record GenieX's effective settings |
 
 Not tested: GenieX's QAIRT runtime (pre-compiled AI Hub bundles, not GGUF, and
 its `tools` parameter is dropped: GenieX issue #1454, open).
 
 Files, all with sha256 recorded:
 
-- **Native lane:** pure Q4_0 files, requantized with `llama-quantize --pure`
-  from the publisher's F16/BF16 GGUF or safetensors (never from a lower
-  quant; record the source and the llama.cpp commit used): Qwen2.5-1.5B (V0b),
-  a ~4B model, and Ornith-1.0-9B. The three sizes sit below and above the NPU's
-  3.5GB window, so the matrix also shows what remapping costs (generation
-  speed × file size, per route).
+- **Native lane:** pure Q4_0 files made with `llama-quantize --pure` from the
+  publisher's F16/BF16 GGUF; if only safetensors exist, first convert them to
+  an F16/BF16 GGUF with the pinned llama.cpp's `convert_hf_to_gguf.py`. Never
+  from a lower quant. Record the source, and the commit of both the converter
+  and the quantizer. Files: Qwen2.5-1.5B (V0b), a ~4B model, and Ornith-1.0-9B.
+  The sizes sit below and above the NPU's ~3.5GB mapping window, so the matrix
+  characterizes performance on both sides of it; being different models, they
+  do not isolate the cost of remapping.
 - **Parity lane:** Ornith-1.0-9B IQ3_M, the exact file the Jetson ran. Per
   route, record whether it runs entirely on the accelerator, partly (the log
   shows ops or layers on the CPU), or not at all. Partial or none is a
   compatibility finding for that route.
 
+**Context is set explicitly on every server, and recorded:** the deepest
+probe (32K) plus the chat template and the reply must fit, so V0 uses 40960
+tokens: `llama-server ... -c 40960`, and `geniex serve --nctx 40960 --compute
+<npu|cpu|hybrid>` (GenieX's default is 4096, and longer prompts fail).
+
 Per route × file:
 
 1. **Speed:** `suite/tools/speed_probe.py <route>-<file> phase-v0/speed.txt
-   --depths 512,8192,16384,32768 [--url ... --model ...]`.
-2. **Tool calls:** `suite/tools/probe_toolcalls.py probe <route>-<file>
-   phase-v0/probe.txt` (for GenieX add `--url http://127.0.0.1:18181 --model
-   <id> --no-props`). 10/10 passes. Anything less is a stack failure to
-   classify from the evidence file (runtime, parser, template or model); it is
-   not by itself an accelerator fault. GenieX has open reports of unreliable
-   tool calls on GGUF models (#1478, #1479), so this gate applies to every
-   route.
-3. **Memory:** the server's peak resident set (`VmHWM` in
+   --depths 512,8192,16384,32768 --nctx 40960 [--url ... --model ...]`. It
+   exits nonzero if any depth failed or came back truncated; a failed depth is
+   investigated, not dropped.
+2. **Tool calls, one-shot:** `suite/tools/probe_toolcalls.py probe
+   <route>-<file> phase-v0/probe.txt` (for GenieX add `--url
+   http://127.0.0.1:18181 --model <id> --no-props`). 10/10 passes.
+3. **Tool calls, multi-turn:** `suite/tools/probe_toolcalls.py agentic
+   <route>-<file> phase-v0/probe.txt` (same extra flags). A tool call, a tool
+   result, a deliberate validation error, then a correction to a tool with
+   nested arguments, every call checked against its schema; it must pass 3
+   loops with no stack failure. This catches what the one-shot probe can't:
+   GenieX has open reports of tool calls dropped after a validation-error
+   correction turn (#1478) and of nested schemas flattened (#1479), and its
+   server parses only one tool call per assistant turn.
+
+   Anything short of a pass in steps 2–3 is a stack failure to classify from
+   the evidence file (runtime, parser, template or model); it is not by
+   itself an accelerator fault. A route enters arenas only with both passes.
+4. **Memory:** the server's peak resident set (`VmHWM` in
    `/proc/<pid>/status` at the end of the 32K probe) and the system's
    MemAvailable and swap over the run (the vmstat log). A `free -m` delta is
    not a peak.
@@ -206,7 +226,7 @@ context (19.3K tokens), **prefill 291 tok/s, generation 8.8 tok/s**. There,
 Ornith-1.0's arena 2 median was 426s against a 900s cap, so a route at half
 the Jetson's speed puts that median near the cap.
 
-Take the best route that passed V0b and the tool-call gate, and its 16K
+Take the best route that passed V0b and both tool-call gates, and its 16K
 measurement (prompt within ±20% of 16384 tokens):
 
 - **GO, 9B:** the 9B pure-Q4_0 file reaches **≥145 tok/s prefill and ≥4.4
@@ -224,7 +244,8 @@ meet both.
 
 **Arenas on GenieX need a suite change.** `suite/run_model.sh` starts and
 restarts `llama-server` itself. If the chosen route is GenieX, a shared-suite
-PR that can launch, health-check and restart `geniex serve` comes before V1.
+PR that can launch, health-check and restart `geniex serve`, passing each
+arena's window as `--nctx`, comes before V1.
 
 ### V1: two lanes, never mixed
 
@@ -241,10 +262,15 @@ PR that can launch, health-check and restart `geniex serve` comes before V1.
 
 ### V2: what 16GB buys
 
-Each row declares its runtime and quantization at the V2 freeze; a row whose
-Jetson quantization isn't supported on the chosen route runs as a pure-Q4_0
-requant in the native lane, and is reported as that, not as the Jetson's
-configuration.
+**Preserve each row's question first.** A row runs on any V0-qualified route
+(V0b, both tool-call gates) that supports its exact quantization and, with that
+file, meets the V0d thresholds, measured with `speed_probe.py` before its
+arenas. Different rows may use different routes: a Q4_0 row on the NPU and a
+BF16 row on the CPU are both legitimate. If no route qualifies for a row's
+configuration, the row is recorded as **not answerable on this tier**. A
+pure-Q4_0 version may be added as a separate native arm, reported as that; it
+never substitutes for the original configuration (Q4_0 cannot answer a
+question about Q8, BF16 or higher-bit behaviour).
 
 | Tag stem | Model | The question |
 |---|---|---|
