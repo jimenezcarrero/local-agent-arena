@@ -32,18 +32,40 @@ detection, sampling, unattended operation) all apply here.
 | Memory | 16GB LPDDR5 (2×8GB), shared by CPU, GPU and NPU. **Record the bandwidth**: no published figure found |
 | Storage | 64GB eMMC, plus an M.2 slot for NVMe (PCIe Gen 4). Models and `~/bench-runs` go on NVMe if one is fitted |
 | MCU | STM32H5 (not used) |
-| OS | Debian (upstream). Record the exact release, kernel and Mesa versions |
+| OS | **Ubuntu 24.04 LTS**, the image Canonical and Arduino ship for this board. Frozen for the whole tier (see below). Record the exact image, kernel, Mesa and Qualcomm package versions |
 
 Record anything that differs from this table on your board in `phase-v0/files.txt`.
 
-## One-time setup (Debian, arm64)
+## Operating system: stay on 24.04 for the whole tier
+
+The board offers an upgrade to Ubuntu 26.04. **Decline it.** 24.04 is the image
+Canonical and Arduino ship and support for this board, and one OS for every run
+keeps the tier's results comparable: an OS upgrade changes the kernel, Mesa and
+the Qualcomm drivers at once. Qualcomm's user-space drivers come from Canonical's
+`ppa:ubuntu-qcom-iot/qcom-ppa`, which publishes for 24.04 (and for 26.04). Stop
+the prompt with `sudo sed -i 's/^Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades`.
+
+Only if V0 finds that no accelerator works on 24.04 **because of driver
+versions**, and that the 26.04 packages are newer, is an upgrade worth
+considering. That is a decision for the person running the campaign, and the
+whole of V0 is then re-run on 26.04 and recorded as a separate baseline.
+
+## One-time setup (Ubuntu 24.04, arm64)
 
 ```bash
 sudo apt update && sudo apt install -y build-essential cmake git python3 python3-pytest \
      nodejs npm pciutils clinfo ocl-icd-opencl-dev vulkan-tools libvulkan-dev glslc \
-     mesa-vulkan-drivers gh jq
-node --version              # pi needs a current Node; if Debian's is too old, use NodeSource's
+     mesa-vulkan-drivers gh jq software-properties-common
+node --version              # Ubuntu 24.04 ships Node 18; if pi refuses to install or run, use NodeSource's 22.x
 cat /etc/os-release; uname -r; nproc; free -m
+
+# Qualcomm user space: Adreno OpenCL, FastRPC and Hexagon DSP firmware (Canonical's PPA;
+# it may already be configured on the shipped image). Confirm package names with apt search.
+grep -rq ubuntu-qcom-iot /etc/apt/sources.list.d/ || sudo add-apt-repository -y ppa:ubuntu-qcom-iot/qcom-ppa
+sudo apt update
+apt search qcom-adreno 2>/dev/null | grep -i adreno; apt search fastrpc 2>/dev/null | grep -i fastrpc
+sudo apt install -y qcom-adreno1 fastrpc hexagon-dsp-binaries   # adjust to the names apt search shows
+dpkg -l | grep -iE 'adreno|fastrpc|hexagon|qairt|mesa' > ~/qcom-packages.txt   # goes into phase-v0/files.txt
 vulkaninfo --summary 2>&1 | grep -E 'deviceName|driverName|driverInfo'   # expect Turnip (Adreno) or nothing
 clinfo -l 2>&1 | head       # an Adreno OpenCL platform, or none
 ls -l /dev/fastrpc* 2>&1    # the Hexagon NPU's FastRPC devices, or none
@@ -106,7 +128,7 @@ its own build directory:
 | `build-cpu` | `cmake -B build-cpu -DCMAKE_BUILD_TYPE=Release` | always works; the fallback |
 | `build-vulkan` | `-DGGML_VULKAN=ON` | only if `vulkaninfo` shows the Adreno under Turnip |
 | `build-opencl` | `-DGGML_OPENCL=ON` | only if `clinfo` shows an Adreno platform. llama.cpp's Adreno kernels expect Qualcomm's OpenCL driver |
-| `build-hexagon` | per `docs/backend/snapdragon/README.md` in llama.cpp (Hexagon SDK; the Linux arm64 toolchain image) | only if `/dev/fastrpc*` exists. Time-box it to one day |
+| `build-hexagon` | per `docs/backend/snapdragon/README.md` in llama.cpp (Hexagon SDK; the Linux arm64 toolchain image) | only if `/dev/fastrpc*` exists. Canonical's `canonical/llama.cpp-builds` publishes the HTP DSP skeletons, which may save the SDK build. Time-box it to one day |
 
 For each build that compiles and loads the model:
 
