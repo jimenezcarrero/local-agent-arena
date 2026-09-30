@@ -19,7 +19,8 @@ defaults differ (GenieX serve: 4096). --nctx N sends "nctx" in each request (a
 GenieX per-request field; llama-server ignores it and uses its -c) and is
 recorded; the evidence header also records the server's n_ctx when /props
 reports one. A depth whose prompt came back more than 20% short is TRUNCATED.
-Exit status: 0 only if every depth produced a valid measurement.
+Exit status: 0 only if every depth produced both a prefill and a decode rate
+(a server that reports no usage gives no prefill rate, and so fails).
 """
 import json, pathlib, sys, time, urllib.request, uuid
 
@@ -107,7 +108,7 @@ def main(a):
                 res, cpt = measure(opts["--url"], opts["--model"], d, int(opts["--gen"]), cpt, nctx)
             except Exception as e:  # a failed depth is recorded, never skipped silently
                 res = f"depth={d} ERROR {type(e).__name__}: {e}"
-            failed += "ERROR" in res or "decode_tps=n/a" in res
+            failed += "ERROR" in res or "decode_tps=n/a" in res or "prefill_tps=n/a" in res
             line = f"RESULT {label}: {res}"
             print(line, flush=True); f.write(line + "\n")
         f.write(f"SUMMARY {label}: {'all depths measured' if not failed else f'{failed} depth(s) FAILED'}\n\n")
