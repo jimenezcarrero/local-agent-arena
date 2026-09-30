@@ -1,0 +1,15 @@
+# Jetson reference for the VENTUNO Q viability gate (V0d)
+# Measured 2026-09-30 on the Jetson Orin Nano 8GB with suite/tools/speed_probe.py (PR #26; the first block
+# ran before the tool corrected its prompt sizing, hence 19273 tokens for "16384"),
+# llama.cpp master 1af554f8 (build-novmm), Ornith-1.0-9B-MTP-IQ3_M.gguf, the campaign's parity flags
+# (-ngl 99 -fa on -ctk q4_0 -ctv q4_0 -b 512 -ub 128 -np 1 --jinja), -c 20480, default sampling.
+# Desktop ON (swap grew 0 -> 360MB during the runs); every line is kept, including the sizing check.
+
+## jetson-ornith10-iq3m  url=http://127.0.0.1:8080 model=ornith gen=128
+RESULT jetson-ornith10-iq3m: depth=8192 prompt_tokens=8650 ttft=28.7s prefill_tps=301.8 gen_tokens=128 decode_tps=9.62 method=usage server_prompt_tps=302.8 server_decode_tps=9.62
+RESULT jetson-ornith10-iq3m: depth=16384 prompt_tokens=19273 ttft=66.2s prefill_tps=291.2 gen_tokens=128 decode_tps=8.79 method=usage server_prompt_tps=292.8 server_decode_tps=8.79
+
+## sizing-check  url=http://127.0.0.1:8080 model=ornith gen=48
+RESULT sizing-check: depth=4096 prompt_tokens=3756 ttft=12.9s prefill_tps=291.4 gen_tokens=48 decode_tps=10.06 method=usage server_prompt_tps=304.7 server_decode_tps=10.06
+RESULT sizing-check: depth=8192 prompt_tokens=8389 ttft=28.0s prefill_tps=299.8 gen_tokens=48 decode_tps=9.63 method=usage server_prompt_tps=303.4 server_decode_tps=9.63
+
