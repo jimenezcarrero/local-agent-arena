@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """probe_toolcalls.py — can this llama-server's parser read the model's tool calls?
 
-  probe_toolcalls.py probe <label> <evidence.txt> [--url URL] [--n 10]
+  probe_toolcalls.py probe <label> <evidence.txt> [--url URL] [--n 10] [--model ID] [--no-props]
       N requests offering one bash tool, thinking left at the template default.
       Appends to <evidence.txt>: server build, model, the chat template's sha256,
       the sha256 of a fixed conversation rendered by /apply-template, the
@@ -13,6 +13,10 @@
       workaround applied: the literal '<function=' split so template detection
       stops choosing the Qwen3-Coder parser; the rendered prompt must not change
       (compare the render sha256 of the two probe runs).
+
+Any OpenAI-compatible server works: --model sends a model id (servers such as
+GenieX require one), and --no-props skips /props and /apply-template on servers
+that lack them (the evidence then says so, and has no template or render hash).
 
 Classes: pass (finish=tool_calls, known tool, JSON arguments, no leaked tags);
 sig-29319 (finish=length and a leaked '</parameter>' in the arguments or text:
@@ -68,7 +72,9 @@ def classify(r):
     return "other"
 
 
-def header(url):
+def header(url, no_props):
+    if no_props:
+        return {}, None, None, {}
     p = call(url, "/props")
     tmpl = p.get("chat_template") or ""
     rendered = call(url, "/apply-template", {"messages": RENDER, "tools": TOOLS}).get("prompt", "")
@@ -77,9 +83,9 @@ def header(url):
     return p, tmpl, rendered, samp
 
 
-def probe(label, out, url, n):
+def probe(label, out, url, n, model=None, no_props=False):
     try:
-        p, tmpl, rendered, samp = header(url)
+        p, tmpl, rendered, samp = header(url, no_props)
     except Exception as e:  # the gate's evidence is written whatever fails
         err = f"{type(e).__name__}: {e}"
         with open(out, "a") as f:
@@ -90,15 +96,19 @@ def probe(label, out, url, n):
     lines = [f"## {label}",
              f"build: {p.get('build_info', 'unknown')}",
              f"model: {p.get('model_path', 'unknown')}",
-             f"chat_template sha256: {sha(tmpl)}",
-             f"rendered fixed conversation sha256: {sha(rendered)}",
-             f"sampling: {json.dumps(samp)}",
+             f"chat_template sha256: {sha(tmpl) if tmpl is not None else 'n/a (--no-props)'}",
+             f"rendered fixed conversation sha256: {sha(rendered) if rendered is not None else 'n/a (--no-props)'}",
+             f"sampling: {json.dumps(samp) if samp else 'n/a (--no-props)'}",
+             f"model id sent: {model or 'none'}",
              f"probes: {n}, max_tokens 400, thinking unset"]
     counts = {}
     with open(f"{out}.{label}.jsonl", "a") as raw:
         for i in range(1, n + 1):
             try:
-                r = call(url, "/v1/chat/completions", {"messages": PROBE, "tools": TOOLS, "max_tokens": 400})
+                body = {"messages": PROBE, "tools": TOOLS, "max_tokens": 400}
+                if model:
+                    body["model"] = model
+                r = call(url, "/v1/chat/completions", body)
                 cls = classify(r)
                 c = r["choices"][0]
                 args = [t["function"].get("arguments") for t in c["message"].get("tool_calls") or []]
@@ -138,8 +148,14 @@ def main(a):
     n = 10
     if "--n" in a:
         i = a.index("--n"); n = int(a[i + 1]); del a[i:i + 2]
+    model = None
+    if "--model" in a:
+        i = a.index("--model"); model = a[i + 1]; del a[i:i + 2]
+    no_props = "--no-props" in a
+    if no_props:
+        a.remove("--no-props")
     if len(a) == 3 and a[0] == "probe":
-        return probe(a[1], a[2], url, n)
+        return probe(a[1], a[2], url, n, model, no_props)
     if len(a) == 2 and a[0] == "workaround":
         return workaround(a[1], url)
     raise SystemExit(__doc__)
