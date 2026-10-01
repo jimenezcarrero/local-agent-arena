@@ -18,7 +18,13 @@ The server's context window must hold the deepest prompt plus the reply, and
 defaults differ (GenieX serve: 4096). --nctx N sends "nctx" in each request (a
 GenieX per-request field; llama-server ignores it and uses its -c) and is
 recorded; the evidence header also records the server's n_ctx when /props
-reports one. A depth whose prompt came back more than 20% short is TRUNCATED.
+reports one.
+
+A depth is valid only if its prompt is within ±20% of the requested size and
+the reply has at least 32 tokens. Otherwise it is retried once, re-sized with
+the measured characters-per-token ratio and with "ignore_eos" (llama-server
+honours it; other servers ignore it); both attempts are logged, and a retry
+that still misses fails the depth (OFF_DEPTH or LOW_SAMPLE), so --gen must be at least 32.
 Exit status: 0 only if every depth produced both a prefill and a decode rate
 (a server that reports no usage gives no prefill rate, and so fails).
 """
@@ -35,7 +41,7 @@ def corpus(chars):
     return text[:chars]
 
 
-def measure(url, model, depth, gen, cpt, nctx=None):
+def measure(url, model, depth, gen, cpt, nctx=None, ignore_eos=False):
     chars = int(depth * cpt)
     body = {"messages": [{"role": "user", "content": f"Run {uuid.uuid4()}.\n\n" + corpus(chars)
                           + "\n\nSummarize the text above in one paragraph."}],
@@ -45,6 +51,8 @@ def measure(url, model, depth, gen, cpt, nctx=None):
         body["model"] = model
     if nctx:
         body["nctx"] = nctx
+    if ignore_eos:
+        body["ignore_eos"] = True
     req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(),
                                  {"Content-Type": "application/json"})
     t0 = time.monotonic(); first = last = None; chunks = 0; usage = timings = None
@@ -72,8 +80,8 @@ def measure(url, model, depth, gen, cpt, nctx=None):
     decode = f"{(gt - 1) / (last - first):.2f}" if gt > 1 and last > first else "n/a"
     s = (f"depth={depth} prompt_tokens={pt} ttft={ttft:.1f}s prefill_tps={prefill} "
          f"gen_tokens={gt} decode_tps={decode} method={method}")
-    if pt and pt < 0.8 * depth:
-        s += " ERROR TRUNCATED(prompt >20% short of the requested depth)"
+    if pt and not 0.8 * depth <= pt <= 1.2 * depth:
+        s += " OFF_DEPTH(prompt outside ±20% of the requested depth)"
     if gt < 32:
         s += " LOW_SAMPLE(<32 generated)"
     if timings:
@@ -104,10 +112,19 @@ def main(a):
                 f" nctx_sent={nctx or 'none'} server_n_ctx={server_ctx}\n")
         cpt = 3.2  # characters per token, corrected after each measurement for this model's tokenizer
         for d in (int(x) for x in opts["--depths"].split(",")):
-            try:
-                res, cpt = measure(opts["--url"], opts["--model"], d, int(opts["--gen"]), cpt, nctx)
-            except Exception as e:  # a failed depth is recorded, never skipped silently
-                res = f"depth={d} ERROR {type(e).__name__}: {e}"
+            for attempt in (1, 2):
+                try:
+                    res, cpt = measure(opts["--url"], opts["--model"], d, int(opts["--gen"]), cpt, nctx,
+                                       ignore_eos=attempt == 2)
+                except Exception as e:  # a failed depth is recorded, never skipped silently
+                    res = f"depth={d} ERROR {type(e).__name__}: {e}"
+                if attempt == 1 and ("OFF_DEPTH" in res or "LOW_SAMPLE" in res) and "ERROR" not in res:
+                    line = f"RETRY {label}: {res}"   # re-sized and with ignore_eos on the second attempt
+                    print(line, flush=True); f.write(line + "\n")
+                    continue
+                break
+            if "OFF_DEPTH" in res or "LOW_SAMPLE" in res:
+                res += " ERROR(after one retry)"
             failed += "ERROR" in res or "decode_tps=n/a" in res or "prefill_tps=n/a" in res
             line = f"RESULT {label}: {res}"
             print(line, flush=True); f.write(line + "\n")
