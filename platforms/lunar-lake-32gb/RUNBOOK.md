@@ -380,22 +380,22 @@ at the template default (on). **Flags:** `native`, 32K window for the probes.
 **Evidence:** everything goes to
 `platforms/lunar-lake-32gb/phase-b0/mimo-probe.txt` (raw responses beside it
 as `mimo-probe.txt.<step>.jsonl`), written by
-[`tools/probe_toolcalls.py`](tools/probe_toolcalls.py): the server build, the
+[`suite/tools/probe_toolcalls.py`](../../suite/tools/probe_toolcalls.py): the server build, the
 model path, the chat template's sha256, the sha256 of a fixed conversation as
 the server renders it, the effective sampling, and each probe's class. Commit
 it whatever the outcome.
 
 1. **Stock template.** Start the server with the vendor sampling and no
    template override, then, from `platforms/lunar-lake-32gb/`,
-   `tools/probe_toolcalls.py probe stock phase-b0/mimo-probe.txt`.
+   `../../suite/tools/probe_toolcalls.py probe stock phase-b0/mimo-probe.txt`.
    **10/10 pass → run the B0 ladder, tag `mimo9-q6-vp`.**
 2. **Only if step 1 failed and at least one failure is `sig-29319`**
    (finish `length` with leaked `</parameter>`: the known parser mismatch),
    apply the #29319 template workaround:
-   `tools/probe_toolcalls.py workaround ~/models/mimo-29319.jinja` against the
+   `../../suite/tools/probe_toolcalls.py workaround ~/models/mimo-29319.jinja` against the
    running stock server, restart it with `--chat-template-file
    ~/models/mimo-29319.jinja`, then
-   `tools/probe_toolcalls.py probe workaround phase-b0/mimo-probe.txt`.
+   `../../suite/tools/probe_toolcalls.py probe workaround phase-b0/mimo-probe.txt`.
    The two "rendered fixed conversation" hashes must be identical (the
    workaround may change parser detection, never the prompt); if they differ,
    stop and skip MiMo. **10/10 pass → run the B0 ladder under exactly that
