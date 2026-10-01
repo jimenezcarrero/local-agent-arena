@@ -14,7 +14,8 @@
       error, correction turns until a valid edit_line call with nested
       arguments ({"target": {"path", "line"}, "text"}). Every call is checked
       against its tool's declared schema. Any malformed turn fails at once; a
-      well-formed loop that never edits is inconclusive and replaced (at most
+      well-formed loop that never edits, answers in prose, or runs out of its
+      2048-token budget while thinking is inconclusive and replaced (at most
       N + 2 attempts). Exit 0 only with N passing loops and no stack failure.
 
   probe_toolcalls.py workaround <out.jinja> [--url URL]
@@ -30,7 +31,9 @@ that lack them (the evidence then says so, and has no template or render hash).
 Classes: pass (finish=tool_calls, known tool, JSON arguments, no leaked tags);
 sig-29319 (finish=length and a leaked '</parameter>' in the arguments or text:
 the known parser mismatch); leaked-call (no parsed call, but tool-call markup
-in the text: the serving layer missed it); no-call (plain prose, no call);
+in the text: the serving layer missed it); budget (stopped at max_tokens with no
+call and no tool markup: the model was still thinking); no-call (plain prose,
+no call);
 server-error; other (including arguments that aren't an object with a
 non-empty string "command"). If /props or /apply-template fails, the evidence
 file still gets a header-error block and the exit code is 2.
@@ -98,6 +101,8 @@ def classify(r, tools=TOOLS, want=None):
         return "pass"
     if not calls and re.search(r'<\|?tool_call|<function=|"arguments"\s*:', msg.get("content") or ""):
         return "leaked-call"
+    if not calls and fin == "length":
+        return "budget"
     if not calls and fin == "stop":
         return "no-call"
     return "other"
@@ -173,6 +178,7 @@ AG_ERROR = ('ValidationError: the previous call was rejected. Files may only be 
             'Retry the fix now.')
 
 
+AG_MAX_TOKENS = 2048   # thinking models reason before calling; 600 cut some off mid-thought
 AG_FILE = "     1\timport sys\n     2\t\n     3\tpritn('hello')\n"
 
 
@@ -195,7 +201,7 @@ def agentic(label, out, url, n, model=None):
                 break
             msgs, verdict = list(AG_START), "inconclusive"
             for turn in range(1, 6):
-                body = {"messages": msgs, "tools": AG_TOOLS, "max_tokens": 600}
+                body = {"messages": msgs, "tools": AG_TOOLS, "max_tokens": AG_MAX_TOKENS}
                 if model:
                     body["model"] = model
                 try:
@@ -210,7 +216,7 @@ def agentic(label, out, url, n, model=None):
                     raw.write(json.dumps({"label": label, "loop": loop, "turn": turn, "class": cls, "error": detail}) + "\n")
                 lines.append(f"loop {loop} turn {turn}: {cls:<12} {detail}")
                 print(lines[-1], flush=True)
-                if cls == "no-call":      # plain prose: a model choice, not a stack fault
+                if cls in ("no-call", "budget"):   # prose, or still thinking at the token limit: not a stack fault
                     break
                 if cls != "pass":
                     verdict = "FAIL"
