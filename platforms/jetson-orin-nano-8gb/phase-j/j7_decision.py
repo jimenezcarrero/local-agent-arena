@@ -9,11 +9,11 @@ to the three repeats TAG-r1..r3 written from ledger line N on:
   a GATE      (arena 1 failed twice) also fails that repeat's arena 2
   ranked      at least 2 passes in arena 1 AND at least 2 in arena 2
 
-Exit codes (fixed in README.md before any J7 run):
-  0  ranked        -> J7 runs this model's session cells x3
-  1  not ranked    -> J7 runs one marathon only
-  2  no decision   -> a result is missing or duplicated, or any error here;
-                      J7 runs no session cells for this model
+Exit codes (fixed in README.md before any J7 run; the caller, run_closeout.sh,
+chooses what runs next from both arms' codes):
+  0  ranked
+  1  not ranked
+  2  no decision: a result is missing or duplicated, or any error here
 """
 import re, sys
 
@@ -57,7 +57,7 @@ def main(argv):
             print(f"{label:<34} {v}")
     ranked = passes[1] >= 2 and passes[2] >= 2
     print(f"DECISION {prefix}: arena 1 {passes[1]} pass(es), arena 2 {passes[2]} -> "
-          + ("ranked: session cells x3" if ranked else "not ranked: one marathon"))
+          + ("ranked" if ranked else "not ranked"))
     return 0 if ranked else 1
 
 
