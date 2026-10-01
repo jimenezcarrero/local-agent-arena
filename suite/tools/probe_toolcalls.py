@@ -14,7 +14,9 @@
       error, correction turns until a valid edit_line call with nested
       arguments ({"target": {"path", "line"}, "text"}). Every call is checked
       against its tool's declared schema. Any malformed turn fails at once; a
-      well-formed loop that never edits is inconclusive and replaced (at most
+      well-formed loop that never edits, answers in prose, or exhausts its
+      4096-token generation budget before a parsed call is inconclusive and
+      replaced (at most
       N + 2 attempts). Exit 0 only with N passing loops and no stack failure.
 
   probe_toolcalls.py workaround <out.jinja> [--url URL]
@@ -30,7 +32,10 @@ that lack them (the evidence then says so, and has no template or render hash).
 Classes: pass (finish=tool_calls, known tool, JSON arguments, no leaked tags);
 sig-29319 (finish=length and a leaked '</parameter>' in the arguments or text:
 the known parser mismatch); leaked-call (no parsed call, but tool-call markup
-in the text: the serving layer missed it); no-call (plain prose, no call);
+in the answer, or call tags in the reasoning: the serving layer missed it; a
+JSON sketch in the reasoning is planning, not a missed call); budget
+(generation budget exhausted before a parsed tool call, with no tool markup
+anywhere in the output); no-call (plain prose, no call);
 server-error; other (including arguments that aren't an object with a
 non-empty string "command"). If /props or /apply-template fails, the evidence
 file still gets a header-error block and the exit code is 2.
@@ -81,7 +86,8 @@ def classify(r, tools=TOOLS, want=None):
     c = r["choices"][0]
     msg, fin = c["message"], c["finish_reason"]
     calls = msg.get("tool_calls") or []
-    blob = (msg.get("content") or "") + "".join(t["function"].get("arguments") or "" for t in calls)
+    content, reasoning = msg.get("content") or "", msg.get("reasoning_content") or ""
+    blob = content + reasoning + "".join(t["function"].get("arguments") or "" for t in calls)
     if fin == "length" and "</parameter>" in blob:
         return "sig-29319"
     if fin == "tool_calls" and calls:
@@ -96,8 +102,14 @@ def classify(r, tools=TOOLS, want=None):
             if not valid(obj, schemas[name]):
                 return "other"
         return "pass"
-    if not calls and re.search(r'<\|?tool_call|<function=|"arguments"\s*:', msg.get("content") or ""):
+    # In the answer, any call syntax (tags or JSON arguments) is a call the parser missed. In the
+    # reasoning, only real call tags count: models sketch JSON calls while planning (seen with
+    # Granite 4.2), and a sketch is not a missed call.
+    if not calls and (re.search(r'<\|?tool_call|<function=|"arguments"\s*:', content)
+                      or re.search(r'<\|?tool_call|<function=', reasoning)):
         return "leaked-call"
+    if not calls and fin == "length":
+        return "budget"
     if not calls and fin == "stop":
         return "no-call"
     return "other"
@@ -173,6 +185,7 @@ AG_ERROR = ('ValidationError: the previous call was rejected. Files may only be 
             'Retry the fix now.')
 
 
+AG_MAX_TOKENS = 4096   # thinking models reason before calling (IBM's Granite 4.2 tool example allows 4096)
 AG_FILE = "     1\timport sys\n     2\t\n     3\tpritn('hello')\n"
 
 
@@ -195,7 +208,7 @@ def agentic(label, out, url, n, model=None):
                 break
             msgs, verdict = list(AG_START), "inconclusive"
             for turn in range(1, 6):
-                body = {"messages": msgs, "tools": AG_TOOLS, "max_tokens": 600}
+                body = {"messages": msgs, "tools": AG_TOOLS, "max_tokens": AG_MAX_TOKENS}
                 if model:
                     body["model"] = model
                 try:
@@ -210,7 +223,7 @@ def agentic(label, out, url, n, model=None):
                     raw.write(json.dumps({"label": label, "loop": loop, "turn": turn, "class": cls, "error": detail}) + "\n")
                 lines.append(f"loop {loop} turn {turn}: {cls:<12} {detail}")
                 print(lines[-1], flush=True)
-                if cls == "no-call":      # plain prose: a model choice, not a stack fault
+                if cls in ("no-call", "budget"):   # prose, or budget exhausted with no markup: not a stack fault
                     break
                 if cls != "pass":
                     verdict = "FAIL"
