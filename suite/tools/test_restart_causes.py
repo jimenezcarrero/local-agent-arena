@@ -118,6 +118,34 @@ class RestartCauses(unittest.TestCase):
         out = self.audit(self.run_dir("r", (5, 1, self.t0, self.t0 + 60, 4242, "yes")))
         self.assertIn("after turn 5: unhealthy", out)
 
+    # --- J7: the kernel killed the server a second before the harness's liveness check
+    def test_kill_seen_as_alive_is_still_an_oom_kill(self):   # J7, Granite 4.2 3B vp-r1 crusher turn 7
+        self.fixture["kernel"] = [[self.t0 + 119, "Out of memory: Killed process 4242 (llama-server) total-vm:1kB", self.BOOT]]
+        out = self.audit(self.run_dir("r", (7, 0, self.t0, self.t0 + 120, 4242, "yes")))
+        self.assertIn("after turn 7: oom-kill", out); self.assertNotIn("unhealthy", out)
+
+    def test_kill_during_a_timed_out_turn_is_an_oom_kill(self):
+        self.fixture["kernel"] = [[self.t0 + 1790, "Out of memory: Killed process 4242 (llama-server) total-vm:1kB", self.BOOT]]
+        for k in range(30):
+            self.sample(self.t0 + 60 * k, 800, 1844)
+        out = self.audit(self.run_dir("r", (6, 124, self.t0, self.t0 + 1800, 4242, "yes")))
+        self.assertIn("after turn 6: oom-kill", out); self.assertNotIn("timeout", out)
+
+    def test_alive_and_another_pids_kill_stays_unhealthy(self):
+        self.fixture["kernel"] = [[self.t0 + 30, "Out of memory: Killed process 999 (llama-server) total-vm:1kB", self.BOOT]]
+        out = self.audit(self.run_dir("r", (5, 1, self.t0, self.t0 + 60, 4242, "yes")))
+        self.assertIn("after turn 5: unhealthy", out)
+
+    def test_alive_and_same_pid_killed_in_another_boot_stays_unhealthy(self):
+        self.fixture["kernel"] = [[self.t0 + 30, "Out of memory: Killed process 4242 (llama-server) total-vm:1kB", "a" * 32]]
+        out = self.audit(self.run_dir("r", (5, 1, self.t0, self.t0 + 60, 4242, "yes"), boot="c" * 32))
+        self.assertIn("after turn 5: unhealthy", out); self.assertNotIn("oom-kill", out)
+
+    def test_alive_with_unreadable_kernel_log_keeps_its_label(self):
+        self.fixture["fail"] = True
+        out = self.audit(self.run_dir("r", (5, 1, self.t0, self.t0 + 60, 4242, "yes")))
+        self.assertIn("after turn 5: unhealthy", out); self.assertNotIn("unreadable", out)
+
     def test_run_before_restarts_log_is_unrecorded_not_clean(self):
         out = self.audit(self.run_dir("old", legacy=2))
         self.assertIn("2 restart(s) NOT RECORDED", out)

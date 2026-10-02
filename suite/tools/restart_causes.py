@@ -10,8 +10,10 @@ pressure without the kernel killing it (J2: swap exhausted, 16MB available,
 a turn that timed out while the server never took its request), and a turn can
 simply run out of time. Each restart gets one of:
 
-  oom-kill                 the server was dead and the kernel logged killing its
-                           PID, in the run's own boot, inside the turn
+  oom-kill                 the kernel logged killing the server's PID, in the run's
+                           own boot, inside the turn; checked even when the harness
+                           saw the server alive, since a PID killed a second earlier
+                           can still pass its liveness check (J7: two such kills)
   died, no kill record     the server was dead and the kernel logged no such kill
   died, kill log unreadable  the server was dead; the kernel log couldn't be read
   died, not attributable   the server was dead and the run records no boot_id
@@ -64,12 +66,15 @@ def samples(path):
 
 def classify(rec, vm, env_boot):
     t0, t1 = float(rec["turn_start"]), float(rec["at"])
+    boot = rec.get("boot_id") or env_boot
     if rec["server_alive"] == "no":
-        boot = rec.get("boot_id") or env_boot
         if not boot:
             return "died, not attributable", "no boot_id recorded"
         k = kernel_kill(rec["server_pid"], boot, t0, t1)
         return {True: "oom-kill", False: "died, no kill record", None: "died, kill log unreadable"}[k], ""
+    # alive by the harness's check, but the kernel may have killed it moments before
+    if boot and kernel_kill(rec["server_pid"], boot, t0, t1):
+        return "oom-kill", "the harness still saw the PID alive"
     if rec["rc"] != "124":
         return "unhealthy", f"rc={rec['rc']}"
     during = [s for s in vm if t0 <= s[0] <= t1]   # instantaneous values: inside the turn only
