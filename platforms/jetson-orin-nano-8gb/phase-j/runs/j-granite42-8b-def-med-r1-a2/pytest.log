@@ -1,0 +1,101 @@
+.FF...FFFF.                                                              [100%]
+=================================== FAILURES ===================================
+________________ test_timezone_positive_offset_converts_to_utc _________________
+
+    def test_timezone_positive_offset_converts_to_utc():
+        e = parse_line(L1)
+>       assert e.when_utc == datetime(2026, 7, 18, 12, 3, 5, tzinfo=timezone.utc)
+E       AssertionError: assert datetime.datetime(2026, 7, 18, 16, 3, 5, tzinfo=datetime.timezone.utc) == datetime.datetime(2026, 7, 18, 12, 3, 5, tzinfo=datetime.timezone.utc)
+E        +  where datetime.datetime(2026, 7, 18, 16, 3, 5, tzinfo=datetime.timezone.utc) = LogEntry(ip='10.0.0.1', when_utc=datetime.datetime(2026, 7, 18, 16, 3, 5, tzinfo=datetime.timezone.utc), method='GET', path='/index.html', status=200, size=5120).when_utc
+E        +  and   datetime.datetime(2026, 7, 18, 12, 3, 5, tzinfo=datetime.timezone.utc) = datetime(2026, 7, 18, 12, 3, 5, tzinfo=datetime.timezone.utc)
+E        +    where datetime.timezone.utc = timezone.utc
+
+tests/test_logparse.py:32: AssertionError
+________________ test_timezone_negative_offset_converts_to_utc _________________
+
+    def test_timezone_negative_offset_converts_to_utc():
+        e = parse_line(L3)
+>       assert e.when_utc == datetime(2026, 7, 18, 11, 30, 0, tzinfo=timezone.utc)
+E       AssertionError: assert datetime.datetime(2026, 7, 18, 1, 30, tzinfo=datetime.timezone.utc) == datetime.datetime(2026, 7, 18, 11, 30, tzinfo=datetime.timezone.utc)
+E        +  where datetime.datetime(2026, 7, 18, 1, 30, tzinfo=datetime.timezone.utc) = LogEntry(ip='10.0.0.3', when_utc=datetime.datetime(2026, 7, 18, 1, 30, tzinfo=datetime.timezone.utc), method='GET', path='/health', status=200, size=0).when_utc
+E        +  and   datetime.datetime(2026, 7, 18, 11, 30, tzinfo=datetime.timezone.utc) = datetime(2026, 7, 18, 11, 30, 0, tzinfo=datetime.timezone.utc)
+E        +    where datetime.timezone.utc = timezone.utc
+
+tests/test_logparse.py:37: AssertionError
+_______________________ test_requests_per_hour_uses_utc ________________________
+
+    def test_requests_per_hour_uses_utc():
+        entries = parse_lines([L1, L2])
+        # L1 is 12:03 UTC, L2 is 11:59 UTC
+>       assert requests_per_hour(entries) == {12: 1, 11: 1}
+E       assert {15: 1, 16: 1} == {11: 1, 12: 1}
+E         Left contains 2 more items:
+E         {15: 1, 16: 1}
+E         Right contains 2 more items:
+E         {11: 1, 12: 1}
+E         Use -v to get more diff
+
+tests/test_logparse.py:57: AssertionError
+___________________________ test_error_rate_by_hour ____________________________
+
+    def test_error_rate_by_hour():
+        entries = parse_lines([L1, L2, L2])
+>       rates = error_rate_by_hour(entries)
+
+tests/test_logparse.py:62: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+entries = [LogEntry(ip='10.0.0.1', when_utc=datetime.datetime(2026, 7, 18, 16, 3, 5, tzinfo=datetime.timezone.utc), method='GET'...atetime(2026, 7, 18, 15, 59, 59, tzinfo=datetime.timezone.utc), method='POST', path='/api/login', status=500, size=88)]
+
+    def error_rate_by_hour(entries: list[LogEntry]) -> dict[int, float]:
+        """Compute error rate per hour."""
+>       total_per_hour = dict(Counter(e.when_utc.hour for e in entries))
+E       UnboundLocalError: cannot access local variable 'Counter' where it is not associated with a value
+
+logparse/stats.py:22: UnboundLocalError
+__________________________ test_error_rate_mixed_hour __________________________
+
+    def test_error_rate_mixed_hour():
+        l_ok = '10.0.0.9 - - [18/Jul/2026:13:10:00 +0200] "GET /a HTTP/1.1" 200 1'
+        l_err = '10.0.0.9 - - [18/Jul/2026:13:20:00 +0200] "GET /b HTTP/1.1" 503 1'
+>       rates = error_rate_by_hour(parse_lines([l_ok, l_ok, l_ok, l_err]))
+
+tests/test_logparse.py:70: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+entries = [LogEntry(ip='10.0.0.9', when_utc=datetime.datetime(2026, 7, 18, 15, 10, tzinfo=datetime.timezone.utc), method='GET', ...utc=datetime.datetime(2026, 7, 18, 15, 20, tzinfo=datetime.timezone.utc), method='GET', path='/b', status=503, size=1)]
+
+    def error_rate_by_hour(entries: list[LogEntry]) -> dict[int, float]:
+        """Compute error rate per hour."""
+>       total_per_hour = dict(Counter(e.when_utc.hour for e in entries))
+E       UnboundLocalError: cannot access local variable 'Counter' where it is not associated with a value
+
+logparse/stats.py:22: UnboundLocalError
+__________________________ test_summary_report_format __________________________
+
+    def test_summary_report_format():
+        entries = parse_lines([L1, L2, L2])
+>       report = summary_report(entries)
+
+tests/test_logparse.py:76: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+logparse/report.py:14: in summary_report
+    rates = error_rate_by_hour(entries)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+entries = [LogEntry(ip='10.0.0.1', when_utc=datetime.datetime(2026, 7, 18, 16, 3, 5, tzinfo=datetime.timezone.utc), method='GET'...atetime(2026, 7, 18, 15, 59, 59, tzinfo=datetime.timezone.utc), method='POST', path='/api/login', status=500, size=88)]
+
+    def error_rate_by_hour(entries: list[LogEntry]) -> dict[int, float]:
+        """Compute error rate per hour."""
+>       total_per_hour = dict(Counter(e.when_utc.hour for e in entries))
+E       UnboundLocalError: cannot access local variable 'Counter' where it is not associated with a value
+
+logparse/stats.py:22: UnboundLocalError
+=========================== short test summary info ============================
+FAILED tests/test_logparse.py::test_timezone_positive_offset_converts_to_utc
+FAILED tests/test_logparse.py::test_timezone_negative_offset_converts_to_utc
+FAILED tests/test_logparse.py::test_requests_per_hour_uses_utc - assert {15: ...
+FAILED tests/test_logparse.py::test_error_rate_by_hour - UnboundLocalError: c...
+FAILED tests/test_logparse.py::test_error_rate_mixed_hour - UnboundLocalError...
+FAILED tests/test_logparse.py::test_summary_report_format - UnboundLocalError...
+6 failed, 5 passed in 0.06s
