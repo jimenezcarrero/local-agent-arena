@@ -268,14 +268,19 @@ if want J8; then
 #     runs on it in strict mode and must exit 0 for it to count as clean.
 #  b. Granite 4.2 3B vendor 32K crusher with --cache-ram 0: J7's three such
 #     crushers each grew from ~4.66GB (anon, at load) to ~6.5GB and took an OOM
-#     kill; is llama-server's host prompt cache the growth? The server's RssAnon
-#     is sampled every 30s for both runs into rss-J8.log.
+#     kill; is llama-server's host prompt cache the growth? Each server's VmHWM
+#     and RssAnon are sampled every 30s into rss-J8.log, and
+#     j8_memory_verdict.py applies the reading fixed in README.md.
 if [ -z "${DRY_RUN:-}" ]; then
   grep -q 'HOLD=$(mktemp' "$S/arena3.sh" \
     || fail "suite/arena3.sh predates the holdout fix (PR #30): merge main into this branch first."
-  ( while sleep 30; do p=$(pgrep -x llama-server | head -1)
-      [ -n "$p" ] && echo "$(date -Is) pid=$p rss_anon_kb=$(awk '/^RssAnon/{print $2}' /proc/$p/status 2>/dev/null)"
-    done ) >> "$HERE/rss-J8.log" 2>/dev/null 9>&- &
+  # one line per server per 30s: the model file ties a sample to its run, and
+  # VmHWM is the kernel's peak, so growth between samples isn't missed
+  ( while sleep 30; do for p in $(pgrep -x llama-server); do
+      st=$(cat /proc/$p/status 2>/dev/null)
+      mf=$(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null | grep -oE '[^ /]+\.gguf' | head -1)
+      echo "$(date -Is) pid=$p model=$mf vmhwm_kb=$(awk '/^VmHWM/{print $2}' <<<"$st") rss_anon_kb=$(awk '/^RssAnon/{print $2}' <<<"$st")"
+    done; done ) >> "$HERE/rss-J8.log" 2>/dev/null 9>&- &
   RSS_SAMPLER=$!
 fi
 G8D=(-m "$M/granite-4.2-8b-IQ3_XXS.gguf" "${BASE[@]}" --temp 0.8 --top-k 40 --top-p 0.95 --min-p 0.05)
