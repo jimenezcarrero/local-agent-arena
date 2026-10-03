@@ -53,11 +53,12 @@ counts as an arena-2 fail, as the rule says.
   `restarts.log`), so the tool did not consult the kill records. Regenerated
   with the fixed tool (PR #32), the file now names all three, matching the
   kernel audit.
-- **The 28 timeouts are turns that ran out their caps while generating**, not
-  memory stalls: swap was never exhausted in those turns. Example: in
-  `8b-def-mar1` turn 2, one generation reached 4,028 tokens at 7.9 tok/s before
-  the 600s cap cancelled it. The 8B's first arena attempts all ran into the
-  900s cap the same way.
+- **The 28 other restarts are classified `timeout, swap not exhausted`**: the
+  sampler saw no swap exhaustion during those turns. That is evidence about
+  memory, not proof that memory played no part. In the one case inspected in
+  detail, `8b-def-mar1` turn 2, the server was still generating when the 600s
+  cap cancelled it (one generation of 4,028 tokens at 7.9 tok/s). The 8B's first
+  arena attempts also all ended at the 900s cap.
 - **`vp-r1-a3` turns 7–11 failed in 2–23s.** Each request generated exactly one
   token and stopped with `length`, while the server's slot held about 28.8K
   tokens, under the 32,768 window. pi's model entry allows 8192 output tokens.
@@ -119,15 +120,17 @@ is to be started, so this review ends without a start command
 Proposals for the user to decide; none changes J7's data:
 
 1. **Move the marathon's holdout tests out of the workspace** (shared-suite PR):
-   copy each turn's test in from a path the agent can't list, and check past
-   marathon sessions for reads of `holdout/` before relying on any marathon
-   score. This matters before any further marathon on the Ventuno or the laptop.
+   copy each turn's test in from outside the workspace and its parent, so
+   ordinary workspace discovery can't reveal future tests (the agent runs as
+   the same user, so a deliberate filesystem search still could), and check
+   past marathon sessions for reads of `holdout/` before relying on any
+   marathon score. *Implemented by PR #30; the audit is `holdout-audit.txt`.*
 2. **Test the memory-growth hypothesis** with one 3B vendor crusher at
    `--cache-ram 0` and `VmHWM` sampled per turn. If the growth disappears, earlier
    Jetson kills deserve a second look under the same lens.
 3. **`restart_causes.py`:** look up kernel kills for the restarted server's PID
    inside the turn window regardless of `server_alive`, since the liveness probe
-   can see a PID the kernel has just killed.
+   can see a PID the kernel has just killed. *Implemented by PR #32.*
 4. **pi at the window edge:** record the `max_tokens` each request carries (or
    read pi's budgeting) so that one-token `length` turns are classified as
    harness effects before any table counts them as model failures.
@@ -150,3 +153,7 @@ restart-cause fix (PR #32); the numbers above are unchanged.
   go/no-go rule.
 - `restart-causes-J7.txt` was regenerated with the fixed tool: two restarts
   that read "unhealthy" now read "oom-kill", as the kernel audit always said.
+- The timeout paragraph said "not memory stalls: swap was never exhausted"; it
+  now reports the sampler's evidence without the causal step.
+- Proposal 1 no longer promises a path "the agent can't list", and proposals 1
+  and 3 are marked implemented.
