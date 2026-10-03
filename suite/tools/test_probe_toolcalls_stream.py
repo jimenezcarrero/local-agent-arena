@@ -88,6 +88,17 @@ class Stream(unittest.TestCase):
             ev({"tool_calls": [tc(1, args='"pwd"}')]}), ev(finish="tool_calls")])
         self.assertEqual(cls, "pass"); self.assertEqual(len(r["choices"][0]["message"]["tool_calls"]), 2)
 
+    def test_id_first_then_index_stays_one_call_like_pi(self):   # PR #39 review: pi aliases index to the id's block
+        STREAMS["now"] = [
+            {"choices": [{"delta": {"tool_calls": [{"id": "c1", "function": {"name": "bash", "arguments": '{"command":'}}]}, "finish_reason": None}]},
+            {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "c1", "function": {"arguments": ' "ls"}'}}]}, "finish_reason": None}]},
+            ev(finish="tool_calls")]
+        r, issues = p.stream_call(self.url, {"messages": [], "tools": p.TOOLS})
+        self.assertEqual(issues, [])
+        calls = r["choices"][0]["message"]["tool_calls"]
+        self.assertEqual(len(calls), 1); self.assertEqual(calls[0]["function"]["arguments"], '{"command": "ls"}')
+        self.assertEqual(p.classify(r), "pass")
+
 
 if __name__ == "__main__":
     unittest.main()

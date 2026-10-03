@@ -26,9 +26,10 @@
       (compare the render sha256 of the two probe runs).
 
 --stream sends the same requests streamed (stream=true), as pi does, and
-assembles the reply the way pi's OpenAI-compatible client does: tool calls keyed
-by their index (else their id), the first non-empty id and name kept, argument
-fragments concatenated. A stream that can't be assembled into well-formed calls
+assembles the reply the way pi's OpenAI-compatible client does: each delta finds
+its call by index, else by id, both registered as aliases (so a call that gets
+its index late stays one call); the first non-empty id and name are kept and
+argument fragments concatenated. A stream that can't be assembled into well-formed calls
 is classed stream-defect (a stack failure): a call without an id or a name, an
 id that changes, deltas after the finish_reason, or no finish_reason at all.
 The assembled reply is then classified exactly like a non-streamed one.
@@ -68,7 +69,7 @@ def stream_call(url, body, timeout=900):
     body = dict(body, stream=True, stream_options={"include_usage": True})
     req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(),
                                  {"Content-Type": "application/json"})
-    content, reasoning, calls, by_id, finish, usage, issues = [], [], {}, {}, None, {}, []
+    content, reasoning, blocks, by_index, by_id, finish, usage, issues = [], [], [], {}, {}, None, {}, []
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         for raw in resp:
             line = raw.decode(errors="replace").strip()
@@ -88,13 +89,24 @@ def stream_call(url, body, timeout=900):
                 if d.get("reasoning_content"):
                     reasoning.append(d["reasoning_content"])
                 for tc in d.get("tool_calls") or []:
-                    key = tc.get("index") if isinstance(tc.get("index"), int) else by_id.get(tc.get("id"), tc.get("id"))
-                    c = calls.setdefault(key, {"id": "", "name": "", "arguments": ""})
-                    if tc.get("id"):
-                        if c["id"] and c["id"] != tc["id"]:
-                            issues.append(f"call {key}: id changed mid-stream")
-                        c["id"] = c["id"] or tc["id"]; by_id[tc["id"]] = key
+                    # pi 0.80.10 ensureToolCallBlock: look up by index, else by id;
+                    # create a block if neither matches; register both as aliases
+                    idx = tc.get("index") if isinstance(tc.get("index"), int) else None
+                    tid = tc.get("id") or ""
                     f = tc.get("function") or {}
+                    c = by_index.get(idx) if idx is not None else None
+                    if c is None and tid:
+                        c = by_id.get(tid)
+                    if c is None:
+                        c = {"id": tid, "name": f.get("name") or "", "arguments": ""}
+                        blocks.append(c)
+                    if idx is not None:
+                        by_index[idx] = c
+                    if tid:
+                        if c["id"] and c["id"] != tid:
+                            issues.append(f"call {blocks.index(c)}: id changed mid-stream")
+                        c["id"] = c["id"] or tid
+                        by_id[tid] = c
                     c["name"] = c["name"] or f.get("name") or ""
                     c["arguments"] += f.get("arguments") or ""
                 if ch.get("finish_reason"):
@@ -102,7 +114,7 @@ def stream_call(url, body, timeout=900):
     if finish is None:
         issues.append("the stream ended without a finish_reason")
     tool_calls = []
-    for k, c in calls.items():
+    for k, c in enumerate(blocks):
         if not c["id"]:
             issues.append(f"call {k}: no id")
         if not c["name"]:
