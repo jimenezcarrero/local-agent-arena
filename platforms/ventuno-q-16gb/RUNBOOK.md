@@ -8,8 +8,9 @@ Research and review handoff: read [`PERFORMANCE_RESEARCH.md`](PERFORMANCE_RESEAR
 for the source-backed investigation, proposed experiment matrix and qualification
 gaps identified in [PR #38's review](https://github.com/jimenezcarrero/local-agent-arena/pull/38#pullrequestreview-5402211534).
 The report records proposals and the reviewed revision; it contains no board
-measurements. Incorporate the agreed fixes into this runbook and put shared-suite
-changes in their own PR before starting V1.
+measurements. The review's fixes are incorporated below (V0c, V0d, V0e); the
+shared-suite pieces (a streaming tool-call probe, and a GenieX launcher if
+GenieX is chosen) come in their own PRs before V1.
 
 **What this tier is for:** what an NPU-first 16GB edge board can do with the
 campaign's agents, and whether the 9B configurations that took OOM kills on the
@@ -146,7 +147,7 @@ suite refuses to run under any directory with an `AGENTS.md`/`CLAUDE.md` above i
   the Jetson the default cache was the likely source of the 3B crushers' OOM
   growth (phase J, J8). The parity lane keeps the Jetson's setting (the
   default); every other run uses one tier value, frozen in
-  `phase-v0/README.md` from V0's memory measurements. Where a runtime has no
+  `phase-v0/README.md` from V0e's cache sweep. Where a runtime has no
   such setting (GenieX), record that.
 
 ## Test plan
@@ -192,9 +193,15 @@ Routes, each recorded as runtime + compute unit + version:
 | llama.cpp Vulkan (Mesa Turnip) | exploratory: quality on the Adreno 623 unknown |
 | llama.cpp `ggml-hexagon`, NPU (upstream) | experimental; needs the Hexagon SDK. Time-box to one day |
 | GenieX llama_cpp runtime, NPU (`--compute npu`) | Arduino's recommended path. It shares the `ggml-hexagon` backend family with the upstream route; a difference between them may come from the pinned backend version, device selection, context and batch defaults, HTP power mode or GenieX's own integration, so record GenieX's effective settings |
-| GenieX llama_cpp runtime, CPU+NPU (`--compute hybrid`) | a full candidate, not a reference: Arduino measured it at 13.9 tok/s against 11.4 CPU and ~25 NPU on a small model, and the ranking may differ for a 9B or at agent context |
+| GenieX llama_cpp runtime, CPU+NPU (`--compute hybrid`) | a full candidate, not a reference: Arduino measured it at 13.9 tok/s against 11.4 CPU and ~25 NPU on a small model, and the ranking may differ for a 9B or at agent context. It schedules per tensor between HTP and CPU, a different experiment from a layer split |
 | GenieX llama_cpp runtime, CPU (`--compute cpu`) | reference: shows what GenieX's build adds over upstream llama.cpp on the same CPU |
-| llama.cpp CPU+NPU split (upstream `ggml-hexagon`, some layers on the NPU, the rest on the CPU) | only if the upstream NPU route builds and passes V0b; try the split the backend supports (e.g. partial `-ngl`), and record it. A mix can beat both ends when the NPU path is limited by remapping or by ops it doesn't support |
+| llama.cpp `ggml-hexagon`, two virtual sessions on the one NPU (`GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1`, layers split between them) | within the upstream route's time box, if the pinned build enumerates both. It adds no compute: each session keeps its layers inside its own ~3.5GB mapping window, which may avoid remapping for the 9B. Record the enumerated devices and per-session allocations; if v75 refuses it, record the exact error |
+| llama.cpp CPU+NPU layer split (upstream `ggml-hexagon`, some layers on the NPU, the rest on the CPU) | a small sweep (e.g. partial `-ngl`) after the upstream NPU route works. A mix can beat both ends when the NPU path is limited by remapping or by ops it doesn't support |
+
+Each route is reported under its own name: GenieX hybrid, a layer split and two
+virtual sessions are three different experiments, not one "CPU+NPU" result.
+GenieX is pinned at the version installed for V0 (v0.8.0 was the latest on
+2026-10-02; Arduino's tutorial used v0.4.0).
 
 Not tested: GenieX's QAIRT runtime (pre-compiled AI Hub bundles, not GGUF, and
 its `tools` parameter is dropped: GenieX issue #1454, open).
@@ -214,6 +221,13 @@ Files, all with sha256 recorded:
   shows ops or layers on the CPU), or not at all. Partial or none is a
   compatibility finding for that route.
 
+**Effective-settings manifest, per route, from the pinned binaries' startup
+logs** (not from documentation or notes, which can lag the source): runtime and
+backend versions and hashes; placement and session count; context and slots;
+batch and ubatch; thread counts, affinity and polling; KV cache types; flash
+attention; HTP power mode; sampling; chat-template and model hashes; prompt-cache
+policy. It goes into `phase-v0/files.txt` with the results.
+
 **Context is set explicitly on every server, and recorded:** the deepest
 probe (32K) plus the chat template and the reply must fit, so V0 uses 40960
 tokens: `llama-server ... -c 40960`, and `geniex serve --nctx 40960 --compute
@@ -224,7 +238,15 @@ Per route × file:
 1. **Speed:** `suite/tools/speed_probe.py <route>-<file> phase-v0/speed.txt
    --depths 512,8192,16384,32768 --nctx 40960 [--url ... --model ...]`. It
    exits nonzero if any depth failed or came back truncated; a failed depth is
-   investigated, not dropped.
+   investigated, not dropped. For the routes that reach the shortlist, run it
+   **three times per depth** after one discarded warm-up, interleaving the
+   routes, and report the median and spread with the actual prompt token
+   counts. The probe builds its prompts from the repository's Markdown, so
+   every V0 measurement runs from one pinned commit, recorded with the results.
+   Its `prefill_tps` is prompt tokens over time to first token (request and
+   template work included); llama-server's own timings are logged beside it.
+   This is fresh-prefix speed; cached multi-turn reuse is measured separately
+   (qualification, below).
 2. **Tool calls, one-shot:** `suite/tools/probe_toolcalls.py probe
    <route>-<file> phase-v0/probe.txt` (for GenieX add `--url
    http://127.0.0.1:18181 --model <id> --no-props`). 10/10 passes.
@@ -256,25 +278,72 @@ context (19.3K tokens), **prefill 291 tok/s, generation 8.8 tok/s**. There,
 Ornith-1.0's arena 2 median was 426s against a 900s cap, so a route at half
 the Jetson's speed puts that median near the cap.
 
-**Choosing the route.** Every route and mix in the V0c table competes, the CPU+NPU
-ones included. Among those that passed V0b and both tool-call gates, the best
-route is the one with the highest prefill rate at 16K for the 9B pure-Q4_0
-file; if another is within 10% of it, the one with the higher generation rate
-wins. Record the whole table, not just the winner. Take that route and its 16K
-measurement (prompt within ±20% of 16384 tokens):
+**Choosing the route: eligibility first, then ranking.** Every route in the
+V0c table competes. For a model file, a route is **eligible** only if it passed
+V0b and both tool-call gates, kept the memory headroom floor, and its median
+16K measurement (prompt within ±20% of 16384 tokens) meets **both** thresholds:
+**≥145 tok/s prefill and ≥4.4 tok/s generation**. Only then are eligible routes
+ranked: highest median 16K prefill first; within 10% of it, the higher
+generation rate wins. (Ranking first and gating after would let a route at
+200/3 beat one at 150/6 and then fail the gate.) Record the whole table, not
+just the winner.
 
-- **GO, 9B:** the 9B pure-Q4_0 file reaches **≥145 tok/s prefill and ≥4.4
-  tok/s generation**. V1 and V2 run as planned.
-- **GO, small models only:** the 9B misses, but the ~4B pure-Q4_0 file meets
-  both thresholds. V1 and V2 run only on models that meet them.
-- **NO-GO:** nothing meets them. V0 is the tier's result (the matrix and the
-  gate): write it up, and the campaign moves to the laptop.
+- **GO, 9B:** at least one route is eligible for the 9B pure-Q4_0 file; the
+  top-ranked one is the 9B route. V1 and V2 run as planned.
+- **GO, small models only:** no route is eligible for the 9B, but one is for
+  the ~4B pure-Q4_0 file. That choice is made independently, by the same rule
+  on the ~4B's own measurements. V1 and V2 run only on models with an eligible
+  route.
+- **NO-GO:** no route is eligible for either. V0 is the tier's result (the
+  matrix and the gate): write it up, and the campaign moves to the laptop.
+  NO-GO means the planned campaign is impractical with the configurations
+  tested, not that the board can't run useful local models.
 
-These thresholds are frozen by this runbook, before any V0 measurement. Also
+The thresholds are campaign admission heuristics: half the Jetson's speed
+would put Ornith-1.0's arena 2 median near the cap, but prefix reuse, tools,
+output length and compaction also shape wall time.
+
+These thresholds and the rule are frozen by this runbook, before any V0
+measurement. Also
 freeze in `phase-v0/README.md`, before V1: the chosen route; the tier's
 `--cache-ram` value; the memory headroom floor (minimum MemAvailable during a 32K run, and no swap growth)
 that a configuration must keep to count as a clean fit; and the V2 rows that
 meet both.
+
+### V0e: qualification of the chosen configuration (before V1)
+
+On the chosen route(s) only, before any arena repeat:
+
+1. **Tool calls through pi's streaming path.** Both probes above read complete,
+   non-streamed responses; pi streams. A streaming gate checks that argument
+   deltas, call IDs, names and finish reasons assemble correctly, including
+   nested arguments and a correction after a validation error. Then a short
+   real-pi smoke session reads a scratch file, edits it, runs a command and
+   recovers from a deliberate tool error. The streaming probe is a shared-suite
+   PR, needed before V1.
+2. **Each intended window, at its real size.** A server checked at 40960 says
+   nothing about 65K or 131K. At each window a cell will use: a near-limit
+   prompt with room for the reply, a tool continuation and a compaction, and a
+   check that the model metadata, the runtime's effective context and pi's
+   advertised window agree. A window that fails is recorded as unsupported for
+   that configuration, never silently shortened.
+3. **Cached multi-turn reuse**, reported separately from fresh-prefix speed:
+   reuse a transcript, append tool output, compact, and record the cached
+   token counts where the runtime reports them.
+4. **A sustained run** of at least 90 minutes, or the longest planned
+   uninterrupted session if longer, with one server kept up. Sample
+   temperatures, exposed clocks, MemAvailable, swap, memory pressure and
+   kernel errors throughout, and compare early and late throughput. Start and
+   end snapshots alone miss throttling and late cache growth.
+5. **`--cache-ram`** for the native lane: a bounded sweep, 0, 512 and 2048 MiB,
+   on the chosen route; the value is frozen for the tier from its memory and
+   reuse results. The parity lane keeps the Jetson's setting.
+
+**Tuning, on the shortlist only, one setting at a time:** CPU threads 2/4/6/8
+(and decode vs batch threads), with affinity tried only after mapping the real
+core IDs; batch/ubatch 128/512/1024 where accepted; HTP power mode `burst`
+vs `sustained_high_performance`, compared after a clean reload over a
+sustained run. Keep a documented-default run beside every tuned one.
 
 **Arenas on GenieX need a suite change.** `suite/run_model.sh` starts and
 restarts `llama-server` itself. If the chosen route is GenieX, a shared-suite
@@ -283,7 +352,8 @@ arena's window as `--nctx`, comes before V1.
 
 ### Session arenas: windows and checks (V1 onward)
 
-- **Marathons at 65K or more** wherever the model fits. At a 32K window pi 0.80.10
+- **Marathons at 65K or more** wherever the model fits and the window passed
+  V0e's window check. At a 32K window pi 0.80.10
   can leave a session where every reply gets one token
   (`platforms/jetson-orin-nano-8gb/pi-32k-window.txt`); 65K avoids it.
 - **The 32K crusher keeps pi's defaults**, so it stays comparable with the
