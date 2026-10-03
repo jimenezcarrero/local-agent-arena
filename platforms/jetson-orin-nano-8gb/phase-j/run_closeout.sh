@@ -272,7 +272,7 @@ if want J8; then
 #     and RssAnon are sampled every 30s into rss-J8.log, and
 #     j8_memory_verdict.py applies the reading fixed in README.md.
 if [ -z "${DRY_RUN:-}" ]; then
-  grep -q 'HOLD=$(mktemp' "$S/arena3.sh" \
+  grep -qF 'HOLD=$(mktemp' "$S/arena3.sh" \
     || fail "suite/arena3.sh predates the holdout fix (PR #30): merge main into this branch first."
   # one line per server per 30s: the model file ties a sample to its run, and
   # VmHWM is the kernel's peak, so growth between samples isn't missed
