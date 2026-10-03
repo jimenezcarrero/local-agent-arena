@@ -36,8 +36,9 @@ counts as an arena-2 fail, as the rule says.
 - **The three kills** (kernel: 2026-10-01 23:51:54, 2026-10-02 02:48:56, 06:19:21;
   PIDs 106353, 121139, 129946) are the 3B vendor crushers' servers, one per run,
   each in the turn that ended in `peak_slot_ctx=n/a` (`vp-r1-a4-32k` turn 7,
-  `vp-r2` turn 6, `vp-r3` turn 7). Each killed server held **~6.5GB of
-  anonymous memory** (anon-rss 6.54–6.58GB) for a 3.6GB model at a 32K window,
+  `vp-r2` turn 6, `vp-r3` turn 7). Each killed server held **≈6.7GB of
+  anonymous memory** (anon-rss 6,539,660–6,582,472 kB) for a 3.9GB model file
+  at a 32K window,
   and swap was exhausted or nearly so just before each kill (swap free 0MB at
   23:51:27; 12MB at 02:48:51; 233MB with 193MB available at 06:18:56). **The
   cause of that growth is not established from the logs**: the published server
@@ -157,3 +158,6 @@ restart-cause fix (PR #32); the numbers above are unchanged.
   now reports the sampler's evidence without the causal step.
 - Proposal 1 no longer promises a path "the agent can't list", and proposals 1
   and 3 are marked implemented.
+- Units (2026-10-03): the kill-record sizes are kB of 1024 bytes. The text had
+  "~6.5GB ... anon-rss 6.54–6.58GB" and "a 3.6GB model"; anon-rss
+  6,539,660–6,582,472 kB is ≈6.7GB, and the model file is 3.89GB (3.63GiB).
