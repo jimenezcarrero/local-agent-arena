@@ -1,0 +1,101 @@
+# pi at a 32K window: the one-token output budget (investigated 2026-10-03)
+
+## Mechanism (pi 0.80.10, the pinned agent; installed package source)
+
+1. Output budget, @earendil-works/pi-ai/dist/api/simple-options.js, clampMaxTokensToContext():
+     CONTEXT_SAFETY_TOKENS = 4096; MIN_MAX_TOKENS = 1
+     available = model.contextWindow - estimateContextTokens(context) - 4096
+     maxTokens = min(model.maxTokens, max(1, available))
+   pi sends that as max_completion_tokens (api/openai-completions.js). The estimate is the last
+   response's reported usage plus the messages after it (utils/estimate.js).
+   At contextWindow 32768 (pi model "local32k"), a conversation of 28,672 tokens or more gets a
+   budget of ONE output token, and anything above ~24.6K gets less than 4,096.
+2. Compaction, @earendil-works/pi-coding-agent/dist/core/compaction/compaction.js:
+     DEFAULT_COMPACTION_SETTINGS = { reserveTokens: 16384, keepRecentTokens: 20000 }
+     shouldCompact: contextTokens > contextWindow - reserveTokens   (16,384 at 32K)
+   Compaction keeps ~20K tokens of recent messages plus a summary, so at 32K it can leave the
+   conversation above the one-token point. Each reply then stops at 'length' after one token,
+   and compaction can't cut further: the agent stalls until the session ends.
+   65K and 131K windows keep far more headroom and are not affected this way.
+
+## A worked example: J7, j-granite42-3b-vp-r1-a3 (Granite 4.2 3B, vendor, local32k), from its pi session
+  turn 4  usage 26,066 -> COMPACTION (tokensBefore 26,290) -> next usage 26,135
+  turn 5  usage 28,588 -> reply stopped at 'length' (28,701) -> COMPACTION (28,701) -> next usage 27,468
+  turns 6-11: every reply stopped at 'length' after one token, usage 28,487-28,885
+  The server's slot held ~28.8K tokens: under its 32,768 window, so llama-server raised no
+  overflow error. turns_passed 0/11.
+
+## Scan: every saved pi session in ~/bench-runs/arena3 and arena4 (161 runs)
+Runs with at least one reply stopped at 'length' with <= 2 output tokens:
+j-granite42-3b-vp-r1-a3              local32k  turns_passed=0/11      one-token replies=5   ctx~28871
+j-granite42-3b-vp-r2-a3              local32k  turns_passed=5/11      one-token replies=2   ctx~28619
+j-granite42-3b-vp-r3-a3              local32k  turns_passed=2/11      one-token replies=3   ctx~28760
+j-k2h37-r2-a3                        local32k  turns_passed=9/11      one-token replies=1   ctx~28939
+j-minicpm5-f16-r1-a3                 local32k  turns_passed=0/11      one-token replies=1   ctx~28750
+j-minicpm5-f16-r3-a3                 local32k  turns_passed=0/11      one-token replies=1   ctx~29466
+j-minicpm5-r2-a3                     local32k  turns_passed=0/11      one-token replies=2   ctx~28731
+k2h37-q4-a3                          local32k  turns_passed=8/11      one-token replies=2   ctx~30709
+k2h37-q4-r3-a3                       local32k  turns_passed=11/11     one-token replies=1   ctx~29016
+lfm25-vp1-a3                         local32k  turns_passed=5/11      one-token replies=3   ctx~28851
+lfm25-vp2-a3                         local32k  turns_passed=5/11      one-token replies=2   ctx~29806
+lfm25-vp3-a3                         local32k  turns_passed=5/11      one-token replies=2   ctx~28801
+neohorse-q4-r2-a3                    local32k  turns_passed=0/11      one-token replies=1   ctx~30599
+ornith10-32k-def3-a3                 local32k  turns_passed=7/11      one-token replies=3   ctx~29430
+spark4b-q4-a3                        local32k  turns_passed=9/11      one-token replies=2   ctx~29679
+spark4b-q4-r3-a3                     local32k  turns_passed=1/11      one-token replies=2   ctx~29986
+spark4b-q8-r3-a3                     local32k  turns_passed=3/11      one-token replies=1   ctx~29645
+spark4b-q8-t03-r1-a3                 local32k  turns_passed=2/11      one-token replies=7   ctx~30413
+spark4b-q8-t03-r2-a3                 local32k  turns_passed=3/11      one-token replies=6   ctx~29534
+a1-4b-vp2-a4-32k                     local32k  pytest=PASS            one-token replies=1   ctx~31461
+h-bonsai-32k-a4-32k                  local32k  pytest=FAIL            one-token replies=1   ctx~31352
+h-k2h37-r4-a4-32k                    local32k  pytest=PASS            one-token replies=2   ctx~31458
+h-k2h37-r5-a4-32k                    local32k  pytest=PASS            one-token replies=2   ctx~31159
+h-ornith10-65k-def1-a4-32k           local32k  pytest=PASS            one-token replies=1   ctx~32562
+h-ornith10-65k-vp1-a4-32k            local32k  pytest=PASS            one-token replies=1   ctx~32193
+h-ornith10-65k-vp2-a4-32k            local32k  pytest=PASS            one-token replies=1   ctx~32398
+h-ornith15-def-r2-a4-32k             local32k  pytest=PASS            one-token replies=1   ctx~31943
+j-granite42-3b-vp-r2-a4-32k          local32k  pytest=PASS            one-token replies=1   ctx~32647
+j-granite42-3b-vp-r3-a4-32k          local32k  pytest=PASS            one-token replies=1   ctx~29881
+j-k2h37-r1-a4-32k                    local32k  pytest=PASS            one-token replies=3   ctx~31974
+j-k2h37-r2-a4-32k                    local32k  pytest=FAIL            one-token replies=3   ctx~31866
+j-k2h37-r3-a4-32k                    local32k  pytest=PASS            one-token replies=1   ctx~31408
+j-minicpm5-f16-r2-a4-32k             local32k  pytest=FAIL            one-token replies=2   ctx~31045
+j-minicpm5-r3-a4-32k                 local32k  pytest=FAIL            one-token replies=1   ctx~30995
+k2h37-q4-r2-a4-32k                   local32k  pytest=PASS            one-token replies=2   ctx~31685
+k2h37-q4-r3-a4-32k                   local32k  pytest=PASS            one-token replies=1   ctx~30841
+lfm25-vp1-a4-32k                     local32k  pytest=PASS            one-token replies=1   ctx~28922
+lfm25-vp2-a4-32k                     local32k  pytest=PASS            one-token replies=2   ctx~30673
+lfm25-vp3-a4-32k                     local32k  pytest=FAIL            one-token replies=4   ctx~32189
+neohorse-q4-a4-32k                   local32k  pytest=PASS            one-token replies=1   ctx~32248
+neohorse-q4-def1-a4-32k              local32k  pytest=PASS            one-token replies=1   ctx~32621
+neohorse-q4-r2-a4-32k                local32k  pytest=PASS            one-token replies=1   ctx~32293
+neohorse-q4-r3-a4-32k                local32k  pytest=PASS            one-token replies=2   ctx~32388
+neohorse-q8-a4-32k                   local32k  pytest=PASS            one-token replies=1   ctx~32440
+ornith10-32k-vp3-a4-32k              local32k  pytest=FAIL            one-token replies=3   ctx~31496
+ornith10-vp1-a4-32k                  local32k  pytest=PASS            one-token replies=1   ctx~31678
+ornith10-vp3-a4-32k                  local32k  pytest=PASS            one-token replies=2   ctx~32477
+spark17-q8-a4-32k                    local32k  pytest=FAIL            one-token replies=1   ctx~23657
+spark4b-q4-r2-a4-32k                 local32k  pytest=PASS            one-token replies=1   ctx~30393
+spark4b-q8-r2-a4-32k                 local32k  pytest=FAIL            one-token replies=4   ctx~31258
+spark4b-q8-r3-a4-32k                 local32k  pytest=FAIL            one-token replies=6   ctx~28910
+spark4b-q8-t03-r1-a4-32k             local32k  pytest=PASS            one-token replies=1   ctx~27480
+spark4b-q8-t03-r2-a4-32k             local32k  pytest=PASS            one-token replies=1   ctx~27988
+spark4b-q8-t03-r3-a4-32k             local32k  pytest=FAIL            one-token replies=7   ctx~29757
+
+54 of 161 session runs show it, and every one ran at local32k (19 marathons, 35 32K crushers).
+The count is of stalled replies, not of turns lost: in a crusher one such reply can be followed
+by a recovery, while in a marathon the stall can take every remaining turn (the example above).
+
+## What it means for the Jetson results
+- Every 32K session cell ran under the same pi settings, so comparisons at 32K are like for like.
+  Absolute 32K session scores are depressed by an agent-side budgeting effect, not only by the
+  model; the size of the effect per run is not measured here.
+- It is the unexplained "turns that end in seconds" of review-J7 (proposal 4) and of the
+  Ornith-1.0 @32K 7/11 run.
+- Not changed for the Jetson history, and not for J8, whose 8B marathon must stay comparable
+  with Granite 4.1's 32K run.
+
+## For later tiers (a decision for the campaign, not made here)
+Options: run session arenas at >= 65K; or set pi's compaction for small windows (e.g. a smaller
+keepRecentTokens and an earlier trigger) so the post-compaction context stays well under
+contextWindow - 4096. Either is a benchmark-version change, to be recorded like the arena-3 one.

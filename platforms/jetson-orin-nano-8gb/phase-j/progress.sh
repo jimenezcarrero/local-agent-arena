@@ -9,7 +9,7 @@ echo "== last events (~/closeout-status.txt)"
 if [ -s "$STATUS" ]; then tail -4 "$STATUS" | sed 's/^/   /'; else echo "   none yet"; fi
 
 echo "== steps done per stage"
-for st in J1 J2 J3 J4 J5 J7; do
+for st in J1 J2 J3 J4 J5 J7 J8; do
   tags=$(DRY_RUN=1 "$HERE/run_closeout.sh" "$st" | sed -nE 's/.*run_model\.sh ([^ ]+).*/\1/p')
   total=$(echo "$tags" | wc -l); done_=0; now=""
   for t in $tags; do
