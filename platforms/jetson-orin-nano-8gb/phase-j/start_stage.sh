@@ -1,5 +1,5 @@
 #!/bin/bash
-# start_stage.sh <J1|J2|J3|J4|J5|J7> — run one stage of phase J, then hand back to
+# start_stage.sh <J1|J2|J3|J4|J5|J7|J8> — run one stage of phase J, then hand back to
 # Claude Code for review before anything else runs on the board.
 #
 #   1. detaches itself and returns at once, so the caller (you, or a Claude
@@ -18,8 +18,8 @@
 set -u
 HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
-STAGE="${1:?usage: start_stage.sh <J1|J2|J3|J4|J5|J7>}"
-case "$STAGE" in J1|J2|J3|J4|J5|J7) ;; *) echo "unknown stage: $STAGE"; exit 2;; esac
+STAGE="${1:?usage: start_stage.sh <J1|J2|J3|J4|J5|J7|J8>}"
+case "$STAGE" in J1|J2|J3|J4|J5|J7|J8) ;; *) echo "unknown stage: $STAGE"; exit 2;; esac
 note() { echo "$(date -Is) $STAGE: $*" | tee -a "$HOME/closeout-status.txt"; }
 
 # One stage at a time, from queueing through its review (J4 was launched twice;
@@ -87,6 +87,22 @@ if [ -n "$START" ]; then
   (cd "$REPO" && git add "$HERE/restart-causes-$STAGE.txt" \
      && git commit -q -m "phase-j $STAGE: restart causes" && git push -q origin HEAD) \
      || note "restart-causes commit/push FAILED (or no runs)"
+fi
+
+# J8's memory reading, by the rule fixed in README.md, once the kernel-recorded
+# OOM exposure exists (j8_memory_verdict.py: 0 supports, 1 refutes, 2 inconclusive).
+if [ "$STAGE" = J8 ]; then
+  "$HERE/j8_memory_verdict.py" "$HERE/rss-J8.log" "$HERE/oom-exposure-J8.txt" \
+    "${BENCH_WORK:-$HOME/bench-runs}/results.txt" > "$HERE/memory-verdict-J8.txt" 2>&1
+  note "J8 memory verdict exit=$? ($(head -1 "$HERE/memory-verdict-J8.txt"))"
+fi
+
+# Other evidence a stage may write into this folder (J8: the holdout audit of its
+# marathon, the server-memory samples and the memory verdict), committed if present.
+ev=$(ls "$HERE/holdout-audit-$STAGE.txt" "$HERE/rss-$STAGE.log" "$HERE/memory-verdict-$STAGE.txt" 2>/dev/null)
+if [ -n "$ev" ]; then
+  (cd "$REPO" && git add $ev && git commit -q -m "phase-j $STAGE: stage evidence" && git push -q origin HEAD) \
+    || note "stage evidence commit/push FAILED"
 fi
 
 "$HERE/handoff.sh" "$STAGE" "$RC"
