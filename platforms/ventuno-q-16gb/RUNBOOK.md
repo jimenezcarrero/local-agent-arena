@@ -4,6 +4,13 @@ Instructions for an agent (or a person) continuing the campaign on this board.
 The methodology is the one in [`../../suite/`](../../suite/README.md); this
 file covers only what is specific to this machine and what to test here.
 
+Research and review handoff: read [`PERFORMANCE_RESEARCH.md`](PERFORMANCE_RESEARCH.md)
+for the source-backed investigation, proposed experiment matrix and qualification
+gaps identified in [PR #38's review](https://github.com/jimenezcarrero/local-agent-arena/pull/38#pullrequestreview-5402211534).
+The report records proposals and the reviewed revision; it contains no board
+measurements. Incorporate the agreed fixes into this runbook and put shared-suite
+changes in their own PR before starting V1.
+
 **What this tier is for:** what an NPU-first 16GB edge board can do with the
 campaign's agents, and whether the 9B configurations that took OOM kills on the
 Jetson run cleanly with twice the memory. It is **not** a controlled memory
