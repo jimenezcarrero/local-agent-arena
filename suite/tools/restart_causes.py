@@ -73,8 +73,17 @@ def classify(rec, vm, env_boot):
         k = kernel_kill(rec["server_pid"], boot, t0, t1)
         return {True: "oom-kill", False: "died, no kill record", None: "died, kill log unreadable"}[k], ""
     # alive by the harness's check, but the kernel may have killed it moments before
-    if boot and kernel_kill(rec["server_pid"], boot, t0, t1):
+    k = kernel_kill(rec["server_pid"], boot, t0, t1) if boot else None
+    if k:
         return "oom-kill", "the harness still saw the PID alive"
+    label, detail = alive_cause(rec, vm, t0, t1)
+    if k is None:   # alive=yes can't rule out a kill, so say when the log couldn't settle it
+        why = "kernel kill log unreadable" if boot else "no boot_id, kill not checked"
+        detail = f"{detail}; {why}" if detail else why
+    return label, detail
+
+
+def alive_cause(rec, vm, t0, t1):
     if rec["rc"] != "124":
         return "unhealthy", f"rc={rec['rc']}"
     during = [s for s in vm if t0 <= s[0] <= t1]   # instantaneous values: inside the turn only

@@ -144,7 +144,8 @@ class RestartCauses(unittest.TestCase):
     def test_alive_with_unreadable_kernel_log_keeps_its_label(self):
         self.fixture["fail"] = True
         out = self.audit(self.run_dir("r", (5, 1, self.t0, self.t0 + 60, 4242, "yes")))
-        self.assertIn("after turn 5: unhealthy", out); self.assertNotIn("unreadable", out)
+        self.assertIn("after turn 5: unhealthy", out); self.assertIn("kernel kill log unreadable", out)
+        self.assertNotIn("died", out)
 
     def test_run_before_restarts_log_is_unrecorded_not_clean(self):
         out = self.audit(self.run_dir("old", legacy=2))
