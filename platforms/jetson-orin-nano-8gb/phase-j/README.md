@@ -213,8 +213,8 @@ tool-call gates are in [`files-J7.txt`](files-J7.txt).
   output-budget effect described in [`../pi-32k-window.txt`](../pi-32k-window.txt).
 - **b. Granite 4.2 3B vendor 32K crusher with `--cache-ram 0`**
   (`j-granite42-3b-vp-cr0`), one run. J7's three such crushers each grew to
-  ~6.8GB resident (kernel kill records: anon-rss 6,539,660–6,582,472 kB plus
-  ~287,000 kB file-backed) and took an OOM kill. The hypothesis is
+  6.83–6.87M kB resident, ≈7.0GB (kernel kill records: anon-rss
+  6,539,660–6,582,472 kB plus ~287,000 kB file-backed), and took an OOM kill. The hypothesis is
   llama-server's host prompt cache (`--cache-ram`, default 8192 MiB; one 32K
   context of this model at q4 KV is ~0.75GB).
   - **Evidence:** every 30s, each running llama-server's `VmHWM` and `RssAnon`
