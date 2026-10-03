@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """probe_toolcalls.py — can this llama-server's parser read the model's tool calls?
 
-  probe_toolcalls.py probe <label> <evidence.txt> [--url URL] [--n 10] [--model ID] [--no-props]
+  probe_toolcalls.py probe <label> <evidence.txt> [--url URL] [--n 10] [--model ID] [--no-props] [--stream]
       N requests offering one bash tool, thinking left at the template default.
       Appends to <evidence.txt>: server build, model, the chat template's sha256,
       the sha256 of a fixed conversation rendered by /apply-template, the
       effective sampling, and one classified line per probe; the raw responses
       go to <evidence>.<label>.jsonl. Exit 0 only if every probe passed.
 
-  probe_toolcalls.py agentic <label> <evidence.txt> [--url URL] [--n 3] [--model ID]
+  probe_toolcalls.py agentic <label> <evidence.txt> [--url URL] [--n 3] [--model ID] [--stream]
       Multi-turn loops, the failure class a one-shot probe can't see: a tool
       call; after a tool result, another call; after a deliberate validation
       error, correction turns until a valid edit_line call with nested
@@ -24,6 +24,14 @@
       workaround applied: the literal '<function=' split so template detection
       stops choosing the Qwen3-Coder parser; the rendered prompt must not change
       (compare the render sha256 of the two probe runs).
+
+--stream sends the same requests streamed (stream=true), as pi does, and
+assembles the reply the way pi's OpenAI-compatible client does: tool calls keyed
+by their index (else their id), the first non-empty id and name kept, argument
+fragments concatenated. A stream that can't be assembled into well-formed calls
+is classed stream-defect (a stack failure): a call without an id or a name, an
+id that changes, deltas after the finish_reason, or no finish_reason at all.
+The assembled reply is then classified exactly like a non-streamed one.
 
 Any OpenAI-compatible server works: --model sends a model id (servers such as
 GenieX require one), and --no-props skips /props and /apply-template on servers
@@ -50,6 +58,67 @@ RENDER = PROBE + [
     {"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "type": "function",
      "function": {"name": "bash", "arguments": "{\"command\": \"ls -la\"}"}}]},
     {"role": "tool", "tool_call_id": "c1", "content": "a.py\nb.py"}]
+
+
+STREAM = False   # set by --stream
+
+
+def stream_call(url, body, timeout=900):
+    """(reply shaped like a non-streamed completion, [stream defects])"""
+    body = dict(body, stream=True, stream_options={"include_usage": True})
+    req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(),
+                                 {"Content-Type": "application/json"})
+    content, reasoning, calls, by_id, finish, usage, issues = [], [], {}, {}, None, {}, []
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        for raw in resp:
+            line = raw.decode(errors="replace").strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            ev = json.loads(data)
+            usage = ev.get("usage") or usage
+            for ch in ev.get("choices") or []:
+                d = ch.get("delta") or {}
+                if finish is not None and (d.get("content") or d.get("tool_calls")):
+                    issues.append("delta after the finish_reason")
+                if d.get("content"):
+                    content.append(d["content"])
+                if d.get("reasoning_content"):
+                    reasoning.append(d["reasoning_content"])
+                for tc in d.get("tool_calls") or []:
+                    key = tc.get("index") if isinstance(tc.get("index"), int) else by_id.get(tc.get("id"), tc.get("id"))
+                    c = calls.setdefault(key, {"id": "", "name": "", "arguments": ""})
+                    if tc.get("id"):
+                        if c["id"] and c["id"] != tc["id"]:
+                            issues.append(f"call {key}: id changed mid-stream")
+                        c["id"] = c["id"] or tc["id"]; by_id[tc["id"]] = key
+                    f = tc.get("function") or {}
+                    c["name"] = c["name"] or f.get("name") or ""
+                    c["arguments"] += f.get("arguments") or ""
+                if ch.get("finish_reason"):
+                    finish = ch["finish_reason"]
+    if finish is None:
+        issues.append("the stream ended without a finish_reason")
+    tool_calls = []
+    for k, c in calls.items():
+        if not c["id"]:
+            issues.append(f"call {k}: no id")
+        if not c["name"]:
+            issues.append(f"call {k}: no name")
+        tool_calls.append({"id": c["id"], "type": "function",
+                           "function": {"name": c["name"], "arguments": c["arguments"]}})
+    msg = {"role": "assistant", "content": "".join(content) or None,
+           "reasoning_content": "".join(reasoning) or None, "tool_calls": tool_calls}
+    return {"choices": [{"finish_reason": finish, "message": msg}], "usage": usage}, issues
+
+
+def complete(url, body):
+    """(reply, [stream defects]) over the transport chosen by --stream"""
+    if STREAM:
+        return stream_call(url, body)
+    return call(url, "/v1/chat/completions", body), []
 
 
 def call(url, path, body=None, timeout=900):
@@ -143,7 +212,7 @@ def probe(label, out, url, n, model=None, no_props=False):
              f"rendered fixed conversation sha256: {sha(rendered) if rendered is not None else 'n/a (--no-props)'}",
              f"sampling: {json.dumps(samp) if samp else 'n/a (--no-props)'}",
              f"model id sent: {model or 'none'}",
-             f"probes: {n}, max_tokens 400, thinking unset"]
+             f"probes: {n}, max_tokens 400, thinking unset, {'streamed' if STREAM else 'non-streamed'}"]
     counts = {}
     with open(f"{out}.{label}.jsonl", "a") as raw:
         for i in range(1, n + 1):
@@ -151,11 +220,12 @@ def probe(label, out, url, n, model=None, no_props=False):
                 body = {"messages": PROBE, "tools": TOOLS, "max_tokens": 400}
                 if model:
                     body["model"] = model
-                r = call(url, "/v1/chat/completions", body)
-                cls = classify(r)
+                r, issues = complete(url, body)
+                cls = "stream-defect" if issues else classify(r)
                 c = r["choices"][0]
                 args = [t["function"].get("arguments") for t in c["message"].get("tool_calls") or []]
-                detail = f"finish={c['finish_reason']} tokens={r['usage']['completion_tokens']} args={json.dumps(args)[:120]}"
+                detail = (f"finish={c['finish_reason']} tokens={(r.get('usage') or {}).get('completion_tokens', '?')} "
+                          f"args={json.dumps(args)[:120]}" + (f" DEFECTS: {'; '.join(issues)}" if issues else ""))
                 raw.write(json.dumps({"label": label, "i": i, "class": cls, "response": r}) + "\n")
             except Exception as e:  # a failed request is a probe outcome, recorded as such
                 cls, detail = "server-error", f"{type(e).__name__}: {e}"
@@ -198,7 +268,7 @@ def agentic(label, out, url, n, model=None):
     once; a loop that stays well-formed but never calls edit_line is inconclusive (a model choice, not a
     stack fault) and is replaced, up to n + 2 attempts.
     """
-    lines = [f"## {label} (agentic: need {n} passing loops, at most {n + 2} attempts)",
+    lines = [f"## {label} (agentic, {'streamed' if STREAM else 'non-streamed'}: need {n} passing loops, at most {n + 2} attempts)",
              f"model id sent: {model or 'none'}"]
     passed = inconclusive = 0
     failed = False
@@ -212,11 +282,12 @@ def agentic(label, out, url, n, model=None):
                 if model:
                     body["model"] = model
                 try:
-                    r = call(url, "/v1/chat/completions", body)
-                    cls = classify(r, AG_TOOLS)
+                    r, issues = complete(url, body)
+                    cls = "stream-defect" if issues else classify(r, AG_TOOLS)
                     m = r["choices"][0]["message"]
                     detail = f"finish={r['choices'][0]['finish_reason']} calls=" + json.dumps(
-                        [(t["function"]["name"], t["function"].get("arguments")) for t in m.get("tool_calls") or []])[:150]
+                        [(t["function"]["name"], t["function"].get("arguments")) for t in m.get("tool_calls") or []])[:150] \
+                        + (f" DEFECTS: {'; '.join(issues)}" if issues else "")
                     raw.write(json.dumps({"label": label, "loop": loop, "turn": turn, "class": cls, "response": r}) + "\n")
                 except Exception as e:
                     cls, detail, m = "server-error", f"{type(e).__name__}: {e}", None
@@ -281,6 +352,10 @@ def main(a):
     no_props = "--no-props" in a
     if no_props:
         a.remove("--no-props")
+    global STREAM
+    STREAM = "--stream" in a
+    if STREAM:
+        a.remove("--stream")
     if len(a) == 3 and a[0] == "probe":
         return probe(a[1], a[2], url, n, model, no_props)
     if len(a) == 3 and a[0] == "agentic":
