@@ -147,7 +147,7 @@ suite refuses to run under any directory with an `AGENTS.md`/`CLAUDE.md` above i
   the Jetson the default cache was the likely source of the 3B crushers' OOM
   growth (phase J, J8). The parity lane keeps the Jetson's setting (the
   default); every other run uses one tier value, frozen in
-  `phase-v0/README.md` from V0e's cache sweep. Where a runtime has no
+  `phase-v0/README.md` from the cache sweep in V0d's tuning step. Where a runtime has no
   such setting (GenieX), record that.
 
 ## Test plan
@@ -278,49 +278,78 @@ context (19.3K tokens), **prefill 291 tok/s, generation 8.8 tok/s**. There,
 Ornith-1.0's arena 2 median was 426s against a 900s cap, so a route at half
 the Jetson's speed puts that median near the cap.
 
-**Choosing the route: eligibility first, then ranking.** Every route in the
-V0c table competes. For a model file, a route is **eligible** only if it passed
-V0b and both tool-call gates, kept the memory headroom floor, and its median
-16K measurement (prompt within ±20% of 16384 tokens) meets **both** thresholds:
-**≥145 tok/s prefill and ≥4.4 tok/s generation**. Only then are eligible routes
-ranked: highest median 16K prefill first; within 10% of it, the higher
-generation rate wins. (Ranking first and gating after would let a route at
-200/3 beat one at 150/6 and then fail the gate.) Record the whole table, not
-just the winner.
+**From measurements to admission: the sequence** (frozen with this runbook):
 
-- **GO, 9B:** at least one route is eligible for the 9B pure-Q4_0 file; the
-  top-ranked one is the 9B route. V1 and V2 run as planned.
-- **GO, small models only:** no route is eligible for the 9B, but one is for
-  the ~4B pure-Q4_0 file. That choice is made independently, by the same rule
-  on the ~4B's own measurements. V1 and V2 run only on models with an eligible
-  route.
-- **NO-GO:** no route is eligible for either. V0 is the tier's result (the
-  matrix and the gate): write it up, and the campaign moves to the laptop.
-  NO-GO means the planned campaign is impractical with the configurations
-  tested, not that the board can't run useful local models.
+1. **Explore:** the V0c measurements for every route at its defaults. This is
+   the documented-default evidence, kept and labelled as such.
+2. **Tune the shortlist,** one setting at a time: CPU threads 2/4/6/8 (and
+   decode vs batch threads), with affinity tried only after mapping the real
+   core IDs; batch/ubatch 128/512/1024 where accepted; HTP power mode `burst`
+   vs `sustained_high_performance`, compared after a clean reload over a
+   sustained run; and for native runs a bounded `--cache-ram` sweep, 0, 512
+   and 2048 MiB. Record each finalist's final settings (its manifest) and its
+   memory headroom floor. Tuning runs are kept as separately labelled evidence.
+3. **Re-measure on the final settings:** the V0c speed measurement (three
+   repeats, medians) and both tool-call gates.
+4. **Eligibility and ranking** (the rule below), on those re-measured
+   results: a provisional choice for the 9B, and independently for the ~4B.
+5. **Qualify** that exact configuration (V0e).
+6. **Admit or fall back.** A configuration that passes V0e is admitted and
+   frozen. One that fails gives way to the next eligible configuration in rank
+   order (steps 5–6 again); if none remains for the 9B, the ~4B's
+   independently chosen configuration goes through the same steps; if nothing
+   qualifies, NO-GO.
+
+**Eligibility and ranking.** Every route in the V0c table competes. For a model
+file, a configuration is **eligible** only if it passed V0b and both tool-call
+gates, kept the memory headroom floor, and its median 16K measurement (prompt
+within ±20% of 16384 tokens) meets **both** thresholds: **≥145 tok/s prefill
+and ≥4.4 tok/s generation**. Only then are eligible configurations ranked:
+highest median 16K prefill first; within 10% of it, the higher generation rate
+wins. (Ranking first and gating after would let a route at 200/3 beat one at
+150/6 and then fail the gate.) Record the whole table, not just the winner.
+
+- **GO, 9B:** a configuration for the 9B pure-Q4_0 file is eligible **and
+  qualified** (V0e). V1 and V2 run as planned.
+- **GO, small models only:** nothing qualifies for the 9B, but a configuration
+  for the ~4B pure-Q4_0 file, chosen independently by the same rule on its own
+  measurements, does. V1 and V2 run only on models with an admitted
+  configuration.
+- **NO-GO:** nothing qualifies for either. V0 is the tier's result (the matrix,
+  the gate and the qualification record): write it up, and the campaign moves
+  to the laptop. NO-GO means the planned campaign is impractical with the
+  configurations tested, not that the board can't run useful local models.
 
 The thresholds are campaign admission heuristics: half the Jetson's speed
 would put Ornith-1.0's arena 2 median near the cap, but prefix reuse, tools,
 output length and compaction also shape wall time.
 
-These thresholds and the rule are frozen by this runbook, before any V0
-measurement. Also
-freeze in `phase-v0/README.md`, before V1: the chosen route; the tier's
-`--cache-ram` value; the memory headroom floor (minimum MemAvailable during a 32K run, and no swap growth)
-that a configuration must keep to count as a clean fit; and the V2 rows that
-meet both.
+These thresholds, the rule and the sequence are frozen by this runbook, before
+any V0 measurement. Also freeze in `phase-v0/README.md`, before V1: each
+admitted configuration (its manifest, its windows and its V0e evidence); the
+tier's `--cache-ram` value; the memory headroom floor (minimum MemAvailable
+during a 32K run, and no swap growth); and the V2 rows that have an admitted
+configuration.
 
-### V0e: qualification of the chosen configuration (before V1)
+### V0e: qualification of a configuration (before its first arena)
 
-On the chosen route(s) only, before any arena repeat:
+V0e admits **one exact configuration**: the runtime and backend build, the
+model file (by hash) and quantization, the settings in its manifest
+(placement, cache, batch, threads, power mode, sampling) and each window it
+will use. It applies before the first arena of **every** configuration: the
+native lane's, the parity lane's (its own file, route and cache setting) and
+each V2 row's. Evidence is reused only for an unchanged configuration: same
+build, same file hash, same manifest; a window check counts only for that
+window. A different file, quantization or runtime never borrows another
+configuration's qualification.
 
 1. **Tool calls through pi's streaming path.** Both probes above read complete,
    non-streamed responses; pi streams. A streaming gate checks that argument
    deltas, call IDs, names and finish reasons assemble correctly, including
-   nested arguments and a correction after a validation error. Then a short
+   nested arguments and a correction after a validation error
+   (`suite/tools/probe_toolcalls.py probe|agentic ... --stream`). Then a short
    real-pi smoke session reads a scratch file, edits it, runs a command and
-   recovers from a deliberate tool error. The streaming probe is a shared-suite
-   PR, needed before V1.
+   recovers from a deliberate tool error (`suite/tools/pi_smoke.py`).
 2. **Each intended window, at its real size.** A server checked at 40960 says
    nothing about 65K or 131K. At each window a cell will use: a near-limit
    prompt with room for the reply, a tool continuation and a compaction, and a
@@ -335,15 +364,6 @@ On the chosen route(s) only, before any arena repeat:
    temperatures, exposed clocks, MemAvailable, swap, memory pressure and
    kernel errors throughout, and compare early and late throughput. Start and
    end snapshots alone miss throttling and late cache growth.
-5. **`--cache-ram`** for the native lane: a bounded sweep, 0, 512 and 2048 MiB,
-   on the chosen route; the value is frozen for the tier from its memory and
-   reuse results. The parity lane keeps the Jetson's setting.
-
-**Tuning, on the shortlist only, one setting at a time:** CPU threads 2/4/6/8
-(and decode vs batch threads), with affinity tried only after mapping the real
-core IDs; batch/ubatch 128/512/1024 where accepted; HTP power mode `burst`
-vs `sustained_high_performance`, compared after a clean reload over a
-sustained run. Keep a documented-default run beside every tuned one.
 
 **Arenas on GenieX need a suite change.** `suite/run_model.sh` starts and
 restarts `llama-server` itself. If the chosen route is GenieX, a shared-suite
@@ -352,8 +372,8 @@ arena's window as `--nctx`, comes before V1.
 
 ### Session arenas: windows and checks (V1 onward)
 
-- **Marathons at 65K or more** wherever the model fits and the window passed
-  V0e's window check. At a 32K window pi 0.80.10
+- **Marathons at 65K or more** wherever the model fits and that window passed
+  V0e for the configuration. At a 32K window pi 0.80.10
   can leave a session where every reply gets one token
   (`platforms/jetson-orin-nano-8gb/pi-32k-window.txt`); 65K avoids it.
 - **The 32K crusher keeps pi's defaults**, so it stays comparable with the
@@ -372,22 +392,22 @@ arena's window as `--nctx`, comes before V1.
 ### V1: two lanes, never mixed
 
 - **Parity lane:** Ornith-1.0 IQ3_M, the exact Jetson file, on the fastest route
-  that executes it fully, at the Jetson's parity flags and windows (`65536
+  that executes it fully and whose configuration for this file passed V0e, at the Jetson's parity flags and windows (`65536
   131072`), 3 runs per session cell, tag `o10-parity-<route>`. Only if that route
   meets the V0d thresholds with this file; otherwise record "parity file not
   viable on this board" and run no arenas for it. Compare against the Jetson:
   arena 1–2 medians 140s / 426s at 65K (phase J); marathon 11/11 and every 32K
   crusher a full pass (phase H); crusher at 131K 10m09s.
-- **Native lane:** Ornith-1.0 pure Q4_0 on the chosen route, the same ladder,
+- **Native lane:** Ornith-1.0 pure Q4_0 on its admitted configuration, the same ladder,
   tag `o10-q40-<route>`. This measures what the board does on its supported
   path, not what the Jetson's configuration does with more memory.
 
 ### V2: what 16GB buys
 
-**Preserve each row's question first.** A row runs on any V0-qualified route
-(V0b, both tool-call gates) that supports its exact quantization and, with that
-file, meets the V0d thresholds, measured with `speed_probe.py` before its
-arenas. Different rows may use different routes: a Q4_0 row on the NPU and a
+**Preserve each row's question first.** A row runs on a configuration
+admitted for its exact file: one that supports its quantization, is eligible by
+the V0d rule on that file's own measurements, and passed V0e as that exact
+configuration. Different rows may use different routes: a Q4_0 row on the NPU and a
 BF16 row on the CPU are both legitimate. If no route qualifies for a row's
 configuration, the row is recorded as **not answerable on this tier**. A
 pure-Q4_0 version may be added as a separate native arm, reported as that; it
