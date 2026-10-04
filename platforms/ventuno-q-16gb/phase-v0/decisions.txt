@@ -284,3 +284,12 @@ D37 2026-10-04 llama.cpp OpenCL x NeoHorse-1-4B (runs/v0c/llamacpp-opencl-neohor
    this. Monitoring gap found and fixed: the cell's health report ran at 22:21:04, before the sampler's next
    30 s kernel read (22:21:28, 17 lines, 5 alerts), so the cell report missed the hang. run_v0c.sh now waits
    for a kernel read later than the cell's end before its health report and writes kernel-window.txt per cell.
+
+D38 2026-10-04 Laptop Hexagon build, attempt 1: the package that reached the board (sha256 b5109887...,
+   276 bytes, kept as ~/v0/pkg-linux-836d5717.attempt1-empty.tar.gz) held only an empty pkg-linux.sha256 and
+   build-host.txt (x86_64, Docker 29.7.2, no commit line). Cause (campaign owner): one attempt included a
+   pasted shell prompt and another ran outside the repository; the final scp still exited 0. Not a build
+   result. Replaced by tools/build_hexagon_x86.sh: one file that checks the host, the commit and a clean tree,
+   the toolchain image id, the build exit code, the installed files (llama-server, libggml-hexagon,
+   libggml-htp-v75) and their aarch64 ELF type, and packages or copies nothing unless all pass; with a
+   user@board argument it copies to ~/v0/ and verifies the sha256 on the board.
