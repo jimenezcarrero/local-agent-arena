@@ -141,3 +141,19 @@ D21 2026-10-04 GenieX run rules (from geniex-cli.txt): every GenieX command pass
    pure-Q4_0 files are registered with "geniex pull <name> --model-hub localfs --local-path <dir>". The
    llama.cpp plugin version is empty in plugin_versions.json as well as in --version: build identity is the
    bundled file hashes only. Detected chipset: "Arduino VENTUNO Q".
+
+D22 2026-10-04 D8 root setup DONE (attempt 2, 17:19:19-17:20:52 CEST, setup-root.log; post-setup.txt):
+   80 packages installed, 0 removed; Prompt=never; Linger=yes; 12 packages held (kernel 1084, firmware,
+   Mesa, qcom-adreno-cl1, qcom-fastrpc1, qcom-libdmabufheap); default target multi-user (gdm inactive);
+   system kernel journal readable by arduino; dpkg baseline 1714 packages sha256 9dc02d42... (drift alerts
+   active); clinfo -l: QUALCOMM Snapdragon(TM) / Adreno(TM) 623, OpenCL 3.0 build 0855.3, cl_khr_subgroups
+   present (warning "libOpenCL.so.1: no version information available" is Qualcomm's unversioned library);
+   Vulkan: turnip Mesa 25.2.8 on Adreno623; qemu-x86_64 binfmt registered (flags POF), amd64 toolchain
+   container runs (uname -m = x86_64). Still pending from the person: power supply and cooling details.
+
+D23 2026-10-04 Native builds (CPU, OpenCL, Vulkan) at 836d5717 use Arduino's tutorial flags
+   (-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF, + -DGGML_OPENCL=ON for OpenCL) with these
+   differences: Make instead of Ninja (not installed; generator only), -DLLAMA_CURL=OFF (no downloads
+   needed), -DOpenCL_LIBRARY=/usr/lib/aarch64-linux-gnu/libOpenCL.so.1 (no unversioned link, D19),
+   llama.cpp 836d5717 vs Arduino's f6da8cb8. CPU build at upstream defaults (GGML_NATIVE); KleidiAI and
+   thread settings belong to tuning, not V0c. Logs and binary hashes: builds/*.txt.
