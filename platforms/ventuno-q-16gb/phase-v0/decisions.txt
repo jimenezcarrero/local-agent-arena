@@ -364,3 +364,16 @@ D44 2026-10-04 Upstream ggml-hexagon, context checkpoints off (--ctx-checkpoints
    mapping on HTP0:2 fails; total ~6.6 GB). Inference, not verified: besides the per-session window there is
    a cDSP-wide mapping limit between ~4.2 GB (4B, 2 sessions, works) and ~6.3 GB (9B, fails). Shrinking the
    mapped total (KV q8_0, KV on CPU, smaller n_ubatch) is tuning, after V0c; not attempted here.
+
+D45 2026-10-05 9B NPU feasibility check (campaign owner's request; exploratory, outside V0c; runs/v0-explore/), all
+   2 sessions + --ctx-checkpoints 0 at -c 40960 with Ornith-1.0-9B pure Q4_0:
+   - KV q8_0 (-ctk/-ctv q8_0, -fa on): fails to map (~956 MB on HTP0:0); ~5.7 GB on the NPU in total.
+   - KV on CPU (-nkvo): LOADS (HTP0 model 1975/2286 + compute 240/240 MiB, KV 1280 MiB on CPU, ~4.7 GB on the
+     NPU); 512: prefill 166.9, decode 2.20 tok/s: decode already below the 4.4 gate at 512 (attention on the CPU).
+   - KV q4_0 + -ub 128: aborts at load, "pre-allocated tensor (cache_k_l3) in a buffer (HTP0:0) that cannot run
+     the operation (SET_ROWS)": a q4_0 KV cache is not supported by this Hexagon backend.
+   - KV q8_0 + -ub 128 (compute 80 MiB per session, ~5.3 GB in total): fails to map (same ~956 MB buffer).
+   Observed: totals of ~4.2 GB (4B) and ~4.7 GB (9B, -nkvo) map; ~5.3 GB and above do not, on any session
+   split. Conclusion for V0: at a 40960 context, Ornith-1.0-9B Q4_0 does not run on this NPU with its KV cache
+   on the NPU; with it on the CPU it fails the decode gate. Smaller contexts were not tried (the arenas need
+   65K+ windows).
