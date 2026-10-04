@@ -377,3 +377,14 @@ D45 2026-10-05 9B NPU feasibility check (campaign owner's request; exploratory, 
    split. Conclusion for V0: at a 40960 context, Ornith-1.0-9B Q4_0 does not run on this NPU with its KV cache
    on the NPU; with it on the CPU it fails the decode gate. Smaller contexts were not tried (the arenas need
    65K+ windows).
+
+D46 2026-10-05 Night plan (owner away, board free; owner asked for "the most promising" cells and periodic checks):
+   tools/night_batch.sh, detached, every step under a timeout with leftover-server cleanup and sync:
+   (1) V0c: ggml-hexagon 2 sessions + ctx-checkpoints 0 x IQ3_M parity; llama.cpp CPU-v82 x Ornith-9B and x IQ3_M.
+   (2) Exploratory variants of the 4B NPU candidate (A = 2 sessions): B = 3 sessions, C = 2 sessions -ub 1024,
+       full cells with both tool gates.
+   (3) Ranking by the runbook rule among eligible A/B/C, then repeats: one discarded warm-up per configuration and
+       3 interleaved repeats at 512/8K/16K/32K for the best and the runner-up (phase v0c-repeats).
+   Deferred, not skipped: llama.cpp OpenCL x Ornith-9B and x IQ3_M, GenieX GPU x Ornith-9B (GPU lockup and
+   suspected board-stop risk with nobody to power-cycle). Supervision: a watcher reports each step and any
+   health/kernel alert; it expires every 30 min and is re-armed after a direct check of the batch and health.
