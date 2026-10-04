@@ -241,3 +241,13 @@ D32 2026-10-04T20:11:34+02:00 V0c fail-fast rule (campaign owner's decision; a d
    the memory floor only matters for eligible cells. The cell running when the rule was adopted
    (geniex-cpu-neohorse4b) finishes at full depth under the previous script; its 16K/32K results test the
    rule's assumption. Installed by write-new+mv into run_v0c.sh; v0c_batch.sh itself is unchanged.
+
+D33 2026-10-04 GenieX full-prefix-match defect (runs/v0c/geniex-cpu-neohorse4b): the one-shot tool probe sends the
+   same prompt 10 times. GenieX keeps the previous prompt and matches each new one against it; when the whole
+   new prompt matches (log: "prefix match: past_prompt_tokens size: 340, prompt_len: 287, match_len: 287",
+   "n_past_global rollback to: 287") it evaluates nothing ("Generation complete prompt_tokens=0
+   decode_tokens=0") and returns an empty message with finish_reason=stop. Probes 2-10 were empty this way;
+   probe 1 (cold) was a valid tool call. Classified: stack failure, runtime (GenieX prompt-cache reuse), not
+   template or model. Consequence: any identical repeated request (a client retry) can come back empty on
+   GenieX. The agentic probe, whose turns extend the prompt, passed 3/3. Applies to every GenieX route
+   (shared llama_cpp plugin); each cell's result is recorded as measured.
