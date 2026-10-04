@@ -1,0 +1,124 @@
+V0 decisions and deviations from RUNBOOK.md (Ventuno Q, 16GB)
+One entry per decision: what, why, who decided, when. Newest last.
+
+D1 2026-10-04  ~4B model for the native lane: NeoHorse-1-4B (TokenRhythm/NeoHorse-1-4B-GGUF @3c5d58c,
+   NeoHorse-1-4B-BF16.gguf -> llama-quantize --pure Q4_0).
+   Why: same architecture (qwen35) as Ornith-1.0-9B, so the 4B/9B pair differs mainly in size across
+   the NPU's ~3.5GB mapping window; publisher BF16 GGUF exists; Jetson baseline; V2 row nh8-vp.
+   K2-Horizon-3.7B (arch k2-horizon) may need the IFM fork. Decided by the testing agent.
+
+D2 2026-10-04  9B native source: protoLabsAI/Ornith-1.0-9B-MTP-GGUF @fd81c7a, Ornith-1.0-9B-MTP-BF16.gguf
+   (publisher of the Jetson's file; the base safetensors repo deepreinforce-ai/Ornith-1.0-9B is gated, 401).
+   "MTP" in the filename is the repo name; no speculative decoding is used or qualified in V0.
+
+D3 2026-10-04  Parity file identity: Ornith-1.0-9B-MTP-IQ3_M.gguf, same repo. The Jetson never recorded
+   its sha256. HF history: the file last changed in commit 8925f14 (2026-07-03, "embed chat template in
+   IQ3_M"); repo HEAD fd81c7a (2026-07-04) is the last commit, months before the Jetson runs (September).
+   Status: provenance by revision only; IDENTITY UNVERIFIED until the Jetson's retained copy is hashed
+   (sha256sum on the Jetson, ~/Repositories/llama.cpp/models) and compared.
+
+D4 2026-10-04  Upstream llama.cpp pinned at 836d57176dc699a726c55418e4f96b8ca628e1bf (2026-10-03), the
+   commit PERFORMANCE_RESEARCH.md inspected. Converter and quantizer come from this same commit.
+
+D5 2026-10-04  GenieX v0.8.0 installed user-level (~/.local/share/geniex), installer sha256 recorded.
+   It reports an empty "LlamaCPP Runtime Hash"; build identity is the sha256 of every bundled file
+   (geniex-install.txt). Decided by the person running the campaign.
+
+D6 2026-10-04  Node 22.23.3 and pi 0.80.10 installed user-level with mise 2026.10.0, not NodeSource apt
+   (runbook deviation). Decided by the person running the campaign after a trade-off review:
+   + exact pin in ~/.config/mise/config.toml, nothing changes unless changed (no apt hold needed)
+   + no root, no third-party apt repository or signing key
+   + a second pi version for the planned A/B installs in its own user prefix without touching the pin
+   - unattended jobs need node/pi on PATH: mitigated by symlinks in ~/.local/bin; verified from a clean
+     login shell (env -i bash -l) and from a systemd --user unit (node-pi.txt).
+   Neither choice affects V0b/V0c (speed_probe.py and probe_toolcalls.py never call pi or node).
+   RUNBOOK.md's NodeSource line is amended after V0c (no Markdown changes before the corpus is frozen).
+
+D7 2026-10-04  pi stays 0.80.10 for the tier (direct comparison with the Jetson). A labelled pi 1.0.2
+   vs 0.80.10 A/B is planned after V0e on one admitted configuration (pi_smoke + repeated arena cells),
+   reported separately. Decided by the person running the campaign.
+
+D8 2026-10-04  STATUS: PENDING (planned, not executed; no execution log yet; boot-and-clock.txt still shows
+   Linger=no, gdm running, Prompt=lts). Becomes done only with setup-root.log, post-setup apt-mark showhold,
+   dpkg baseline, systemctl get-default/is-active gdm, clinfo -l and binfmt output committed. A failed
+   journal/clinfo/binfmt proof line is recorded as a blocker for the affected route, not ignored.
+   Planned root setup (setup-root.sh, tools/): runbook packages minus nodejs/npm, plus python3-venv/pip
+   (converter), libvulkan-dev+glslc (Vulkan), OpenCL ICD+qcom-adreno-cl1 (GPU route), qemu-user-static+
+   binfmt-support (the upstream Hexagon toolchain image ghcr.io/snapdragon-toolchain/arm64-linux:v0.7 is
+   amd64-only); Prompt=never; enable-linger; apt-mark hold on kernel/firmware/Mesa/Qualcomm user space;
+   multi-user.target as default (headless). Package drift is detected by health_check.py against a dpkg
+   baseline taken after setup. unattended-upgrades stays on for unheld packages.
+
+D9 2026-10-04  Health monitoring by the testing agent itself (no supervising agent): health_sampler.sh every
+   10s (memory, swap, PSI, all thermal zones, per-policy clocks vs limits, cooling devices, GPU clock,
+   test processes, kernel alert/OOM lines) to ~/bench-runs/monitor; health_check.py between runs.
+   The repo gets a one-sample-per-minute extract (monitor/*-1min.jsonl, every kernel-alert sample kept)
+   plus per-run-window extracts; full raw logs are backed up daily to ~/v0-backups (cron 23:55).
+   A scaling_max below the hardware max is recorded as a cap observation; calling it thermal needs
+   corroborating zone/cooling evidence. Real throttle points: passive trips 115-135 C (trip-points.txt).
+
+D10 2026-10-04 Measurement corpus: all V0b/V0c probes run from a detached git worktree at one recorded
+   commit (created just before V0b); its **/*.md set and a corpus hash are recorded with the results.
+   No Markdown in that worktree changes until V0c ends. Evidence is written to the ventuno-q checkout.
+
+D11 2026-10-04 --cache-ram for V0b/V0c (documented-default exploration): set explicitly to 8192 MiB (the
+   default) on every llama-server and recorded; the tier value comes from V0d's sweep. GenieX: no
+   equivalent setting, recorded as such. speed_probe.py sends cache_prompt=false.
+
+D12 2026-10-04 Review of 50e2054 (offline file /tmp/ventuno-pr40-review-50e2054.md), applied:
+   - Sampler v2 (tools/health_sampler.sh), swapped in atomically at 12:43:27 CEST (old pid 11811 killed,
+     new pid 84393; handover gap ~10 s, visible in the health log). Kernel events now come from a journal
+     cursor file (exact window boundaries, survives restarts); every kernel line is kept in full
+     (kernel-<date>.jsonl, with _BOOT_ID and realtime timestamp); a failed read is logged as
+     kern_read=FAILED:<rc> and does not advance the cursor; each sample carries boot_id.
+     health_check.py alerts on failed reads, missing reads, sampling gaps, reboots, and lists every
+     OOM line from the full kernel extract (no truncation).
+   - Backup (tools/backup_evidence.sh): checks prerequisites and both copies, logs OK only after both
+     succeed, FAILED otherwise with a nonzero exit. Schedule verified: a temporary every-minute cron
+     entry ran it at 12:45:01 (syslog CRON line and OK line in monitor/backup-schedule-check.txt), then
+     the original crontab was restored. rsync is added to setup-root.sh's package list.
+   - Public evidence hygiene: the SoC serial_number (board-raw.txt) and the machine-id (journal paths in
+     preexisting-raw.txt and boot-and-clock.txt) are redacted and omitted from later captures. Board label
+     in evidence: "ventuno-q-16gb".
+
+D13 2026-10-04 History rewrite, authorized by the campaign owner: every ventuno-q commit was rewritten with
+   git filter-branch (tree filter replacing the serial and machine-id) so neither value exists in any
+   branch commit. Author and committer dates are unchanged, so V0a still predates every installation.
+   Old -> new: af7314b -> 05157d7 (V0a), 50e2054 -> e19e3ca, bfc1436 -> 2b2f1e1, 98f81b5 -> 435f3ae.
+   Final tree identical before and after. Earlier PR comments and the offline reviews cite the old hashes.
+
+D14 2026-10-04 Disk policy (campaign owner): the eMMC root fs is 54.9 GiB (40.6 used, 11.9 free after the
+   source downloads). Each F16/BF16 source is deleted after its pure Q4_0 file is made and hashed; only the
+   model files under test are kept. If more room is needed, the Hexagon toolchain image (7.0 GB) is removed
+   after the NPU build. The shipped Arduino/Qualcomm docker images (~8 GB) are kept. An NVMe may be fitted
+   later; until then models and ~/bench-runs live on eMMC.
+
+D15 2026-10-04 Noted, not tested: the board ships docker image ghcr.io/arduino/app-bricks/llamacpp-npu-runner:0.12.1
+   (Arduino App Lab's containerised llama.cpp NPU runner). It is not a runbook route; recorded as untested.
+
+D16 2026-10-04 main (PR #41, root AGENTS.md: review guidance) merged into ventuno-q (merge, not rebase, to
+   avoid another force-push). The V0 measured commit is chosen after this merge, so AGENTS.md is part of the
+   frozen speed_probe corpus. PR #40 is closed and superseded by a new draft PR from the rewritten branch;
+   GitHub Support is asked by the campaign owner to purge the two pre-rewrite commits and delete PR #40 (D13).
+
+D17 2026-10-04 PR #40 archived by the campaign owner. Checked anonymously right after: PR #40 page and API
+   return 404 (owner view: closed, locked). The two pre-rewrite commits and their files still return 200
+   by full hash, so the GitHub Support purge request (D13/D16) remains required. Preconditions verified
+   for it: 0 forks, no branch or tag contains either commit, no LFS objects.
+
+D18 2026-10-04 Offline Codex review of 11361cd (three monitoring/publication failure paths), applied:
+   1. health_check.py: alerts when the newest successful kernel read is older than 120 s (4x the 30 s cadence)
+      or absent from the window, and when counters fail to parse or are missing/non-integer (never summed as
+      zero). Verified on synthetic inputs, including both reviewer reproductions (now exit 1) and a healthy
+      control (exit 0).
+   2. health_sampler.sh v3: journalctl works on a candidate cursor; the real cursor is replaced only after
+      the batch is appended and synced (FAILED:append / FAILED:cursor_commit otherwise; replay tolerated,
+      loss not). Verified with a fake journalctl and an unwritable kernel file: cursor held, then the same
+      batch was replayed and committed after recovery. Swapped in 16:38:27 CEST (old pid 84393 -> 358798).
+   3. publish_monitor.py: per-minute summaries keep every extremum (min MemAvailable, max swap/PSI, max per
+      thermal zone, min scaling-max and max clock per policy, cooling, kernel counters with failures counted
+      apart, max RSS per test process) in monitor/health-<date>-minutes.jsonl, which replaces the -1min file;
+      every raw 10 s sample inside a registered run window (run-windows.jsonl, +/-120 s) goes to
+      monitor/health-<date>-runs.jsonl. Verified with the reviewer's 4,000,000/100,000/4,000,000 kB and
+      40/90/40 C example (floor and peak kept).
+   The v1->v2 handover reboot alert in health-checks.txt is annotated there as an artifact.
