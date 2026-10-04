@@ -33,3 +33,10 @@ completed normally.
 Earlier runs at 58885b8 (speed-v0b.txt, runs/v0b/) agree within run-to-run noise (OpenCL 4.87-4.90, CPU 5.27,
 CPU-v82 10.53); they stay as labelled evidence. Repeat-to-repeat variation is visible (CPU-v82 10.53 vs 12.04);
 V0c repeats with medians handle it for the shortlist.
+
+Added after the laptop cross-build (D40), same commit 7badb21, same file:
+llama.cpp ggml-hexagon (upstream)      29/29 layers HTP0 (v75), HTP0 model 828.6 MiB   486   28.26    801.6 / 903.1        ~25      1.13   PASS
+   server: env LD_LIBRARY_PATH=ADSP_LIBRARY_PATH=<pkg>/lib llama-server -m <file> --no-warmup -b 128 -c 2048 -s 11
+   -n 128 --cache-ram 8192 -lv 4 --device HTP0 -ngl 99. Setup: <pkg>/lib/libcdsprpc.so -> libcdsprpc.so.1 (the
+   backend dlopens the bare name; GenieX's installer makes the same link). HTP0 compute buffer 15.1 MiB at
+   n_ubatch 128; KV 56 MiB on HTP0. HTP0 reports 0 MiB memory, so --fit is skipped ("n_gpu_layers already set").
