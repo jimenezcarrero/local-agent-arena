@@ -293,3 +293,41 @@ D38 2026-10-04 Laptop Hexagon build, attempt 1: the package that reached the boa
    the toolchain image id, the build exit code, the installed files (llama-server, libggml-hexagon,
    libggml-htp-v75) and their aarch64 ELF type, and packages or copies nothing unless all pass; with a
    user@board argument it copies to ~/v0/ and verifies the sha256 on the board.
+
+D39 2026-10-04 Unplanned board stop. Boot 152ba628 ended without any shutdown record (no reboot.target, no
+   systemd-shutdown); its journal stops at 23:02:38 (GenieX CPU server deinit). The sampler's last intact
+   sample is 23:02:47; after it the health log holds an 851-byte NUL block, and files written in the next
+   seconds were zeroed or empty (ext4 delayed allocation on an abrupt power loss or hard reset). The next
+   cell, geniex-gpu-ornith9b, had created its run directory and server log at 23:03 and lost them: the stop
+   came about a minute into GenieX GPU x Ornith-9B start-up. New boot c5857812 at 23:09:02 (the clock was
+   restored to 23:02:36 at boot until NTP, so a few early samples carry earlier timestamps; boot_id
+   separates them). Suspected cause: a GPU/driver hang taking the system down during GenieX OpenCL start-up
+   with the 9B (an OpenCL GPU lockup happened at 22:20:57 in llamacpp-opencl-neohorse4b), but the evidence for
+   23:02:47-23:09 was lost, so it is not proven; how the board was restarted is asked of the owner.
+   Lost: the V0c batch (remaining: geniex-gpu-ornith9b, llama.cpp CPU-v82 and OpenCL x Ornith-9B and x IQ3_M)
+   and the session's watchers. Survived: the sampler (restarted by its @reboot cron entry), every completed
+   cell's results, the git checkout. geniex-cpu-ornith9b completed at 23:02:39; its health.txt and free-end.txt
+   were zeroed and are kept as *.zeroed-by-crash; health.txt was regenerated from the sampler. publish_monitor.py
+   now skips and counts unparseable lines instead of failing. Memory PSI-full peaks (up to 32) all fall on
+   model loads from eMMC (quantization at 19:04, 9B loads at 19:40 and 22:21:49), not on measurements.
+
+D38 correction 2026-10-04: the file renamed to pkg-linux-836d5717.attempt1-empty.tar.gz was not the empty
+   attempt-1 package. The campaign owner had already sent a complete package at 22:54, before the rename; the
+   empty 276-byte file (sha256 b5109887...) had been overwritten and only its hash survives. The misnamed copy
+   was byte-identical to the package sent again at 23:11 and was removed as a duplicate.
+
+D40 2026-10-04 Upstream ggml-hexagon package, cross-built on the laptop (x86_64, Docker 29.7.2) at
+   836d57176dc699a726c55418e4f96b8ca628e1bf with the documented commands (not build_hexagon_x86.sh, so the
+   toolchain image id was not recorded by the build; the tag is ghcr.io/snapdragon-toolchain/arm64-linux:v0.7).
+   Package sha256 5916fed1...; all 133 files match its own pkg-linux.sha256; llama-server is aarch64; build log:
+   Hexagon SDK 6.6.0.0, "Including Hexagon backend", htp-v75 target built, 0 error lines, install complete
+   (builds/hexagon-laptop/). Unpacked to ~/v0/hexpkg. Next: V0b on HTP0, placement from the log.
+
+D41 2026-10-04 Identifier leak caught and contained. After the 23:02 stop, journald logged "Failed to read journal file
+   /var/log/journal/<machine-id>/user-1000.journal for rotation", with the machine-id inside the message text.
+   publish_monitor.py dropped the _MACHINE_ID field but did not scrub message text, so the published kernel
+   extract in commit 6b95328 (pushed 23:18 CEST) contained it; the post-commit identifier check found it
+   about a minute later. Fixes: publish_monitor.py now replaces the machine-id and serial anywhere in every
+   published line; a local git pre-commit hook (not committed) refuses any commit whose staged files contain
+   either value, tested by staging a file with the machine-id (refused, rc=1). 6b95328 is amended to remove it;
+   the owner force-pushes the amended commit and adds 6b95328 to the GitHub Support purge request (D13, D16).
