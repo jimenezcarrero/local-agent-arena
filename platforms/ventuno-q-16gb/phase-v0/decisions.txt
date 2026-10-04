@@ -331,3 +331,10 @@ D41 2026-10-04 Identifier leak caught and contained. After the 23:02 stop, journ
    published line; a local git pre-commit hook (not committed) refuses any commit whose staged files contain
    either value, tested by staging a file with the machine-id (refused, rc=1). 6b95328 is amended to remove it;
    the owner force-pushes the amended commit and adds 6b95328 to the GitHub Support purge request (D13, D16).
+
+D42 2026-10-04 Upstream ggml-hexagon V0b PASS (v0b-results.txt): decode 28.26 tok/s (1.13x Arduino's ~25), prefill
+   801.6/903.1, 29/29 layers on HTP0 (v75). Setup step: a user-level link <pkg>/lib/libcdsprpc.so ->
+   /lib/aarch64-linux-gnu/libcdsprpc.so.1 (qcom-fastrpc1 ships only the versioned name; the backend dlopens
+   the bare one). V0c on this route follows, NeoHorse-4B then Ornith-9B, at llama-server defaults with
+   --device HTP0 -ngl 99 (required to place layers on the NPU), -c 40960 --cache-ram 8192 -lv 4.
+   Two-session and partial-offload variants come after the one-session cells.
