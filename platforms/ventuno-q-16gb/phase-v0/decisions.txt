@@ -122,3 +122,15 @@ D18 2026-10-04 Offline Codex review of 11361cd (three monitoring/publication fai
       monitor/health-<date>-runs.jsonl. Verified with the reviewer's 4,000,000/100,000/4,000,000 kB and
       40/90/40 C example (floor and peak kept).
    The v1->v2 handover reboot alert in health-checks.txt is annotated there as an artifact.
+
+D19 2026-10-04 Root setup attempt 1 (17:11 CEST, run by the person) stopped at apt-get install: qcom-adreno-cl1
+   1.855.3+rev2+repack1 "Conflicts: ocl-icd-libopencl1" and "Provides: ocl-icd-libopencl1 (= 2.3.2)", which
+   cannot satisfy ocl-icd-opencl-dev's exact "Depends: ocl-icd-libopencl1 (= 2.3.2-1build1)". Under set -e
+   nothing after it ran: only Prompt=never was applied (setup-root-attempt1.log). Fix: drop
+   ocl-icd-opencl-dev (the Adreno package ships libOpenCL.so.1; headers come from opencl-headers; the llama.cpp
+   OpenCL build points at /usr/lib/aarch64-linux-gnu/libOpenCL.so.1). Dry run (apt-get -s) of the fixed list:
+   80 new packages, 0 removed, no conflicts. Note for Arduino's recipe: installing ocl-icd-opencl-dev and
+   qcom-adreno-cl1 together is unsatisfiable with this package version.
+
+D20 2026-10-04 Measurement checkout frozen for V0b and V0c: ~/v0/measure at 58885b8 (measurement-commit.txt,
+   corpus sha256 3611eb84...). Its Markdown is read-only; the branch checkout keeps receiving evidence.
