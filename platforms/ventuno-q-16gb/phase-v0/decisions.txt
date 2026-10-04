@@ -251,3 +251,11 @@ D33 2026-10-04 GenieX full-prefix-match defect (runs/v0c/geniex-cpu-neohorse4b):
    template or model. Consequence: any identical repeated request (a client retry) can come back empty on
    GenieX. The agentic probe, whose turns extend the prompt, passed 3/3. Applies to every GenieX route
    (shared llama_cpp plugin); each cell's result is recorded as measured.
+
+D34 2026-10-04 GenieX GPU x NeoHorse-1-4B at --nctx 40960: unsupported at defaults (OpenCL allocation limit). The Adreno
+   driver reports "max mem alloc size: 1024 MB"; context creation needs one OpenCL compute buffer of 1280 MiB
+   (1497380992 bytes for the pp graph): "failed to allocate 1280.00 MiB (err=-61)", "failed to allocate compute
+   pp buffers", then HTTP 500 on every request (13 attempts). Both depths, the 10 one-shot probes and the
+   agentic probe fail identically (stack failure: runtime/driver allocation, not template or model). Fail-fast:
+   no valid 8K result, 16K/32K not measured. Same family as D30: GenieX's defaults (n_ubatch, 248K vocabulary,
+   40960 context) produce single compute buffers above the device limits; reducing them is tuning.
