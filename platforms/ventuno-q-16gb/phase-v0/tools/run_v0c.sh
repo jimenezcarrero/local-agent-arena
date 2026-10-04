@@ -11,7 +11,7 @@
 set -uo pipefail
 label=$1 kind=$2 wd=$3; shift 4
 server=("$@")
-P=v0c; MEASURE=~/v0/measure; MON=~/bench-runs/monitor
+P=${PHASE:-v0c}; MEASURE=~/v0/measure; MON=~/bench-runs/monitor
 OUT=~/bench-runs/v0/$P/$label; SPEED=~/bench-runs/v0/$P/speed.txt; TOOLS=~/bench-runs/v0/$P/probe.txt
 mkdir -p "$OUT"; cd ~/bench-runs || exit 1
 log() { echo "$(date -Is) $*" | tee -a "$OUT/run.txt"; }
