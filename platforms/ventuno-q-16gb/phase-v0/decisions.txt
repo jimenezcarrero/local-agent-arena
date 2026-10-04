@@ -167,3 +167,14 @@ D24 2026-10-04 CPU architecture finding. GCC 13.3 "-mcpu=native" on this mixed A
    build-cpu-v82 and build-opencl-v82 with -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16+rcpc
    (the features every core reports; GenieX's default build also targets armv8.2-a). V0b effect on the CPU
    route: decode 5.27 -> 10.53 tok/s, prefill 19.5 -> 74.2 tok/s, CPU_REPACK 828 MiB active.
+
+D25 2026-10-04 GenieX stream format vs speed_probe.py. GenieX serve v0.8.0 streams "data:{...}" and "data:[DONE]"
+   (no space after the colon; valid SSE). speed_probe.py at 58885b8 only recognised "data: [DONE]", so the
+   GenieX GPU V0b run failed in the client with JSONDecodeError (classified: client parser failure, not a
+   route failure; GenieX's own log shows the request completed, 390 prompt tokens, 119 decoded at 7.76 tok/s).
+   Fix in shared-suite PR #44 (no Markdown change, corpus unchanged). After it merges, the frozen measurement
+   checkout moves to the merge commit (corpus hash re-verified) and the llama.cpp V0b runs are repeated there,
+   so every V0b/V0c measurement uses one tool version; the 58885b8 runs stay as labelled evidence.
+   Also recorded: GenieX has no /health endpoint (runner uses /v1/models), loads the model on the first
+   request (first TTFT includes load), and its GPU route uses n_ctx 4096, n_batch 2048, n_ubatch 512,
+   n_seq_max 1, 8 threads pinned to cores 0-7 (strict_cpu, poll 1000), flash_attn_type 0, power mode 7 (burst).
