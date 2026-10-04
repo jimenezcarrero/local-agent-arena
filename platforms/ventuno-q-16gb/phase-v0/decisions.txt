@@ -157,3 +157,13 @@ D23 2026-10-04 Native builds (CPU, OpenCL, Vulkan) at 836d5717 use Arduino's tut
    needed), -DOpenCL_LIBRARY=/usr/lib/aarch64-linux-gnu/libOpenCL.so.1 (no unversioned link, D19),
    llama.cpp 836d5717 vs Arduino's f6da8cb8. CPU build at upstream defaults (GGML_NATIVE); KleidiAI and
    thread settings belong to tuning, not V0c. Logs and binary hashes: builds/*.txt.
+
+D24 2026-10-04 CPU architecture finding. GCC 13.3 "-mcpu=native" on this mixed A55/A78C SoC resolves to plain
+   ARMv8 (no __ARM_FEATURE_DOTPROD, no FP16 vector arithmetic; gcc reports empty -mcpu/-march), and the
+   llama.cpp configure probes for dotprod/i8mm all fail, although every core reports fphp asimdhp asimddp
+   lrcpc (builds/cpu-arch-detection.txt). The upstream-default builds (build-cpu, build-opencl) therefore run
+   the CPU backend without DOTPROD/FP16_VA and without Q4_0 repacking. They stay as the documented-default
+   evidence. Added, as separately labelled builds (not tuning; threads and every runtime knob stay default):
+   build-cpu-v82 and build-opencl-v82 with -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16+rcpc
+   (the features every core reports; GenieX's default build also targets armv8.2-a). V0b effect on the CPU
+   route: decode 5.27 -> 10.53 tok/s, prefill 19.5 -> 74.2 tok/s, CPU_REPACK 828 MiB active.
