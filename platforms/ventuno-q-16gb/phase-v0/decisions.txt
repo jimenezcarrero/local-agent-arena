@@ -207,3 +207,14 @@ D29 2026-10-04 V0b verdicts at 7badb21 (v0b-results.txt): PASS llama.cpp OpenCL 
    Routes entering V0c: llama.cpp CPU-v82, llama.cpp OpenCL, GenieX npu, hybrid, cpu, gpu. The llama.cpp CPU default
    build stays as V0b documented-default evidence only (its V0b decode is half the v82 build's; V0c on it would
    spend hours on a known-handicapped build).
+
+D30 2026-10-04 GenieX NPU route vs the HTP session mapping window (runs/v0c/geniex-npu-neohorse4b*): at GenieX defaults
+   NeoHorse-1-4B pure Q4_0 cannot run on HTP0, at --nctx 40960 or at the default 4096. The session reports
+   "op batching ... vmem 3311845376" (3158 MiB); GenieX maps the model (HTP0 2259 MiB) + compute buffer
+   (998 MiB at n_ubatch 1024, 248K vocabulary) + KV (128 MiB at 4096) + recurrent state (50 MiB) and the
+   1.07 GB compute/KV mapping fails: "HTP0 buffer mapping failed ... error 0x00000001", "fastrpc_mmap
+   failed"; every request returns HTTP 500. model params show load_mode=none (no weight remapping).
+   Classified: unsupported at defaults (runtime memory mapping), not a model or tool failure. Any change
+   (n_ubatch, load mode, sessions) is tuning, after V0c. The 9B (4937 MiB) runs in the batch for the record.
+   Also: GenieX import refuses the IQ3_M parity file ("has no model files GenieX can load"), so all four
+   GenieX routes are "not at all" for the parity lane (runs/v0c/geniex-import-iq3m.txt).
