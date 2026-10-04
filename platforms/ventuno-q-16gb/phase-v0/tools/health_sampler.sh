@@ -1,10 +1,12 @@
 #!/bin/bash
-# Ventuno V0 health sampler (v2): one JSON line every INTERVAL seconds to
+# Ventuno V0 health sampler (v3): one JSON line every INTERVAL seconds to
 # ~/bench-runs/monitor/health-<UTC date>.jsonl, plus every kernel journal line, in full, to
 # ~/bench-runs/monitor/kernel-<UTC date>.jsonl (journalctl -o json, carries _BOOT_ID and
 # __REALTIME_TIMESTAMP). Kernel reads use a journal cursor file, so window boundaries are exact and
 # survive restarts; a failed read is recorded as kern_read="FAILED:<rc>" (never as zero events) and
-# the cursor does not advance, so the next successful read covers the gap.
+# the cursor does not advance, so the next successful read covers the gap. v3: candidate cursor committed only
+# after the batch is appended and synced (FAILED:append / FAILED:cursor_commit otherwise); counters that fail
+# to parse are reported as kern_parse="FAILED", never as zero.
 # Never edit while running (OPERATING.md rule 13): write a new file and mv it over, then restart.
 INTERVAL=${INTERVAL:-10}
 KERN_EVERY=${KERN_EVERY:-30}
@@ -13,7 +15,7 @@ CURSOR="$OUT/kernel.cursor"
 ALERT_RE='oom|killed process|out of memory|thermal|throttl|fastrpc|kgsl|adsprpc|cdsp|smmu|fault|error|segfault|hung task|watchdog'
 mkdir -p "$OUT"
 BOOT=$(cat /proc/sys/kernel/random/boot_id)
-echo "{\"ts\":\"$(date -Is)\",\"event\":\"sampler_start\",\"version\":2,\"pid\":$$,\"boot_id\":\"$BOOT\",\"interval\":$INTERVAL}" >> "$OUT/health-$(date -u +%Y%m%d).jsonl"
+echo "{\"ts\":\"$(date -Is)\",\"event\":\"sampler_start\",\"version\":3,\"pid\":$$,\"boot_id\":\"$BOOT\",\"interval\":$INTERVAL}" >> "$OUT/health-$(date -u +%Y%m%d).jsonl"
 # Start boundary: if no cursor yet, anchor it at the newest kernel entry (older history stays in the journal).
 [ -s "$CURSOR" ] || journalctl -k -n 1 -o json --no-pager --cursor-file="$CURSOR" > /dev/null 2>&1
 echo "{\"ts\":\"$(date -Is)\",\"event\":\"kernel_cursor\",\"cursor\":\"$(cat "$CURSOR" 2>/dev/null | tr -d '"')\"}" >> "$OUT/health-$(date -u +%Y%m%d).jsonl"
@@ -32,23 +34,33 @@ while :; do
   kern=""
   if (( now - last_kern >= KERN_EVERY )); then
     kf="$OUT/kernel-$(date -u +%Y%m%d).jsonl"
-    tmp=$(mktemp "$OUT/.kern.XXXXXX")
-    journalctl -k -o json --no-pager --cursor-file="$CURSOR" > "$tmp" 2> "$tmp.err"; rc=$?
-    if [ $rc -eq 0 ]; then
+    tmp=$(mktemp "$OUT/.kern.XXXXXX"); cand="$OUT/.kernel.cursor.cand"
+    # Work on a candidate cursor; the real cursor advances only after the batch is safely appended.
+    # A failure at any step keeps the old cursor, so the next read replays (duplicates are tolerated, loss is not).
+    cp "$CURSOR" "$cand" 2>/dev/null || rm -f "$cand"
+    journalctl -k -o json --no-pager --cursor-file="$cand" > "$tmp" 2> "$tmp.err"; rc=$?
+    if [ $rc -ne 0 ]; then
+      kern="\"kern_read\":\"FAILED:journalctl:$rc\",\"kern_err\":\"$(head -c 200 "$tmp.err" | tr '"\\\n' "'' ")\","
+    else
       n=$(wc -l < "$tmp")
-      cat "$tmp" >> "$kf"
       alerts=$(python3 -c 'import json,re,sys
 r=re.compile(sys.argv[1],re.I); a=o=0
 for l in open(sys.argv[2]):
     m=str(json.loads(l).get("MESSAGE",""))
     if r.search(m): a+=1
     if re.search(r"Killed process|oom-kill|Out of memory",m): o+=1
-print(a,o)' "$ALERT_RE" "$tmp" 2>/dev/null || echo "? ?")
-      kern="\"kern_read\":\"ok\",\"kern_new_lines\":$n,\"kern_alert_lines\":${alerts% *},\"kern_oom_lines\":${alerts#* },"
-      kern=${kern//\?/null}
-    else
-      kern="\"kern_read\":\"FAILED:$rc\",\"kern_err\":\"$(head -c 200 "$tmp.err" | tr '"\\\n' "'' ")\","
+print(a,o)' "$ALERT_RE" "$tmp" 2>"$tmp.err") || alerts=""
+      if ! { [ "$n" -eq 0 ] || { cat "$tmp" >> "$kf" && sync -f "$kf"; }; }; then
+        kern="\"kern_read\":\"FAILED:append\",\"kern_new_lines\":$n,"
+      elif ! mv -f "$cand" "$CURSOR" 2>/dev/null && [ "$n" -gt 0 ]; then
+        kern="\"kern_read\":\"FAILED:cursor_commit\",\"kern_new_lines\":$n,"   # batch kept; next read replays it
+      elif [[ "$alerts" =~ ^[0-9]+\ [0-9]+$ ]]; then
+        kern="\"kern_read\":\"ok\",\"kern_new_lines\":$n,\"kern_alert_lines\":${alerts% *},\"kern_oom_lines\":${alerts#* },"
+      else
+        kern="\"kern_read\":\"ok\",\"kern_parse\":\"FAILED\",\"kern_new_lines\":$n,\"kern_err\":\"$(head -c 200 "$tmp.err" | tr '"\\\n' "'' ")\","
+      fi
     fi
+    rm -f "$cand"
     rm -f "$tmp" "$tmp.err"
     last_kern=$now
   fi

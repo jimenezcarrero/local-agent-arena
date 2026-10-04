@@ -105,3 +105,20 @@ D17 2026-10-04 PR #40 archived by the campaign owner. Checked anonymously right 
    return 404 (owner view: closed, locked). The two pre-rewrite commits and their files still return 200
    by full hash, so the GitHub Support purge request (D13/D16) remains required. Preconditions verified
    for it: 0 forks, no branch or tag contains either commit, no LFS objects.
+
+D18 2026-10-04 Offline Codex review of 11361cd (three monitoring/publication failure paths), applied:
+   1. health_check.py: alerts when the newest successful kernel read is older than 120 s (4x the 30 s cadence)
+      or absent from the window, and when counters fail to parse or are missing/non-integer (never summed as
+      zero). Verified on synthetic inputs, including both reviewer reproductions (now exit 1) and a healthy
+      control (exit 0).
+   2. health_sampler.sh v3: journalctl works on a candidate cursor; the real cursor is replaced only after
+      the batch is appended and synced (FAILED:append / FAILED:cursor_commit otherwise; replay tolerated,
+      loss not). Verified with a fake journalctl and an unwritable kernel file: cursor held, then the same
+      batch was replayed and committed after recovery. Swapped in 16:38:27 CEST (old pid 84393 -> 358798).
+   3. publish_monitor.py: per-minute summaries keep every extremum (min MemAvailable, max swap/PSI, max per
+      thermal zone, min scaling-max and max clock per policy, cooling, kernel counters with failures counted
+      apart, max RSS per test process) in monitor/health-<date>-minutes.jsonl, which replaces the -1min file;
+      every raw 10 s sample inside a registered run window (run-windows.jsonl, +/-120 s) goes to
+      monitor/health-<date>-runs.jsonl. Verified with the reviewer's 4,000,000/100,000/4,000,000 kB and
+      40/90/40 C example (floor and peak kept).
+   The v1->v2 handover reboot alert in health-checks.txt is annotated there as an artifact.
