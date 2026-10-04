@@ -1,12 +1,23 @@
 #!/bin/bash
-# Ventuno V0 health sampler: one JSON line every INTERVAL seconds to
-# ~/bench-runs/monitor/health-<UTC date>.jsonl. Memory, swap, PSI, thermals,
-# CPU clocks vs limits (throttling), cooling states, test processes, OOM/kernel errors.
-# Never edit while running (OPERATING.md rule 13): write a new file and mv it over.
+# Ventuno V0 health sampler (v2): one JSON line every INTERVAL seconds to
+# ~/bench-runs/monitor/health-<UTC date>.jsonl, plus every kernel journal line, in full, to
+# ~/bench-runs/monitor/kernel-<UTC date>.jsonl (journalctl -o json, carries _BOOT_ID and
+# __REALTIME_TIMESTAMP). Kernel reads use a journal cursor file, so window boundaries are exact and
+# survive restarts; a failed read is recorded as kern_read="FAILED:<rc>" (never as zero events) and
+# the cursor does not advance, so the next successful read covers the gap.
+# Never edit while running (OPERATING.md rule 13): write a new file and mv it over, then restart.
 INTERVAL=${INTERVAL:-10}
+KERN_EVERY=${KERN_EVERY:-30}
 OUT=${OUT:-$HOME/bench-runs/monitor}
+CURSOR="$OUT/kernel.cursor"
+ALERT_RE='oom|killed process|out of memory|thermal|throttl|fastrpc|kgsl|adsprpc|cdsp|smmu|fault|error|segfault|hung task|watchdog'
 mkdir -p "$OUT"
-last_kmsg_check=$(date +%s)
+BOOT=$(cat /proc/sys/kernel/random/boot_id)
+echo "{\"ts\":\"$(date -Is)\",\"event\":\"sampler_start\",\"version\":2,\"pid\":$$,\"boot_id\":\"$BOOT\",\"interval\":$INTERVAL}" >> "$OUT/health-$(date -u +%Y%m%d).jsonl"
+# Start boundary: if no cursor yet, anchor it at the newest kernel entry (older history stays in the journal).
+[ -s "$CURSOR" ] || journalctl -k -n 1 -o json --no-pager --cursor-file="$CURSOR" > /dev/null 2>&1
+echo "{\"ts\":\"$(date -Is)\",\"event\":\"kernel_cursor\",\"cursor\":\"$(cat "$CURSOR" 2>/dev/null | tr -d '"')\"}" >> "$OUT/health-$(date -u +%Y%m%d).jsonl"
+last_kern=0
 while :; do
   now=$(date +%s)
   f="$OUT/health-$(date -u +%Y%m%d).jsonl"
@@ -19,13 +30,29 @@ while :; do
   gpu=$(cat /sys/class/kgsl/kgsl-3d0/gpuclk 2>/dev/null || echo null)
   procs=$(ps -eo pid,etimes,rss,pcpu,args --no-headers | awk '/llama-|geniex|speed_probe|probe_toolcalls|llama-quantize|convert_hf|pi-coding|bin\/pi /&&!/awk/{a=$5;for(i=6;i<=8&&i<=NF;i++)a=a" "$i;gsub(/["\\]/,"",a);printf "%s{\"pid\":%s,\"age_s\":%s,\"rss_kB\":%s,\"cpu\":%s,\"cmd\":\"%s\"}",(n++?",":""),$1,$2,$3,$4,substr(a,1,120)}')
   kern=""
-  if (( now - last_kmsg_check >= 60 )); then
-    kern=$(journalctl -k --since "@$last_kmsg_check" --no-pager -o cat 2>/dev/null | grep -ciE 'oom|killed process|out of memory|thermal|throttl|fastrpc.*err|kgsl.*fault|error' )
-    oom=$(journalctl -k --since "@$last_kmsg_check" --no-pager -o short-iso 2>/dev/null | grep -E 'Killed process|oom-kill' | tail -3 | tr '"\\' "''" | paste -sd'|')
-    kern="\"kern_alert_lines_60s\":${kern:-0},\"oom\":\"$oom\","
-    last_kmsg_check=$now
+  if (( now - last_kern >= KERN_EVERY )); then
+    kf="$OUT/kernel-$(date -u +%Y%m%d).jsonl"
+    tmp=$(mktemp "$OUT/.kern.XXXXXX")
+    journalctl -k -o json --no-pager --cursor-file="$CURSOR" > "$tmp" 2> "$tmp.err"; rc=$?
+    if [ $rc -eq 0 ]; then
+      n=$(wc -l < "$tmp")
+      cat "$tmp" >> "$kf"
+      alerts=$(python3 -c 'import json,re,sys
+r=re.compile(sys.argv[1],re.I); a=o=0
+for l in open(sys.argv[2]):
+    m=str(json.loads(l).get("MESSAGE",""))
+    if r.search(m): a+=1
+    if re.search(r"Killed process|oom-kill|Out of memory",m): o+=1
+print(a,o)' "$ALERT_RE" "$tmp" 2>/dev/null || echo "? ?")
+      kern="\"kern_read\":\"ok\",\"kern_new_lines\":$n,\"kern_alert_lines\":${alerts% *},\"kern_oom_lines\":${alerts#* },"
+      kern=${kern//\?/null}
+    else
+      kern="\"kern_read\":\"FAILED:$rc\",\"kern_err\":\"$(head -c 200 "$tmp.err" | tr '"\\\n' "'' ")\","
+    fi
+    rm -f "$tmp" "$tmp.err"
+    last_kern=$now
   fi
-  printf '{"ts":"%s","epoch":%s,%s%s%s%s"temp_mC":{%s},"freq_cur_max_hw":{%s},"cooling_active":{%s},"gpuclk":%s,"load":"%s","procs":[%s]}\n' \
-    "$(date -Is)" "$now" "$mem" "$psi_m" "$psi_c" "$kern" "${temps%,}" "${freqs%,}" "${cool%,}" "$gpu" "$(cut -d' ' -f1-3 /proc/loadavg)" "$procs" >> "$f"
+  printf '{"ts":"%s","epoch":%s,"boot_id":"%s",%s%s%s%s"temp_mC":{%s},"freq_cur_max_hw":{%s},"cooling_active":{%s},"gpuclk":%s,"load":"%s","procs":[%s]}\n' \
+    "$(date -Is)" "$now" "$BOOT" "$mem" "$psi_m" "$psi_c" "$kern" "${temps%,}" "${freqs%,}" "${cool%,}" "$gpu" "$(cut -d' ' -f1-3 /proc/loadavg)" "$procs" >> "$f"
   sleep "$INTERVAL"
 done

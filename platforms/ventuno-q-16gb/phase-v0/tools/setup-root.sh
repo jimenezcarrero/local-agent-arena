@@ -19,7 +19,7 @@ apt-get update
 apt-get install -y build-essential cmake git python3 python3-pytest python3-venv python3-pip \
     gh jq clinfo vulkan-tools libvulkan-dev glslc \
     ocl-icd-opencl-dev opencl-headers qcom-adreno-cl1 \
-    qemu-user-static binfmt-support
+    qemu-user-static binfmt-support rsync
 
 # 3. Durable kernel log (already persistent on this image) and lingering
 mkdir -p /var/log/journal && systemd-tmpfiles --create --prefix /var/log/journal

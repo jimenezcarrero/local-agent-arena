@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """health_check.py [minutes=60] — summarise the sampler's last N minutes and flag problems.
 
-Flags: sampler stale (>60s), MemAvailable < 1.5 GiB, swap used, PSI memory full avg10 > 5,
-any zone >= 85 C, a CPU policy capped below its hardware max (thermal throttling),
+Flags: sampler stale (>60s), sampling gaps (>3 intervals), failed kernel-journal reads, boot changes, MemAvailable < 1.5 GiB, swap used, PSI memory full avg10 > 5,
+any zone >= 85 C, a CPU policy whose scaling max is below its hardware max (cap observation; thermal only with corroboration),
 active cooling devices, kernel alert lines or OOM kills. Prints one summary line
 plus one line per alert; appends the same to ~/bench-runs/monitor/health-checks.txt.
 """
@@ -18,7 +18,8 @@ for f in files:
         except ValueError:
             pass
 cut = time.time() - mins * 60
-rows = [r for r in rows if r["epoch"] >= cut]
+events = [r for r in rows if "event" in r]
+rows = [r for r in rows if "event" not in r and r.get("epoch", 0) >= cut]
 out = []
 if not rows:
     out.append("ALERT no samples in window (sampler down?)")
@@ -33,13 +34,32 @@ else:
     tmax = max((v, k, r["ts"]) for r in rows for k, v in r["temp_mC"].items())
     capped = sorted({f"{p}:{c[1]}<{c[2]}" for r in rows for p, c in r["freq_cur_max_hw"].items() if c[1] < c[2]})
     cooling = sorted({k for r in rows for k in r.get("cooling_active", {})})
-    kern = sum(r.get("kern_alert_lines_60s", 0) for r in rows)
-    ooms = sorted({r["oom"] for r in rows if r.get("oom")})
+    kern = sum((r.get("kern_alert_lines") or r.get("kern_alert_lines_60s") or 0) for r in rows)
+    kfail = [r["ts"] + " " + r["kern_read"] for r in rows if str(r.get("kern_read", "ok")) != "ok"]
+    kreads = sum(1 for r in rows if "kern_read" in r)
+    gaps = [(a["ts"], b["epoch"] - a["epoch"]) for a, b in zip(rows, rows[1:]) if b["epoch"] - a["epoch"] > 35]
+    boots = sorted({r["boot_id"] for r in rows if r.get("boot_id")})  # v1 samples carry none
+    ooms = []
+    for kf in sorted(glob.glob(os.path.expanduser("~/bench-runs/monitor/kernel-*.jsonl")))[-2:]:
+        for line in open(kf):
+            try:
+                k = json.loads(line)
+            except ValueError:
+                continue
+            if int(k.get("__REALTIME_TIMESTAMP", 0)) / 1e6 >= cut and any(
+                    w in str(k.get("MESSAGE", "")) for w in ("Killed process", "oom-kill", "Out of memory")):
+                ooms.append(time.strftime("%FT%T", time.localtime(int(k["__REALTIME_TIMESTAMP"]) / 1e6))
+                            + " boot=" + k.get("_BOOT_ID", "?")[:8] + " " + str(k["MESSAGE"])[:160])
     procs = {p["cmd"].split()[0].rsplit("/", 1)[-1] for p in last["procs"]}
     summary = (f"{time.strftime('%FT%T%z')} window={mins:g}m samples={len(rows)} last={last['ts']} "
                f"min_avail={gib(min_avail):.2f}GiB swap_max={swap}kB psi_full_max={psi_full} "
                f"tmax={tmax[0]/1000:.1f}C({tmax[1]}) capped={capped or 'none'} cooling={cooling or 'none'} "
-               f"kern_alert_lines={kern} procs={sorted(procs) or 'none'}")
+               f"kern_reads={kreads} kern_read_failures={len(kfail)} gaps={len(gaps)} boots={len(boots)} "
+               f"kern_alert_lines={kern} oom_lines={len(ooms)} procs={sorted(procs) or 'none'}")
+    for k in kfail[:5]: out.append(f"ALERT kernel journal read failed: {k}")
+    if kreads == 0 and mins >= 2: out.append("ALERT no kernel journal reads in window (old sampler or monitoring gap)")
+    for g in gaps[:5]: out.append(f"ALERT sampling gap {g[1]}s after {g[0]}")
+    if len(boots) > 1: out.append(f"ALERT reboot inside window: boot_ids {boots}")
     if stale > 60: out.append(f"ALERT sampler stale {stale:.0f}s")
     if min_avail < 1.5 * 1048576: out.append(f"ALERT MemAvailable fell to {gib(min_avail):.2f}GiB")
     if swap > 0: out.append(f"ALERT swap used {swap}kB")
