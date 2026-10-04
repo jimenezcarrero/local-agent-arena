@@ -218,3 +218,14 @@ D30 2026-10-04 GenieX NPU route vs the HTP session mapping window (runs/v0c/geni
    (n_ubatch, load mode, sessions) is tuning, after V0c. The 9B (4937 MiB) runs in the batch for the record.
    Also: GenieX import refuses the IQ3_M parity file ("has no model files GenieX can load"), so all four
    GenieX routes are "not at all" for the parity lane (runs/v0c/geniex-import-iq3m.txt).
+
+D31 2026-10-04 Codex review of 19ac95c on #43, applied: (1) the 9B native source is now fetched, verified
+   (BF16 018d5c0a...) and quantized (d21c19e5...); the description no longer claims it earlier. (2) Corpus
+   guard: tools/corpus_check.py recomputes speed_probe's corpus exactly (all **/*.md outside .git, ignored
+   files included) and compares sha256, file count and length with the manifest before every run_route.sh
+   and run_v0c.sh run, aborting on mismatch and logging to <run>/corpus-check.txt. Installed by write-new+mv
+   at 19:52 CEST; the V0c batch's cells from then on run with it. Check at 19:52: OK, and git status
+   --ignored in ~/v0/measure was empty, so no earlier run could have read a different corpus through an
+   ignored file. (3) Description: --cache-ram limited to llama-server; GenieX commands and observed cache
+   behaviour listed separately; the brief restored, with the three reconstructed word endings marked.
+   The pre-install apt-get -s output was not saved; setup-root.log (80 new, 0 removed) supersedes it.

@@ -16,8 +16,9 @@ mkdir -p "$OUT"; cd ~/bench-runs || exit 1
 log() { echo "$(date -Is) $*" | tee -a "$OUT/run.txt"; }
 
 # 1. frozen corpus
-[ "$(git -C $MEASURE rev-parse HEAD)" = 58885b8374333e90bf37e2883ff4fb18fab30182 ] || { log "ABORT measure checkout moved: $(git -C $MEASURE rev-parse HEAD)"; exit 3; }
+[ "$(git -C $MEASURE rev-parse HEAD)" = 7badb21a23384379e208d56defab9b0781c5e457 ] || { log "ABORT measure checkout moved: $(git -C $MEASURE rev-parse HEAD)"; exit 3; }
 [ -z "$(git -C $MEASURE status --porcelain)" ] || { log "ABORT measure checkout dirty"; exit 3; }
+python3 ~/v0/corpus_check.py "$OUT/corpus-check.txt" > /dev/null || { log "ABORT corpus mismatch (see corpus-check.txt)"; exit 3; }
 # 2. one server at a time
 if curl -s -m 2 -o /dev/null "$HEALTH"; then log "ABORT something already answers on $HEALTH"; exit 3; fi
 log "START label=$label phase=$phase measure=$(git -C $MEASURE rev-parse --short HEAD) boot=$(cat /proc/sys/kernel/random/boot_id)"

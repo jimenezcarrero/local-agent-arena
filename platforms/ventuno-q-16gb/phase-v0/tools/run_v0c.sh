@@ -21,6 +21,7 @@ else URL=http://127.0.0.1:8080; HEALTH=$URL/health; SP=(--url $URL); TP=(--url $
 
 [ "$(git -C $MEASURE rev-parse HEAD)" = 7badb21a23384379e208d56defab9b0781c5e457 ] || { log "ABORT measure checkout moved"; exit 3; }
 [ -z "$(git -C $MEASURE status --porcelain)" ] || { log "ABORT measure checkout dirty"; exit 3; }
+python3 ~/v0/corpus_check.py "$OUT/corpus-check.txt" > /dev/null || { log "ABORT corpus mismatch (see corpus-check.txt)"; exit 3; }
 if curl -s -m 2 -o /dev/null "$HEALTH"; then log "ABORT something already answers on $HEALTH"; exit 3; fi
 log "START label=$label kind=$kind measure=7badb21 boot=$(cat /proc/sys/kernel/random/boot_id) watchdog=${wd}s"
 log "SERVER ${server[*]}"
