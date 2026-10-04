@@ -78,6 +78,11 @@ D12 2026-10-04 Review of 50e2054 (offline file /tmp/ventuno-pr40-review-50e2054.
      entry ran it at 12:45:01 (syslog CRON line and OK line in monitor/backup-schedule-check.txt), then
      the original crontab was restored. rsync is added to setup-root.sh's package list.
    - Public evidence hygiene: the SoC serial_number (board-raw.txt) and the machine-id (journal paths in
-     preexisting-raw.txt and boot-and-clock.txt) are redacted from the working tree and omitted from later
-     captures. Board label in evidence: "ventuno-q-16gb". The values remain in pushed history (af7314b,
-     50e2054) unless the branch history is rewritten; that is the campaign owner's decision.
+     preexisting-raw.txt and boot-and-clock.txt) are redacted and omitted from later captures. Board label
+     in evidence: "ventuno-q-16gb".
+
+D13 2026-10-04 History rewrite, authorized by the campaign owner: every ventuno-q commit was rewritten with
+   git filter-branch (tree filter replacing the serial and machine-id) so neither value exists in any
+   branch commit. Author and committer dates are unchanged, so V0a still predates every installation.
+   Old -> new: af7314b -> 05157d7 (V0a), 50e2054 -> e19e3ca, bfc1436 -> 2b2f1e1, 98f81b5 -> 435f3ae.
+   Final tree identical before and after. Earlier PR comments and the offline reviews cite the old hashes.
