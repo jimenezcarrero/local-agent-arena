@@ -1,0 +1,62 @@
+V0 decisions and deviations from RUNBOOK.md (Ventuno Q, 16GB)
+One entry per decision: what, why, who decided, when. Newest last.
+
+D1 2026-10-04  ~4B model for the native lane: NeoHorse-1-4B (TokenRhythm/NeoHorse-1-4B-GGUF @3c5d58c,
+   NeoHorse-1-4B-BF16.gguf -> llama-quantize --pure Q4_0).
+   Why: same architecture (qwen35) as Ornith-1.0-9B, so the 4B/9B pair differs mainly in size across
+   the NPU's ~3.5GB mapping window; publisher BF16 GGUF exists; Jetson baseline; V2 row nh8-vp.
+   K2-Horizon-3.7B (arch k2-horizon) may need the IFM fork. Decided by the testing agent.
+
+D2 2026-10-04  9B native source: protoLabsAI/Ornith-1.0-9B-MTP-GGUF @fd81c7a, Ornith-1.0-9B-MTP-BF16.gguf
+   (publisher of the Jetson's file; the base safetensors repo deepreinforce-ai/Ornith-1.0-9B is gated, 401).
+   "MTP" in the filename is the repo name; no speculative decoding is used or qualified in V0.
+
+D3 2026-10-04  Parity file identity: Ornith-1.0-9B-MTP-IQ3_M.gguf, same repo. The Jetson never recorded
+   its sha256. HF history: the file last changed in commit 8925f14 (2026-07-03, "embed chat template in
+   IQ3_M"); repo HEAD fd81c7a (2026-07-04) is the last commit, months before the Jetson runs (September).
+   Status: provenance by revision only; IDENTITY UNVERIFIED until the Jetson's retained copy is hashed
+   (sha256sum on the Jetson, ~/Repositories/llama.cpp/models) and compared.
+
+D4 2026-10-04  Upstream llama.cpp pinned at 836d57176dc699a726c55418e4f96b8ca628e1bf (2026-10-03), the
+   commit PERFORMANCE_RESEARCH.md inspected. Converter and quantizer come from this same commit.
+
+D5 2026-10-04  GenieX v0.8.0 installed user-level (~/.local/share/geniex), installer sha256 recorded.
+   It reports an empty "LlamaCPP Runtime Hash"; build identity is the sha256 of every bundled file
+   (geniex-install.txt). Decided by the person running the campaign.
+
+D6 2026-10-04  Node 22.23.3 and pi 0.80.10 installed user-level with mise 2026.10.0, not NodeSource apt
+   (runbook deviation). Decided by the person running the campaign after a trade-off review:
+   + exact pin in ~/.config/mise/config.toml, nothing changes unless changed (no apt hold needed)
+   + no root, no third-party apt repository or signing key
+   + a second pi version for the planned A/B installs in its own user prefix without touching the pin
+   - unattended jobs need node/pi on PATH: mitigated by symlinks in ~/.local/bin; verified from a clean
+     login shell (env -i bash -l) and from a systemd --user unit (node-pi.txt).
+   Neither choice affects V0b/V0c (speed_probe.py and probe_toolcalls.py never call pi or node).
+   RUNBOOK.md's NodeSource line is amended after V0c (no Markdown changes before the corpus is frozen).
+
+D7 2026-10-04  pi stays 0.80.10 for the tier (direct comparison with the Jetson). A labelled pi 1.0.2
+   vs 0.80.10 A/B is planned after V0e on one admitted configuration (pi_smoke + repeated arena cells),
+   reported separately. Decided by the person running the campaign.
+
+D8 2026-10-04  Root setup (setup-root.sh, tools/): runbook packages minus nodejs/npm, plus python3-venv/pip
+   (converter), libvulkan-dev+glslc (Vulkan), OpenCL ICD+qcom-adreno-cl1 (GPU route), qemu-user-static+
+   binfmt-support (the upstream Hexagon toolchain image ghcr.io/snapdragon-toolchain/arm64-linux:v0.7 is
+   amd64-only); Prompt=never; enable-linger; apt-mark hold on kernel/firmware/Mesa/Qualcomm user space;
+   multi-user.target as default (headless). Package drift is detected by health_check.py against a dpkg
+   baseline taken after setup. unattended-upgrades stays on for unheld packages.
+
+D9 2026-10-04  Health monitoring by the testing agent itself (no supervising agent): health_sampler.sh every
+   10s (memory, swap, PSI, all thermal zones, per-policy clocks vs limits, cooling devices, GPU clock,
+   test processes, kernel alert/OOM lines) to ~/bench-runs/monitor; health_check.py between runs.
+   The repo gets a one-sample-per-minute extract (monitor/*-1min.jsonl, every kernel-alert sample kept)
+   plus per-run-window extracts; full raw logs are backed up daily to ~/v0-backups (cron 23:55).
+   A scaling_max below the hardware max is recorded as a cap observation; calling it thermal needs
+   corroborating zone/cooling evidence. Real throttle points: passive trips 115-135 C (trip-points.txt).
+
+D10 2026-10-04 Measurement corpus: all V0b/V0c probes run from a detached git worktree at one recorded
+   commit (created just before V0b); its **/*.md set and a corpus hash are recorded with the results.
+   No Markdown in that worktree changes until V0c ends. Evidence is written to the ventuno-q checkout.
+
+D11 2026-10-04 --cache-ram for V0b/V0c (documented-default exploration): set explicitly to 8192 MiB (the
+   default) on every llama-server and recorded; the tier value comes from V0d's sweep. GenieX: no
+   equivalent setting, recorded as such. speed_probe.py sends cache_prompt=false.

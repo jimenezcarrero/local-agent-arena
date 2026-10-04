@@ -3,8 +3,12 @@ Captured 2026-10-04 11:13 CEST, immediately after inventory.txt, before any
 installation or upgrade by the campaign. Raw evidence: preexisting-raw.txt.
 
 Board: compatible = arduino,monza / qcom,monaco-monza / qcom,qcs8300 (VENTUNO Q).
-CPU: 4x Cortex-A55 (max 1958.4 MHz) + 4x Cortex-A78C (max 2361.6 MHz; one policy 2112.0 MHz).
-     cpufreq policies 0/2/4, governors schedutil/ondemand/schedutil. power-profiles-daemon: balanced.
+CPU: QCS8275 (soc0 machine). Corrected 2026-10-04 12:27 from board-raw.txt (MIDR per core); lscpu's
+     4+4 grouping in inventory.txt hides the split:
+     policy0 cpu0-1 Cortex-A78C max 2112.0 MHz, governor schedutil
+     policy2 cpu2-3 Cortex-A78C max 2361.6 MHz, governor ondemand
+     policy4 cpu4-7 Cortex-A55  max 1958.4 MHz, governor schedutil
+     power-profiles-daemon: balanced. Fan: emc2305_fan cooling device, active at idle.
 RAM: 15284 MiB total visible, no swap, no zram.
 Storage: no NVMe fitted. eMMC root (mmcblk0p71) 55G, 36G free. Models and ~/bench-runs live on eMMC.
 OS: Ubuntu 24.04.5 LTS, kernel 6.8.0-1084-qcom (#89, 2026-08-20).
