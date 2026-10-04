@@ -229,3 +229,15 @@ D31 2026-10-04 Codex review of 19ac95c on #43, applied: (1) the 9B native source
    ignored file. (3) Description: --cache-ram limited to llama-server; GenieX commands and observed cache
    behaviour listed separately; the brief restored, with the three reconstructed word endings marked.
    The pre-install apt-get -s output was not saved; setup-root.log (80 new, 0 removed) supersedes it.
+
+D32 2026-10-04T20:11:34+02:00 V0c fail-fast rule (campaign owner's decision; a deviation from the runbook's "every depth for every
+   route x file"), fixed before the remaining cells run. For every remaining V0c cell: 512 and 8K are always
+   measured, plus both tool-call gates and memory. If the valid 8K prefill (RESULT line, prompt within +/-20%)
+   is below 72.5 tok/s (half the 145 tok/s gate), or 8K has no valid result, 16K and 32K are not measured and
+   the cell is recorded "ineligible on speed; 16K/32K not measured" (a FAILFAST line in the speed evidence).
+   Reason: prefill falls with depth, so such a cell cannot meet 145 tok/s at 16K; at the observed 14.5 tok/s
+   (GenieX CPU x NeoHorse-4B at ~8K) each remaining cell would take 2.5-3.5 h and most 32K requests would hit
+   speed_probe's 1 h request timeout (~25-30 h in total). VmHWM is then read after the 8K probe and labelled so;
+   the memory floor only matters for eligible cells. The cell running when the rule was adopted
+   (geniex-cpu-neohorse4b) finishes at full depth under the previous script; its 16K/32K results test the
+   rule's assumption. Installed by write-new+mv into run_v0c.sh; v0c_batch.sh itself is unchanged.

@@ -1,8 +1,8 @@
 #!/bin/bash
 # run_v0c.sh <label> <route-kind: llama|geniex> <watchdog-s or 0> -- <server command...>
 #   One V0c route x file run at the frozen measurement commit:
-#   1. speed_probe.py --depths 512,8192,16384,32768 --nctx 40960
-#   2. VmHWM of every server process (the runbook's end-of-32K point)
+#   1. speed_probe.py --depths 512,8192 --nctx 40960, then 16384,32768 only if 8K prefill >= 72.5 tok/s (D32)
+#   2. VmHWM of every server process (after the deepest measured probe)
 #   3. probe_toolcalls.py probe   (10 one-shot)
 #   4. probe_toolcalls.py agentic (3 loops)
 #   Run window registered; health check over the window. GenieX: --url/--model, tool probes with --no-props.
@@ -59,10 +59,23 @@ fi
 rc_speed=4 rc_probe=4 rc_agentic=4
 if [ $ok = 1 ]; then
   log "ready after ${i}s"
-  python3 $MEASURE/suite/tools/speed_probe.py "$label" "$SPEED" --depths 512,8192,16384,32768 --nctx 40960 "${SP[@]}" > "$OUT/speed.txt" 2>&1; rc_speed=$?
+  # Fail-fast rule (D32): 512 and 8K always; 16K and 32K only if the valid 8K prefill is >= 72.5 tok/s
+  # (half the 145 tok/s gate). Prefill falls with depth, so a lower 8K rate cannot reach the gate at 16K.
+  python3 $MEASURE/suite/tools/speed_probe.py "$label" "$SPEED" --depths 512,8192 --nctx 40960 "${SP[@]}" > "$OUT/speed.txt" 2>&1; rc_speed=$?
+  p8=$(grep -E "^RESULT .*depth=8192 " "$OUT/speed.txt" | grep -v ERROR | grep -oE 'prefill_tps=[0-9.]+' | cut -d= -f2)
+  if [ -n "$p8" ] && python3 -c "import sys; sys.exit(0 if float('$p8') >= 72.5 else 1)"; then
+    log "fail-fast: 8K prefill $p8 >= 72.5, measuring 16K and 32K"
+    python3 $MEASURE/suite/tools/speed_probe.py "$label" "$SPEED" --depths 16384,32768 --nctx 40960 "${SP[@]}" >> "$OUT/speed.txt" 2>&1; rc2=$?
+    [ $rc2 -ne 0 ] && rc_speed=$rc2
+    hwm_at="after the 32K probe"
+  else
+    log "fail-fast: 8K prefill '${p8:-none}' < 72.5 tok/s (or no valid 8K result): 16K/32K NOT MEASURED (ineligible on speed, D32)"
+    echo "FAILFAST $label: 8K prefill ${p8:-none} < 72.5 tok/s or invalid; depths 16384,32768 not measured (D32)" >> "$SPEED"
+    hwm_at="after the 8K probe (16K/32K skipped by the fail-fast rule)"
+  fi
   log "speed_probe rc=$rc_speed"
   for p in $(pgrep -g $spid 2>/dev/null); do printf '%s %s %s\n' "$p" "$(grep -E 'VmHWM|VmRSS' /proc/$p/status 2>/dev/null | tr -s ' \t' ' ' | paste -sd' ')" "$(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null | cut -c1-80)"; done > "$OUT/vmhwm.txt"
-  log "VmHWM after 32K probe: $(sort -t: -k2 -n "$OUT/vmhwm.txt" | tail -1 | cut -c1-90)"
+  log "VmHWM $hwm_at: $(sort -t: -k2 -n "$OUT/vmhwm.txt" | tail -1 | cut -c1-90)"
   if kill -0 $spid 2>/dev/null; then
     python3 $MEASURE/suite/tools/probe_toolcalls.py probe "$label" "$TOOLS" "${TP[@]}" > "$OUT/toolprobe.txt" 2>&1; rc_probe=$?
     log "probe_toolcalls probe rc=$rc_probe"
