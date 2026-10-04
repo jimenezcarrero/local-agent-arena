@@ -59,9 +59,12 @@ def measure(url, model, depth, gen, cpt, nctx=None, ignore_eos=False):
     with urllib.request.urlopen(req, timeout=3600) as r:
         for raw in r:
             line = raw.decode(errors="replace").strip()
-            if not line.startswith("data:") or line == "data: [DONE]":
+            if not line.startswith("data:"):
                 continue
-            ev = json.loads(line[5:])
+            data = line[5:].strip()   # SSE allows "data:" with or without a space (GenieX sends "data:[DONE]")
+            if data == "[DONE]":
+                continue
+            ev = json.loads(data)
             usage = ev.get("usage") or usage
             timings = ev.get("timings") or timings
             for ch in ev.get("choices") or []:
