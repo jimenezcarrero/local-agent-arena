@@ -353,3 +353,14 @@ D43 2026-10-04 Upstream ggml-hexagon V0c at defaults (-c 40960 --cache-ram 8192,
    checkpointing on ggml-hexagon), not memory or model. A separately labelled variant with --ctx-checkpoints 0
    (everything else default) follows; it is a non-default setting, flagged for review as a deviation from
    "V0c at defaults" because it is the only way to see this route at depth.
+
+D44 2026-10-04 Upstream ggml-hexagon, context checkpoints off (--ctx-checkpoints 0; non-default, flagged in D43):
+   NeoHorse-1-4B, 2 virtual sessions: all four depths measured. 16K (17529 tokens): prefill 318.8/321.6 tok/s,
+   decode 8.25 tok/s; 32K: 282.9 / 7.22; one-shot 10/10, agentic 3/3; VmHWM 2.09 GiB (host side), min
+   MemAvailable 6.11 GiB, no swap, peak 49.4 C (NSP). The first V0c cell that meets both speed gates and both
+   tool gates: a shortlist candidate for the ~4B, pending the warm-up + 3 interleaved repeats and V0d.
+   Ornith-1.0-9B does not load: 2 sessions (per session model 1975/2286 + KV 640 + RS 109/92 + compute 288 MiB;
+   HTP0:1 ~3306 MiB exceeds the ~3158 MiB window) and 3 sessions (per session ~2236/1964/2405 MiB, yet a 605 MB
+   mapping on HTP0:2 fails; total ~6.6 GB). Inference, not verified: besides the per-session window there is
+   a cDSP-wide mapping limit between ~4.2 GB (4B, 2 sessions, works) and ~6.3 GB (9B, fails). Shrinking the
+   mapped total (KV q8_0, KV on CPU, smaller n_ubatch) is tuning, after V0c; not attempted here.
