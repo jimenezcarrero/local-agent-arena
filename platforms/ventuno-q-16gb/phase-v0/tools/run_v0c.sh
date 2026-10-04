@@ -97,4 +97,19 @@ open(p + ".tmp", "w").write("".join(json.dumps(r) + "\n" for r in rows)); os.rep
 PY
 free -m > "$OUT/free-end.txt"
 log "END speed=$rc_speed probe=$rc_probe agentic=$rc_agentic duration=$((end-start))s"
+# wait for a kernel-journal read later than the cell's end (sampler reads every 30 s), so the cell's health
+# report includes kernel lines logged at the very end of the run (a GPU hang at 22:20:57 was missed otherwise)
+for i in $(seq 1 12); do
+  python3 -c "import json,sys; r=[json.loads(l) for l in open(sys.argv[1]) if '\"kern_read\"' in l]; sys.exit(0 if r and r[-1]['epoch']>int(sys.argv[2]) else 1)" ~/bench-runs/monitor/health-$(date -u +%Y%m%d).jsonl $end && break
+  sleep 10
+done
 python3 ~/v0/monitor/health_check.py $(( (end-start)/60 + 3 )) > "$OUT/health.txt" 2>&1
+python3 - "$start" > "$OUT/kernel-window.txt" 2>&1 <<'PY'
+import glob, json, os, sys, time
+t0 = int(sys.argv[1]) - 60
+for f in sorted(glob.glob(os.path.expanduser("~/bench-runs/monitor/kernel-*.jsonl")))[-2:]:
+    for l in open(f):
+        k = json.loads(l); t = int(k.get("__REALTIME_TIMESTAMP", 0)) / 1e6
+        if t >= t0:
+            print(time.strftime("%FT%T", time.localtime(t)), str(k.get("MESSAGE", ""))[:240])
+PY

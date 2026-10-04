@@ -271,3 +271,16 @@ D36 2026-10-04 Parity identity VERIFIED (supersedes D3's "unverified"). The camp
    9ef72d9cf410f7606a4ba621f17d9b204b441bc589fc24b035074796c5fe677b, identical to the file on this board
    (protoLabsAI/Ornith-1.0-9B-MTP-GGUF@fd81c7a, HF LFS oid, verified at download). The parity lane runs the
    exact bytes the Jetson ran.
+
+D37 2026-10-04 llama.cpp OpenCL x NeoHorse-1-4B (runs/v0c/llamacpp-opencl-neohorse4b): GPU lockup during the 8K prefill.
+   512: prefill 21.5, decode 3.16 tok/s (prompt 480). 8K: the sizing request (~12K tokens) had processed 4096
+   tokens in 2048-token chunks (21.9 -> 18.3 tok/s) when the kernel logged at 22:20:57 "hangcheck detected
+   gpu lockup rb 0!", "hangcheck recover!", "offending task: llama-server (...build-opencl...)"; at 22:21:04
+   the Adreno user-space driver logged "issueibcmds() called on a guilty context" and "Exiting the process
+   llama-server". Not memory: MemAvailable 8.4 GiB, server RSS 789 MiB, no swap, no OOM line. The GPU
+   recovered (clinfo lists the Adreno 623 afterwards). Classified: stack failure, GPU driver/kernel hang
+   (msm hangcheck on a long OpenCL submission during a qwen35 prefill), not template or model. No valid
+   8K: fail-fast, tool probes not run (server gone). The same build ran Qwen2.5-1.5B (qwen2) in V0b without
+   this. Monitoring gap found and fixed: the cell's health report ran at 22:21:04, before the sampler's next
+   30 s kernel read (22:21:28, 17 lines, 5 alerts), so the cell report missed the hang. run_v0c.sh now waits
+   for a kernel read later than the cell's end before its health report and writes kernel-window.txt per cell.
