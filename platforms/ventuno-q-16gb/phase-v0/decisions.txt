@@ -338,3 +338,18 @@ D42 2026-10-04 Upstream ggml-hexagon V0b PASS (v0b-results.txt): decode 28.26 to
    the bare one). V0c on this route follows, NeoHorse-4B then Ornith-9B, at llama-server defaults with
    --device HTP0 -ngl 99 (required to place layers on the NPU), -c 40960 --cache-ram 8192 -lv 4.
    Two-session and partial-offload variants come after the one-session cells.
+
+D43 2026-10-04 Upstream ggml-hexagon V0c at defaults (-c 40960 --cache-ram 8192, --device HTP0 -ngl 99):
+   one session: NeoHorse-4B and Ornith-9B both abort at load ("HTP0 buffer mapping failed ... size ~1.0 GB",
+   "fastrpc_mmap failed"): HTP0 holds model 2259/4261 MiB (the 9B's weights placed via dynamic mapping) + KV
+   1280 MiB at 40960 + recurrent state 201 MiB + compute 104/136 MiB, and the ~1 GB KV mapping exceeds the
+   session window. Two virtual sessions (GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1, --device HTP0:0,HTP0:1; the
+   runbook's two-session route): NeoHorse-4B loads (per session: model 1020/1239, KV 640, RS 109/92, compute
+   244 MiB); 512: prefill 288.8 (server 319.8), decode 9.97 tok/s; the ~12K sizing request prefilled at
+   ~390-400 tok/s (11734 tokens in 29.8 s) and then the server aborted: "HTP0:0 synchronize failed : dsp-error
+   NO-SUPPORT", backtrace server_context_impl::create_checkpoint -> llama_state_seq_get_data_ext. llama-server
+   saves context checkpoints for hybrid/recurrent models (default 32 per slot, every 8192 tokens), reading
+   state back from the NPU, which this backend does not support. Classified: stack failure, runtime (server
+   checkpointing on ggml-hexagon), not memory or model. A separately labelled variant with --ctx-checkpoints 0
+   (everything else default) follows; it is a non-default setting, flagged for review as a deviation from
+   "V0c at defaults" because it is the only way to see this route at depth.
