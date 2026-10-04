@@ -86,3 +86,17 @@ D13 2026-10-04 History rewrite, authorized by the campaign owner: every ventuno-
    branch commit. Author and committer dates are unchanged, so V0a still predates every installation.
    Old -> new: af7314b -> 05157d7 (V0a), 50e2054 -> e19e3ca, bfc1436 -> 2b2f1e1, 98f81b5 -> 435f3ae.
    Final tree identical before and after. Earlier PR comments and the offline reviews cite the old hashes.
+
+D14 2026-10-04 Disk policy (campaign owner): the eMMC root fs is 54.9 GiB (40.6 used, 11.9 free after the
+   source downloads). Each F16/BF16 source is deleted after its pure Q4_0 file is made and hashed; only the
+   model files under test are kept. If more room is needed, the Hexagon toolchain image (7.0 GB) is removed
+   after the NPU build. The shipped Arduino/Qualcomm docker images (~8 GB) are kept. An NVMe may be fitted
+   later; until then models and ~/bench-runs live on eMMC.
+
+D15 2026-10-04 Noted, not tested: the board ships docker image ghcr.io/arduino/app-bricks/llamacpp-npu-runner:0.12.1
+   (Arduino App Lab's containerised llama.cpp NPU runner). It is not a runbook route; recorded as untested.
+
+D16 2026-10-04 main (PR #41, root AGENTS.md: review guidance) merged into ventuno-q (merge, not rebase, to
+   avoid another force-push). The V0 measured commit is chosen after this merge, so AGENTS.md is part of the
+   frozen speed_probe corpus. PR #40 is closed and superseded by a new draft PR from the rewritten branch;
+   GitHub Support is asked by the campaign owner to purge the two pre-rewrite commits and delete PR #40 (D13).
