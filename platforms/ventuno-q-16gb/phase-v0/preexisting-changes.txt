@@ -1,0 +1,42 @@
+V0a — state of the board before this campaign installed anything
+Captured 2026-10-04 11:13 CEST, immediately after inventory.txt, before any
+installation or upgrade by the campaign. Raw evidence: preexisting-raw.txt.
+
+Board: compatible = arduino,monza / qcom,monaco-monza / qcom,qcs8300 (VENTUNO Q).
+CPU: 4x Cortex-A55 (max 1958.4 MHz) + 4x Cortex-A78C (max 2361.6 MHz; one policy 2112.0 MHz).
+     cpufreq policies 0/2/4, governors schedutil/ondemand/schedutil. power-profiles-daemon: balanced.
+RAM: 15284 MiB total visible, no swap, no zram.
+Storage: no NVMe fitted. eMMC root (mmcblk0p71) 55G, 36G free. Models and ~/bench-runs live on eMMC.
+OS: Ubuntu 24.04.5 LTS, kernel 6.8.0-1084-qcom (#89, 2026-08-20).
+DSP: /usr/lib/dsp/cdsp holds only the QCS8300-RIDE images (fastrpc shells, sysmon skels);
+     no libQnnHtpV75Skel.so is present as shipped. /dev/fastrpc-cdsp is rw for group fastrpc
+     (arduino is a member).
+GPU: no OpenCL ICD, no clinfo/vulkaninfo installed; Mesa 25.2.8 (mesa-vulkan-drivers) present.
+
+Changes applied to the shipped image before this campaign (from /var/log/apt/history.log*):
+- 2026-09-30 15:22  unattended-upgrade: ~230 security/stable updates (systemd, libc6, mesa 25.2.8,
+                    linux-image-6.8.0-1078-qcom, linux-image-qcom, snapd, openssh, python3.12, ...).
+- 2026-09-30 15:42  aptdaemon (Software Updater GUI, requested by arduino): kernel
+                    linux-modules/image 6.8.0-1084-qcom, linux-firmware split packages, further upgrades.
+- 2026-09-30 18:39  "apt upgrade linux-firmware-dragonwing": 20260612 -> 20260613.
+- 2026-10-04 10:23  unattended-upgrade: gvfs* 1.54.4-0ubuntu1~24.04.4, libauthen-sasl-perl.
+- 2026-10-04 10:44  "apt install -y gh": gh 2.45.0-1ubuntu0.3.
+The running kernel (1084) is therefore not the image's original kernel; it is the one for the whole tier.
+
+Software in the user's home, not from apt (not used by the benchmark):
+- ~/.local/bin/claude  Claude Code 2.1.289 (the supervising agent)
+- ~/.local/bin/codex, ~/.codex  (another agent CLI; has ~/.codex/AGENTS.md, a sibling of ~/bench-runs, not above it)
+- ~/.local/bin/mise (2026-10-02), ~/.local/bin/herdr (2026-09-30)
+Snaps: firefox, gnome-46-2404, mesa-2404 25.0.7, snap-store, snapd 2.75.2 (shipped).
+
+Configuration as found:
+- /etc/update-manager/release-upgrades: Prompt=lts (runbook says set to never; pending, needs sudo)
+- unattended-upgrades.service active (will keep upgrading packages during the tier; see notes)
+- Journal persistent: /var/log/journal exists (from image, 2025-06-05), journal file path under it.
+- arduino is in adm, fastrpc, render, video, docker groups.
+- loginctl Linger=no (runbook requires enable-linger; pending, needs sudo)
+- sudo requires a password (agent cannot run sudo steps unattended).
+- Running services include docker/containerd, gdm (desktop), arduino-app-cli, arduino-router,
+  arduino-cloud-connector, cups, ModemManager, systemd-oomd, adbd.
+- Repo checkout ~/Repositories/local-agent-arena at b5579da, local git identity already the
+  GitHub noreply address.
