@@ -178,3 +178,14 @@ D25 2026-10-04 GenieX stream format vs speed_probe.py. GenieX serve v0.8.0 strea
    Also recorded: GenieX has no /health endpoint (runner uses /v1/models), loads the model on the first
    request (first TTFT includes load), and its GPU route uses n_ctx 4096, n_batch 2048, n_ubatch 512,
    n_seq_max 1, 8 threads pinned to cores 0-7 (strict_cpu, poll 1000), flash_attn_type 0, power mode 7 (burst).
+
+D26 2026-10-04 Upstream ggml-hexagon route: BLOCKED (setup dependency) on this board, inside its one-day time box.
+   The documented toolchain container (ghcr.io/snapdragon-toolchain/arm64-linux:v0.7, amd64-only) runs
+   under Ubuntu's qemu-user-static 8.2.2 (binfmt flags POF), but qemu itself crashes ("QEMU internal SIGSEGV
+   {code=MAPERR, addr=0x20}", exit 139) on ordinary binaries inside it: cmake's configure step and even
+   "env | grep" segfault; cmake --version, clang --version and uname work. QEMU_CPU=max/Haswell/qemu64 give the
+   same crash (builds/hexagon-attempt1.txt, builds/hexagon-qemu-diagnosis.txt). Not a llama.cpp or Hexagon
+   result. Ways forward, for the campaign owner: (a) cross-compile on an x86_64 host with the same container
+   and commit, then copy pkg-linux to the board (upstream's documented flow; recorded with hashes);
+   (b) register a newer qemu-user via a privileged binfmt container (a system change); (c) leave the route
+   blocked. The two-session and partial-offload variants depend on this build and share its status.
