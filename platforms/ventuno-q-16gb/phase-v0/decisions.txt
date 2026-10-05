@@ -189,6 +189,8 @@ D26 2026-10-04 Upstream ggml-hexagon route: BLOCKED (setup dependency) on this b
    and commit, then copy pkg-linux to the board (upstream's documented flow; recorded with hashes);
    (b) register a newer qemu-user via a privileged binfmt container (a system change); (c) leave the route
    blocked. The two-session and partial-offload variants depend on this build and share its status.
+   [SUPERSEDED by D40/D42: built on the laptop (option a); the route was measured, including the two-session and
+   partial-offload variants (D43, D44, D48).]
 
 D27 2026-10-04 Power and cooling (campaign owner): Arduino's official 65 W supply on the barrel jack; the stock fan
    supplied with the board (emc2305_fan cooling device, active at idle). Power is not measured (no counter;
@@ -199,6 +201,7 @@ D28 2026-10-04 PR #44 merged (speed_probe accepts "data:" without a space). Meas
    at 7badb21; GenieX routes run there for the first time. Toolchain image removed (D14; the Hexagon build
    will be cross-compiled on the laptop, D26 option a, by the campaign owner later). Vulkan stays blocked
    until spirv-headers can be installed (owner will do it later).
+   [SUPERSEDED: Hexagon built (D40); spirv-headers installed (D35); Vulkan built and failed V0b (D48).]
 
 D29 2026-10-04 V0b verdicts at 7badb21 (v0b-results.txt): PASS llama.cpp OpenCL (0.66x), GenieX GPU (0.83x), GenieX
    CPU (1.45x), GenieX NPU (1.15x), GenieX hybrid (0.82x on r2, intermittent hang on r1: carried as a reliability
@@ -442,3 +445,18 @@ D49 2026-10-05 Deferred cells, run with the campaign owner present:
      buffer > 1024 MB driver limit as the 4B (D34); HTTP 500 on every request; RESULT FAIL. The board did not stop
      (uptime unbroken), so the D39 stop is not reproduced by this cell and remains unexplained.
    With these, every runbook route has a V0c status (README.md "Every runbook route: status").
+
+D50 2026-10-05 Codex review 5410871983 of b93d339, applied (code and README in b9e9e7e, this record after it):
+   - Health verdict fails closed: tools/health_verdict.py takes health_check.py's real exit status and requires a
+     valid summary line (samples > 0); pass only for exit 0 without alerts, or exit 1 whose ALERT lines are all
+     memory-PSI (documented exception, printed as "pass (PSI-only alerts exempt)"); a traceback, missing/empty
+     file, unrecorded status, zero samples or an exit status inconsistent with the output is a failure. Tested
+     on 11 synthetic inputs (healthy, PSI-only, OOM, swap+PSI, traceback, empty, missing, two inconsistent
+     statuses, zero samples, no status) and on four real health files (verdicts unchanged). Both runners record
+     it in <run>/health-verdict.txt and in their RESULT line.
+   - run_route.sh now has the same successful-parsed post-end kernel-read barrier as run_v0c.sh, with
+     kernel_read_after_end=TIMEOUT as a failure. Both runners re-tested with a server that cannot start (exit 1).
+   - README: the corpus guard's start (19:52) is stated; D26 and D28 are marked superseded; ranges D1-D50.
+   - files.txt: its "not logged" fields and identical-command links are evidence limitations, not independent
+     per-run verification; the final V0d configuration's manifest will be captured directly.
+   The night batch's historical rc=0 lines are left as they were (D48 explains them).
