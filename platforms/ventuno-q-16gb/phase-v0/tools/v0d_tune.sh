@@ -17,12 +17,12 @@ run() { local lab=$1 to=$2 dep=$3; shift 3; local envs=(); while [ $# -gt 0 ] &&
   local e2=(); for a in "${envs[@]}"; do [ "$a" != MODEL9 ] && e2+=("$a"); done
   say "START $lab"
   timeout -k 60 "$to" ~/v0/run_route.sh "$lab" v0d-tune --depths "$dep" --nctx 40960 -- \
-    env "${LIB[@]}" "${e2[@]}" $P/bin/llama-server -m "$model" -c "${CTX:-40960}" --cache-ram "${CRAM:-8192}" -lv 4 \
+    env "${LIB[@]}" GGML_HEXAGON_DEVICES="${DEV:-HTP0:0,HTP0:1}" "${e2[@]}" $P/bin/llama-server -m "$model" -c "${CTX:-40960}" --cache-ram "${CRAM:-8192}" -lv 4 \
     --host 127.0.0.1 --port 8080 --device "${DEV:-HTP0:0,HTP0:1}" -ngl 99 --ctx-checkpoints 0 "$@" > /dev/null 2>&1
   local rc=$?; [ $rc = 124 ] && say "TIMEOUT $lab"; cleanup
   local o=~/bench-runs/v0/v0d-tune/$lab
   say "END $lab rc=$rc | $(grep -o 'RESULT .*' $o/run.txt 2>/dev/null | tail -1) | $(grep -h '^RESULT' $o/probe.txt 2>/dev/null | grep -oE 'depth=[0-9]+ prompt_tokens=[0-9None]+ ttft=[^ ]+ prefill_tps=[^ ]+ gen_tokens=[0-9]+ decode_tps=[^ ]+' | sed -E 's/ttft=[^ ]+ //;s/gen_tokens=[0-9]+ //' | paste -sd' ' | cut -c1-200)"
-  grep -q 'ALERT (OOM|swap used)' $o/health.txt 2>/dev/null && { say "STOP: OOM or swap in $lab"; exit 9; }
+  grep -qE 'ALERT (OOM|swap used)' $o/health.txt 2>/dev/null && { say "STOP: OOM or swap in $lab"; exit 9; }
   sleep 45; }
 D2=HTP0:0,HTP0:1
 say "v0d tune start (pid $$)"

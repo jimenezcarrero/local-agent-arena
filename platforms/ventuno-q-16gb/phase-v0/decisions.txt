@@ -484,3 +484,26 @@ D52 2026-10-05 V0d tuning plan (RUNBOOK V0d step 2, the campaign owner's go; too
    combined; re-measured with one discarded warm-up + 3 repeats at 512/8K/16K/32K and both tool gates; memory
    headroom floor declared as the minimum MemAvailable during the final configuration's 32K runs, with no swap.
    A combined configuration is accepted only on its own re-measurement, never on the sweeps.
+
+D53 2026-10-05 V0d sweep results (runs/v0d-tune/, sweep-summary.txt; single runs, rank only):
+   - Batch bugs, fixed before results: the first launch did not set GGML_HEXAGON_DEVICES ("invalid device HTP0:0"),
+     and the OOM/swap STOP guard used grep without -E (could never fire; same in night_batch.sh and v0c_batch.sh,
+     whose runs had no OOM and no swap per the sampler). First attempts kept as *-batchbug.
+   - 9B on the NPU, 2 sessions: GGML_HEXAGON_MBUF=256 / 512 and MBUF=256 + VMEM=0 all fail to map (a 572 MB-1.07 GB
+     buffer); VMEM=0 logged no measured limit. No 9B NPU configuration among those tested.
+   - 4B, 16K prefill/decode: base 319.5/8.16 (start) and 315.4/8.20 (end; drift ~1%); threads 2/4/6 and 4+tb8 within
+     ~2% of base (the NPU does the work); 4 threads on the big cores (--cpu-mask 0xF --cpu-strict 1): 315.5/8.55, the
+     only decode gain (+5%, one run); ubatch 256: 302.5/8.20 (-5%), ubatch 128: 276.6/8.18 (-13%); OPPOLL=1: 313.3/8.22;
+     cache-ram 512/2048: 323.2/8.09, 314.6/7.95; cache-ram 0: 216.2/6.26 (prefill decaying 454 -> 225 tok/s inside the
+     request, no external cause in the samples; its repeat could not run, see below).
+   - 65K window: the 4B does not load at -c 65536 (f16 KV 1024 MiB/session; ~1 GB mapping fails), nor with KV q8_0
+     (KV 544 MiB/session, compute 341 MiB; a 570 MB mapping fails although the NPU total, ~4.23 GB, equals that of
+     the working 40960 configuration): the limit is not a simple total (inferred: buffer layout/fragmentation).
+     Every tested 4B NPU configuration is limited to the 40960 window.
+   - KV q8_0 at 40960 (+ -fa on): the first request worked (512: 340.5/9.14), the second hung the NPU (dspqueue
+     wait_signal timeouts every second from 23:43:58); the NPU stall watchdog killed the server after 300 s
+     (runs/v0d-tune/npu-stalls/). After that hang, the unchanged base configuration no longer loads (cram0-r2 and
+     base-end2: fastrpc_mmap of a 671 MB buffer fails; no process holds /dev/fastrpc-cdsp; the cDSP remoteproc
+     reports "running"): the NPU stays degraded after a hang until it is reset. Idle-recovery checks run after 10
+     and 40 idle minutes (tools/npu_recovery_check.sh); otherwise a cDSP restart or reboot (root) is needed before
+     the final re-measurement.
