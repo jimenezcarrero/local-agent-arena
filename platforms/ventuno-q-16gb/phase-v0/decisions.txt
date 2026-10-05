@@ -467,3 +467,20 @@ D51 2026-10-05 Hash citations redacted. The three pre-rewrite commits that held 
    still contain the original text until Support purges the three commits (GitHub's guidance: dereference PRs,
    garbage-collect, remove cached views). Checked on GitHub: the other two pre-rewrite commits of D13 (bfc1436,
    98f81b5) contain no identifier. The stray local object of P3 was removed from this board (reflog expire + gc).
+
+D52 2026-10-05 V0d tuning plan (RUNBOOK V0d step 2, the campaign owner's go; tools/v0d_tune.sh, night run):
+   Base = V0c shortlist candidate (ggml-hexagon, 2 virtual sessions HTP0:0,HTP0:1, --ctx-checkpoints 0, -c 40960,
+   --cache-ram 8192, llama-server defaults, NeoHorse-1-4B pure Q4_0). One setting at a time, each a fresh server,
+   speed at 512 and 16K (single run; sweeps rank, they do not qualify), aggregate PASS/FAIL with health:
+   - 9B feasibility on the NPU: GGML_HEXAGON_MBUF=256 and 512 (the backend's max buffer size, default 1 GiB; every
+     9B failure was one ~1 GB mapping), and MBUF=256 with GGML_HEXAGON_VMEM=0 (backend measures the real limit).
+   - 4B: threads -t 2/4/6 (8 = base), -t 4 -tb 8 (decode vs batch threads), -t 4 on the big cores only
+     (--cpu-mask 0xF --cpu-strict 1; cpu0-3 = A78C by MIDR 0xd4b, cpu4-7 = A55 0xd05); -ub 128/256 (512 = base;
+     1024 failed to map in V0c); GGML_HEXAGON_OPPOLL=1 (upstream run.py's default); --cache-ram 0/512/2048.
+     Power mode: not exposed by upstream ggml-hexagon (GenieX-only), recorded as not applicable.
+   - Window: the 4B at -c 65536 (load + 512), to know whether 65K is possible before V0e.
+   - The base is re-run at the start and the end of the 4B sweep to bound drift.
+   Then (after review of these results): final settings = the best value of each knob that keeps both thresholds,
+   combined; re-measured with one discarded warm-up + 3 repeats at 512/8K/16K/32K and both tool gates; memory
+   headroom floor declared as the minimum MemAvailable during the final configuration's 32K runs, with no swap.
+   A combined configuration is accepted only on its own re-measurement, never on the sweeps.
