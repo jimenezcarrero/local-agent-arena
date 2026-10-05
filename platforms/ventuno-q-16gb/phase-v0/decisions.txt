@@ -122,3 +122,341 @@ D18 2026-10-04 Offline Codex review of 11361cd (three monitoring/publication fai
       monitor/health-<date>-runs.jsonl. Verified with the reviewer's 4,000,000/100,000/4,000,000 kB and
       40/90/40 C example (floor and peak kept).
    The v1->v2 handover reboot alert in health-checks.txt is annotated there as an artifact.
+
+D19 2026-10-04 Root setup attempt 1 (17:11 CEST, run by the person) stopped at apt-get install: qcom-adreno-cl1
+   1.855.3+rev2+repack1 "Conflicts: ocl-icd-libopencl1" and "Provides: ocl-icd-libopencl1 (= 2.3.2)", which
+   cannot satisfy ocl-icd-opencl-dev's exact "Depends: ocl-icd-libopencl1 (= 2.3.2-1build1)". Under set -e
+   nothing after it ran: only Prompt=never was applied (setup-root-attempt1.log). Fix: drop
+   ocl-icd-opencl-dev (the Adreno package ships libOpenCL.so.1; headers come from opencl-headers; the llama.cpp
+   OpenCL build points at /usr/lib/aarch64-linux-gnu/libOpenCL.so.1). Dry run (apt-get -s) of the fixed list:
+   80 new packages, 0 removed, no conflicts. Note for Arduino's recipe: installing ocl-icd-opencl-dev and
+   qcom-adreno-cl1 together is unsatisfiable with this package version.
+
+D20 2026-10-04 Measurement checkout frozen for V0b and V0c: ~/v0/measure at 58885b8 (measurement-commit.txt,
+   corpus sha256 3611eb84...). Its Markdown is read-only; the branch checkout keeps receiving evidence.
+
+D21 2026-10-04 GenieX run rules (from geniex-cli.txt): every GenieX command passes --skip-update (otherwise it checks
+   for updates at start, which could move the frozen v0.8.0); serve runs with --log debug so effective
+   settings reach the manifest; power mode left at its default (burst) for V0b/V0c, recorded per run; local
+   pure-Q4_0 files are registered with "geniex pull <name> --model-hub localfs --local-path <dir>". The
+   llama.cpp plugin version is empty in plugin_versions.json as well as in --version: build identity is the
+   bundled file hashes only. Detected chipset: "Arduino VENTUNO Q".
+
+D22 2026-10-04 D8 root setup DONE (attempt 2, 17:19:19-17:20:52 CEST, setup-root.log; post-setup.txt):
+   80 packages installed, 0 removed; Prompt=never; Linger=yes; 12 packages held (kernel 1084, firmware,
+   Mesa, qcom-adreno-cl1, qcom-fastrpc1, qcom-libdmabufheap); default target multi-user (gdm inactive);
+   system kernel journal readable by arduino; dpkg baseline 1714 packages sha256 9dc02d42... (drift alerts
+   active); clinfo -l: QUALCOMM Snapdragon(TM) / Adreno(TM) 623, OpenCL 3.0 build 0855.3, cl_khr_subgroups
+   present (warning "libOpenCL.so.1: no version information available" is Qualcomm's unversioned library);
+   Vulkan: turnip Mesa 25.2.8 on Adreno623; qemu-x86_64 binfmt registered (flags POF), amd64 toolchain
+   container runs (uname -m = x86_64). Still pending from the person: power supply and cooling details.
+
+D23 2026-10-04 Native builds (CPU, OpenCL, Vulkan) at 836d5717 use Arduino's tutorial flags
+   (-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF, + -DGGML_OPENCL=ON for OpenCL) with these
+   differences: Make instead of Ninja (not installed; generator only), -DLLAMA_CURL=OFF (no downloads
+   needed), -DOpenCL_LIBRARY=/usr/lib/aarch64-linux-gnu/libOpenCL.so.1 (no unversioned link, D19),
+   llama.cpp 836d5717 vs Arduino's f6da8cb8. CPU build at upstream defaults (GGML_NATIVE); KleidiAI and
+   thread settings belong to tuning, not V0c. Logs and binary hashes: builds/*.txt.
+
+D24 2026-10-04 CPU architecture finding. GCC 13.3 "-mcpu=native" on this mixed A55/A78C SoC resolves to plain
+   ARMv8 (no __ARM_FEATURE_DOTPROD, no FP16 vector arithmetic; gcc reports empty -mcpu/-march), and the
+   llama.cpp configure probes for dotprod/i8mm all fail, although every core reports fphp asimdhp asimddp
+   lrcpc (builds/cpu-arch-detection.txt). The upstream-default builds (build-cpu, build-opencl) therefore run
+   the CPU backend without DOTPROD/FP16_VA and without Q4_0 repacking. They stay as the documented-default
+   evidence. Added, as separately labelled builds (not tuning; threads and every runtime knob stay default):
+   build-cpu-v82 and build-opencl-v82 with -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16+rcpc
+   (the features every core reports; GenieX's default build also targets armv8.2-a). V0b effect on the CPU
+   route: decode 5.27 -> 10.53 tok/s, prefill 19.5 -> 74.2 tok/s, CPU_REPACK 828 MiB active.
+
+D25 2026-10-04 GenieX stream format vs speed_probe.py. GenieX serve v0.8.0 streams "data:{...}" and "data:[DONE]"
+   (no space after the colon; valid SSE). speed_probe.py at 58885b8 only recognised "data: [DONE]", so the
+   GenieX GPU V0b run failed in the client with JSONDecodeError (classified: client parser failure, not a
+   route failure; GenieX's own log shows the request completed, 390 prompt tokens, 119 decoded at 7.76 tok/s).
+   Fix in shared-suite PR #44 (no Markdown change, corpus unchanged). After it merges, the frozen measurement
+   checkout moves to the merge commit (corpus hash re-verified) and the llama.cpp V0b runs are repeated there,
+   so every V0b/V0c measurement uses one tool version; the 58885b8 runs stay as labelled evidence.
+   Also recorded: GenieX has no /health endpoint (runner uses /v1/models), loads the model on the first
+   request (first TTFT includes load), and its GPU route uses n_ctx 4096, n_batch 2048, n_ubatch 512,
+   n_seq_max 1, 8 threads pinned to cores 0-7 (strict_cpu, poll 1000), flash_attn_type 0, power mode 7 (burst).
+
+D26 2026-10-04 Upstream ggml-hexagon route: BLOCKED (setup dependency) on this board, inside its one-day time box.
+   The documented toolchain container (ghcr.io/snapdragon-toolchain/arm64-linux:v0.7, amd64-only) runs
+   under Ubuntu's qemu-user-static 8.2.2 (binfmt flags POF), but qemu itself crashes ("QEMU internal SIGSEGV
+   {code=MAPERR, addr=0x20}", exit 139) on ordinary binaries inside it: cmake's configure step and even
+   "env | grep" segfault; cmake --version, clang --version and uname work. QEMU_CPU=max/Haswell/qemu64 give the
+   same crash (builds/hexagon-attempt1.txt, builds/hexagon-qemu-diagnosis.txt). Not a llama.cpp or Hexagon
+   result. Ways forward, for the campaign owner: (a) cross-compile on an x86_64 host with the same container
+   and commit, then copy pkg-linux to the board (upstream's documented flow; recorded with hashes);
+   (b) register a newer qemu-user via a privileged binfmt container (a system change); (c) leave the route
+   blocked. The two-session and partial-offload variants depend on this build and share its status.
+   [SUPERSEDED by D40/D42: built on the laptop (option a); the route was measured, including the two-session and
+   partial-offload variants (D43, D44, D48).]
+
+D27 2026-10-04 Power and cooling (campaign owner): Arduino's official 65 W supply on the barrel jack; the stock fan
+   supplied with the board (emc2305_fan cooling device, active at idle). Power is not measured (no counter;
+   runbook "Power"); runs record it as unmeasured.
+
+D28 2026-10-04 PR #44 merged (speed_probe accepts "data:" without a space). Measurement checkout moved
+   58885b8 -> 7badb21 with an identical corpus (measurement-commit.txt). The llama.cpp V0b runs are repeated
+   at 7badb21; GenieX routes run there for the first time. Toolchain image removed (D14; the Hexagon build
+   will be cross-compiled on the laptop, D26 option a, by the campaign owner later). Vulkan stays blocked
+   until spirv-headers can be installed (owner will do it later).
+   [SUPERSEDED: Hexagon built (D40); spirv-headers installed (D35); Vulkan built and failed V0b (D48).]
+
+D29 2026-10-04 V0b verdicts at 7badb21 (v0b-results.txt): PASS llama.cpp OpenCL (0.66x), GenieX GPU (0.83x), GenieX
+   CPU (1.45x), GenieX NPU (1.15x), GenieX hybrid (0.82x on r2, intermittent hang on r1: carried as a reliability
+   flag into V0c, where every hybrid run gets the stall watchdog). Reference only: llama.cpp CPU default and ARMv8.2.
+   BLOCKED: upstream ggml-hexagon (and its two-session and partial-offload variants), Vulkan.
+   Routes entering V0c: llama.cpp CPU-v82, llama.cpp OpenCL, GenieX npu, hybrid, cpu, gpu. The llama.cpp CPU default
+   build stays as V0b documented-default evidence only (its V0b decode is half the v82 build's; V0c on it would
+   spend hours on a known-handicapped build).
+
+D30 2026-10-04 GenieX NPU route vs the HTP session mapping window (runs/v0c/geniex-npu-neohorse4b*): at GenieX defaults
+   NeoHorse-1-4B pure Q4_0 cannot run on HTP0, at --nctx 40960 or at the default 4096. The session reports
+   "op batching ... vmem 3311845376" (3158 MiB); GenieX maps the model (HTP0 2259 MiB) + compute buffer
+   (998 MiB at n_ubatch 1024, 248K vocabulary) + KV (128 MiB at 4096) + recurrent state (50 MiB) and the
+   1.07 GB compute/KV mapping fails: "HTP0 buffer mapping failed ... error 0x00000001", "fastrpc_mmap
+   failed"; every request returns HTTP 500. model params show load_mode=none (no weight remapping).
+   Classified: unsupported at defaults (runtime memory mapping), not a model or tool failure. Any change
+   (n_ubatch, load mode, sessions) is tuning, after V0c. The 9B (4937 MiB) runs in the batch for the record.
+   Also: GenieX import refuses the IQ3_M parity file ("has no model files GenieX can load"), so all four
+   GenieX routes are "not at all" for the parity lane (runs/v0c/geniex-import-iq3m.txt).
+
+D31 2026-10-04 Codex review of 19ac95c on #43, applied: (1) the 9B native source is now fetched, verified
+   (BF16 018d5c0a...) and quantized (d21c19e5...); the description no longer claims it earlier. (2) Corpus
+   guard: tools/corpus_check.py recomputes speed_probe's corpus exactly (all **/*.md outside .git, ignored
+   files included) and compares sha256, file count and length with the manifest before every run_route.sh
+   and run_v0c.sh run, aborting on mismatch and logging to <run>/corpus-check.txt. Installed by write-new+mv
+   at 19:52 CEST; the V0c batch's cells from then on run with it. Check at 19:52: OK, and git status
+   --ignored in ~/v0/measure was empty, so no earlier run could have read a different corpus through an
+   ignored file. (3) Description: --cache-ram limited to llama-server; GenieX commands and observed cache
+   behaviour listed separately; the brief restored, with the three reconstructed word endings marked.
+   The pre-install apt-get -s output was not saved; setup-root.log (80 new, 0 removed) supersedes it.
+
+D32 2026-10-04T20:11:34+02:00 V0c fail-fast rule (campaign owner's decision; a deviation from the runbook's "every depth for every
+   route x file"), fixed before the remaining cells run. For every remaining V0c cell: 512 and 8K are always
+   measured, plus both tool-call gates and memory. If the valid 8K prefill (RESULT line, prompt within +/-20%)
+   is below 72.5 tok/s (half the 145 tok/s gate), or 8K has no valid result, 16K and 32K are not measured and
+   the cell is recorded "ineligible on speed; 16K/32K not measured" (a FAILFAST line in the speed evidence).
+   Reason: prefill falls with depth, so such a cell cannot meet 145 tok/s at 16K; at the observed 14.5 tok/s
+   (GenieX CPU x NeoHorse-4B at ~8K) each remaining cell would take 2.5-3.5 h and most 32K requests would hit
+   speed_probe's 1 h request timeout (~25-30 h in total). VmHWM is then read after the 8K probe and labelled so;
+   the memory floor only matters for eligible cells. The cell running when the rule was adopted
+   (geniex-cpu-neohorse4b) finishes at full depth under the previous script; its 16K/32K results test the
+   rule's assumption. Installed by write-new+mv into run_v0c.sh; v0c_batch.sh itself is unchanged.
+
+D33 2026-10-04 GenieX full-prefix-match defect (runs/v0c/geniex-cpu-neohorse4b): the one-shot tool probe sends the
+   same prompt 10 times. GenieX keeps the previous prompt and matches each new one against it; when the whole
+   new prompt matches (log: "prefix match: past_prompt_tokens size: 340, prompt_len: 287, match_len: 287",
+   "n_past_global rollback to: 287") it evaluates nothing ("Generation complete prompt_tokens=0
+   decode_tokens=0") and returns an empty message with finish_reason=stop. Probes 2-10 were empty this way;
+   probe 1 (cold) was a valid tool call. Classified: stack failure, runtime (GenieX prompt-cache reuse), not
+   template or model. Consequence: any identical repeated request (a client retry) can come back empty on
+   GenieX. The agentic probe, whose turns extend the prompt, passed 3/3. Applies to every GenieX route
+   (shared llama_cpp plugin); each cell's result is recorded as measured.
+
+D34 2026-10-04 GenieX GPU x NeoHorse-1-4B at --nctx 40960: unsupported at defaults (OpenCL allocation limit). The Adreno
+   driver reports "max mem alloc size: 1024 MB"; context creation needs one OpenCL compute buffer of 1280 MiB
+   (1497380992 bytes for the pp graph): "failed to allocate 1280.00 MiB (err=-61)", "failed to allocate compute
+   pp buffers", then HTTP 500 on every request (13 attempts). Both depths, the 10 one-shot probes and the
+   agentic probe fail identically (stack failure: runtime/driver allocation, not template or model). Fail-fast:
+   no valid 8K result, 16K/32K not measured. Same family as D30: GenieX's defaults (n_ubatch, 248K vocabulary,
+   40960 context) produce single compute buffers above the device limits; reducing them is tuning.
+
+D35 2026-10-04 spirv-headers 1.6.1+1.4.309.0-1~ubuntu0.24.04.2 installed by the campaign owner (apt history
+   21:58:26-21:58:28 CEST), for the Vulkan build. The drift alert fired as designed; the dpkg baseline was
+   reset afterwards (previous baseline kept as dpkg-baseline-20261004-pre-spirv.txt). The install fell inside
+   the run window of llamacpp-cpu-v82-neohorse4b (started 21:48:22): two seconds of dpkg activity during its
+   8K prefill, noted in that cell's record. The Vulkan build waits until no CPU cell is being measured.
+
+D36 2026-10-04 Parity identity VERIFIED (supersedes D3's "unverified"). The campaign owner ran sha256sum on the
+   Jetson's retained copy (~/Repositories/llama.cpp/models/Ornith-1.0-9B-MTP-IQ3_M.gguf):
+   9ef72d9cf410f7606a4ba621f17d9b204b441bc589fc24b035074796c5fe677b, identical to the file on this board
+   (protoLabsAI/Ornith-1.0-9B-MTP-GGUF@fd81c7a, HF LFS oid, verified at download). The parity lane runs the
+   exact bytes the Jetson ran.
+
+D37 2026-10-04 llama.cpp OpenCL x NeoHorse-1-4B (runs/v0c/llamacpp-opencl-neohorse4b): GPU lockup during the 8K prefill.
+   512: prefill 21.5, decode 3.16 tok/s (prompt 480). 8K: the sizing request (~12K tokens) had processed 4096
+   tokens in 2048-token chunks (21.9 -> 18.3 tok/s) when the kernel logged at 22:20:57 "hangcheck detected
+   gpu lockup rb 0!", "hangcheck recover!", "offending task: llama-server (...build-opencl...)"; at 22:21:04
+   the Adreno user-space driver logged "issueibcmds() called on a guilty context" and "Exiting the process
+   llama-server". Not memory: MemAvailable 8.4 GiB, server RSS 789 MiB, no swap, no OOM line. The GPU
+   recovered (clinfo lists the Adreno 623 afterwards). Classified: stack failure, GPU driver/kernel hang
+   (msm hangcheck on a long OpenCL submission during a qwen35 prefill), not template or model. No valid
+   8K: fail-fast, tool probes not run (server gone). The same build ran Qwen2.5-1.5B (qwen2) in V0b without
+   this. Monitoring gap found and fixed: the cell's health report ran at 22:21:04, before the sampler's next
+   30 s kernel read (22:21:28, 17 lines, 5 alerts), so the cell report missed the hang. run_v0c.sh now waits
+   for a kernel read later than the cell's end before its health report and writes kernel-window.txt per cell.
+
+D38 2026-10-04 Laptop Hexagon build, attempt 1: the package that reached the board (sha256 b5109887...,
+   276 bytes, kept as ~/v0/pkg-linux-836d5717.attempt1-empty.tar.gz) held only an empty pkg-linux.sha256 and
+   build-host.txt (x86_64, Docker 29.7.2, no commit line). Cause (campaign owner): one attempt included a
+   pasted shell prompt and another ran outside the repository; the final scp still exited 0. Not a build
+   result. Replaced by tools/build_hexagon_x86.sh: one file that checks the host, the commit and a clean tree,
+   the toolchain image id, the build exit code, the installed files (llama-server, libggml-hexagon,
+   libggml-htp-v75) and their aarch64 ELF type, and packages or copies nothing unless all pass; with a
+   user@board argument it copies to ~/v0/ and verifies the sha256 on the board.
+
+D39 2026-10-04 Unplanned board stop. Boot 152ba628 ended without any shutdown record (no reboot.target, no
+   systemd-shutdown); its journal stops at 23:02:38 (GenieX CPU server deinit). The sampler's last intact
+   sample is 23:02:47; after it the health log holds an 851-byte NUL block, and files written in the next
+   seconds were zeroed or empty (ext4 delayed allocation on an abrupt power loss or hard reset). The next
+   cell, geniex-gpu-ornith9b, had created its run directory and server log at 23:03 and lost them: the stop
+   came about a minute into GenieX GPU x Ornith-9B start-up. New boot c5857812 at 23:09:02 (the clock was
+   restored to 23:02:36 at boot until NTP, so a few early samples carry earlier timestamps; boot_id
+   separates them). Suspected cause: a GPU/driver hang taking the system down during GenieX OpenCL start-up
+   with the 9B (an OpenCL GPU lockup happened at 22:20:57 in llamacpp-opencl-neohorse4b), but the evidence for
+   23:02:47-23:09 was lost, so it is not proven; how the board was restarted is asked of the owner.
+   Lost: the V0c batch (remaining: geniex-gpu-ornith9b, llama.cpp CPU-v82 and OpenCL x Ornith-9B and x IQ3_M)
+   and the session's watchers. Survived: the sampler (restarted by its @reboot cron entry), every completed
+   cell's results, the git checkout. geniex-cpu-ornith9b completed at 23:02:39; its health.txt and free-end.txt
+   were zeroed and are kept as *.zeroed-by-crash; health.txt was regenerated from the sampler. publish_monitor.py
+   now skips and counts unparseable lines instead of failing. Memory PSI-full peaks (up to 32) all fall on
+   model loads from eMMC (quantization at 19:04, 9B loads at 19:40 and 22:21:49), not on measurements.
+
+D38 correction 2026-10-04: the file renamed to pkg-linux-836d5717.attempt1-empty.tar.gz was not the empty
+   attempt-1 package. The campaign owner had already sent a complete package at 22:54, before the rename; the
+   empty 276-byte file (sha256 b5109887...) had been overwritten and only its hash survives. The misnamed copy
+   was byte-identical to the package sent again at 23:11 and was removed as a duplicate.
+
+D40 2026-10-04 Upstream ggml-hexagon package, cross-built on the laptop (x86_64, Docker 29.7.2) at
+   836d57176dc699a726c55418e4f96b8ca628e1bf with the documented commands (not build_hexagon_x86.sh, so the
+   toolchain image id was not recorded by the build; the tag is ghcr.io/snapdragon-toolchain/arm64-linux:v0.7).
+   Package sha256 5916fed1...; all 133 files match its own pkg-linux.sha256; llama-server is aarch64; build log:
+   Hexagon SDK 6.6.0.0, "Including Hexagon backend", htp-v75 target built, 0 error lines, install complete
+   (builds/hexagon-laptop/). Unpacked to ~/v0/hexpkg. Next: V0b on HTP0, placement from the log.
+
+D41 2026-10-04 Identifier leak caught and contained. After the 23:02 stop, journald logged "Failed to read journal file
+   /var/log/journal/<machine-id>/user-1000.journal for rotation", with the machine-id inside the message text.
+   publish_monitor.py dropped the _MACHINE_ID field but did not scrub message text, so the published kernel
+   extract in commit 6b95328 (pushed 23:18 CEST) contained it; the post-commit identifier check found it
+   about a minute later. Fixes: publish_monitor.py now replaces the machine-id and serial anywhere in every
+   published line; a local git pre-commit hook (not committed) refuses any commit whose staged files contain
+   either value, tested by staging a file with the machine-id (refused, rc=1). 6b95328 is amended to remove it;
+   the owner force-pushes the amended commit and adds 6b95328 to the GitHub Support purge request (D13, D16).
+
+D42 2026-10-04 Upstream ggml-hexagon V0b PASS (v0b-results.txt): decode 28.26 tok/s (1.13x Arduino's ~25), prefill
+   801.6/903.1, 29/29 layers on HTP0 (v75). Setup step: a user-level link <pkg>/lib/libcdsprpc.so ->
+   /lib/aarch64-linux-gnu/libcdsprpc.so.1 (qcom-fastrpc1 ships only the versioned name; the backend dlopens
+   the bare one). V0c on this route follows, NeoHorse-4B then Ornith-9B, at llama-server defaults with
+   --device HTP0 -ngl 99 (required to place layers on the NPU), -c 40960 --cache-ram 8192 -lv 4.
+   Two-session and partial-offload variants come after the one-session cells.
+
+D43 2026-10-04 Upstream ggml-hexagon V0c at defaults (-c 40960 --cache-ram 8192, --device HTP0 -ngl 99):
+   one session: NeoHorse-4B and Ornith-9B both abort at load ("HTP0 buffer mapping failed ... size ~1.0 GB",
+   "fastrpc_mmap failed"): HTP0 holds model 2259/4261 MiB (the 9B's weights placed via dynamic mapping) + KV
+   1280 MiB at 40960 + recurrent state 201 MiB + compute 104/136 MiB, and the ~1 GB KV mapping exceeds the
+   session window. Two virtual sessions (GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1, --device HTP0:0,HTP0:1; the
+   runbook's two-session route): NeoHorse-4B loads (per session: model 1020/1239, KV 640, RS 109/92, compute
+   244 MiB); 512: prefill 288.8 (server 319.8), decode 9.97 tok/s; the ~12K sizing request prefilled at
+   ~390-400 tok/s (11734 tokens in 29.8 s) and then the server aborted: "HTP0:0 synchronize failed : dsp-error
+   NO-SUPPORT", backtrace server_context_impl::create_checkpoint -> llama_state_seq_get_data_ext. llama-server
+   saves context checkpoints for hybrid/recurrent models (default 32 per slot, every 8192 tokens), reading
+   state back from the NPU, which this backend does not support. Classified: stack failure, runtime (server
+   checkpointing on ggml-hexagon), not memory or model. A separately labelled variant with --ctx-checkpoints 0
+   (everything else default) follows; it is a non-default setting, flagged for review as a deviation from
+   "V0c at defaults" because it is the only way to see this route at depth.
+
+D44 2026-10-04 Upstream ggml-hexagon, context checkpoints off (--ctx-checkpoints 0; non-default, flagged in D43):
+   NeoHorse-1-4B, 2 virtual sessions: all four depths measured. 16K (17529 tokens): prefill 318.8/321.6 tok/s,
+   decode 8.25 tok/s; 32K: 282.9 / 7.22; one-shot 10/10, agentic 3/3; VmHWM 2.09 GiB (host side), min
+   MemAvailable 6.11 GiB, no swap, peak 49.4 C (NSP). The first V0c cell that meets both speed gates and both
+   tool gates: a shortlist candidate for the ~4B, pending the warm-up + 3 interleaved repeats and V0d.
+   Ornith-1.0-9B does not load: 2 sessions (per session model 1975/2286 + KV 640 + RS 109/92 + compute 288 MiB;
+   HTP0:1 ~3306 MiB exceeds the ~3158 MiB window) and 3 sessions (per session ~2236/1964/2405 MiB, yet a 605 MB
+   mapping on HTP0:2 fails; total ~6.6 GB). Inference, not verified: besides the per-session window there is
+   a cDSP-wide mapping limit between ~4.2 GB (4B, 2 sessions, works) and ~6.3 GB (9B, fails). Shrinking the
+   mapped total (KV q8_0, KV on CPU, smaller n_ubatch) is tuning, after V0c; not attempted here.
+
+D45 2026-10-05 9B NPU feasibility check (campaign owner's request; exploratory, outside V0c; runs/v0-explore/), all
+   2 sessions + --ctx-checkpoints 0 at -c 40960 with Ornith-1.0-9B pure Q4_0:
+   - KV q8_0 (-ctk/-ctv q8_0, -fa on): fails to map (~956 MB on HTP0:0); ~5.7 GB on the NPU in total.
+   - KV on CPU (-nkvo): LOADS (HTP0 model 1975/2286 + compute 240/240 MiB, KV 1280 MiB on CPU, ~4.7 GB on the
+     NPU); 512: prefill 166.9, decode 2.20 tok/s: decode already below the 4.4 gate at 512 (attention on the CPU).
+   - KV q4_0 + -ub 128: aborts at load, "pre-allocated tensor (cache_k_l3) in a buffer (HTP0:0) that cannot run
+     the operation (SET_ROWS)": a q4_0 KV cache is not supported by this Hexagon backend.
+   - KV q8_0 + -ub 128 (compute 80 MiB per session, ~5.3 GB in total): fails to map (same ~956 MB buffer).
+   Observed: totals of ~4.2 GB (4B) and ~4.7 GB (9B, -nkvo) map; ~5.3 GB and above do not, on any session
+   split. Conclusion for V0: at a 40960 context, Ornith-1.0-9B Q4_0 does not run on this NPU with its KV cache
+   on the NPU; with it on the CPU it fails the decode gate. Smaller contexts were not tried (the arenas need
+   65K+ windows).
+
+D46 2026-10-05 Night plan (owner away, board free; owner asked for "the most promising" cells and periodic checks):
+   tools/night_batch.sh, detached, every step under a timeout with leftover-server cleanup and sync:
+   (1) V0c: ggml-hexagon 2 sessions + ctx-checkpoints 0 x IQ3_M parity; llama.cpp CPU-v82 x Ornith-9B and x IQ3_M.
+   (2) Exploratory variants of the 4B NPU candidate (A = 2 sessions): B = 3 sessions, C = 2 sessions -ub 1024,
+       full cells with both tool gates.
+   (3) Ranking by the runbook rule among eligible A/B/C, then repeats: one discarded warm-up per configuration and
+       3 interleaved repeats at 512/8K/16K/32K for the best and the runner-up (phase v0c-repeats).
+   Deferred, not skipped: llama.cpp OpenCL x Ornith-9B and x IQ3_M, GenieX GPU x Ornith-9B (GPU lockup and
+   suspected board-stop risk with nobody to power-cycle). Supervision: a watcher reports each step and any
+   health/kernel alert; it expires every 30 min and is re-armed after a direct check of the batch and health.
+
+D47 2026-10-05 Night results (runs/night/status.txt, README.md): V0c CPU cells for the 9B and IQ3_M completed (both
+   tool gates pass, ineligible on speed); NPU x IQ3_M not runnable (iq3_s unsupported on HTP). Exploratory 4B NPU
+   variants: 3 sessions slower (16K 282.6/7.12) and hung at 32K (FastRPC wait; stopped manually after 23 min,
+   runs/v0-explore/*/stall-diagnosis.txt), after which an independent NPU stall watchdog (tools/
+   npu_stall_watchdog.sh, 300 s) ran beside the batch and never fired; -ub 1024 fails to map. Ranking: only
+   configuration A (2 sessions, ctx-checkpoints 0) eligible. Repeats (warm-up + 3, all depths): 16K median
+   prefill 318.9 (312.0-319.2), decode 7.90 (7.82-8.08), prompts 18031-18039 tokens; memory floor min MemAvailable
+   6.11 GiB, no swap. First launch of the night batch lost its first cell to a script bug (cell() shift 4 instead
+   of 3, kept as *-batchbug); fixed and relaunched within two minutes.
+
+D48 2026-10-05 Codex review 5410260700 of a716dfc, applied:
+   1. Wording: the ~4B configuration is a "V0c shortlist candidate"; "provisionally eligible" is reserved for V0d
+      (final settings, declared memory floor, re-measurement). 6.11 GiB is an observed minimum, not a declared
+      floor. D47's "eligible" wording is superseded. Cells under the D32 rule read "screened out under D32;
+      16K/32K unmeasured", not failed.
+   2. Matrix: README.md now lists every runbook route with an explicit status. New this morning:
+      - llama.cpp Vulkan (built after spirv-headers, D35; CPU side ARMv8.2): V0b FAIL, "ggml_vulkan: device lost
+        on Vulkan0", vk::DeviceLostError ~1.5 s after load (29/29 layers on Vulkan0), kernel GPU recover at 07:32.
+        Not carried into V0c.
+      - ggml-hexagon partial layer offload (2 sessions, ctx-checkpoints 0, -ngl 20) x Ornith-9B: loads (20/34 layers
+        on HTP0); 512: 37.1/3.65, 8K: 28.3/2.71 tok/s, screened out under D32; one-shot 10/10, agentic 3/3;
+        VmHWM 3.53 GiB; min MemAvailable 5.82 GiB. Its health check failed on package drift: unattended-upgrades
+        updated libxpm4 1:3.5.17-1ubuntu0.24.04.1 -> .2 at 07:00:07 (X11 pixmap library, not part of the held
+        accelerator stack; 12 holds intact); the baseline was reset afterwards (previous kept).
+      The 9B statement is "no viable configuration observed among the tested configurations".
+   3. files.txt: effective-settings manifest for every V0b/V0c/explore/repeat run, generated by tools/make_manifest.py
+      from each run's own evidence (command, binary and model hashes, placement and per-device buffers, context,
+      slots, batch/ubatch, flash attention, KV types, threads, affinity, prompt-cache/checkpoint policy, template and
+      render hashes, effective sampling, aggregate result); repeats are linked to the V0c cell with the identical
+      command. Fields absent from the evidence are written "not logged". sampling-audit.txt: check_sampling.sh for
+      all four files, run after the measurements (OPERATING.md rule 6 asks before the first run; this is recorded
+      as a gap): no file embeds sampling, so llama-server defaults applied (temp 0.8, top_k 40, top_p 0.95,
+      min_p 0.05); the cards' vendor profiles (NeoHorse temp 1.0/presence 1.5; Ornith temp 0.6/top_k 20) were not
+      used. GenieX logs SamplerConfig(temperature 0, top_p 0, top_k 0, ...) for its requests.
+   4. Runners: run_v0c.sh and run_route.sh return an aggregate PASS/FAIL (probes, health on real alerts, a
+      successful parsed kernel read after the cell's end, kernel window); tested with a server that cannot start
+      (exit 1, "RESULT FAIL"). The night batch ran on the earlier runners, so its rc=0 lines are not results; the
+      per-cell evidence (END line, probe and health files) is authoritative for those runs.
+
+D49 2026-10-05 Deferred cells, run with the campaign owner present:
+   - llama.cpp OpenCL x Ornith-9B pure Q4_0: auto-fit placed 31/34 layers on the GPU (OpenCL 3909 MiB); 512: 10.4/1.88
+     tok/s; GPU lockup during the 8K prefill (kernel hangcheck 08:10:12, same signature as D37); board survived.
+     RESULT FAIL (speed). Classified: GPU driver/kernel hang.
+   - llama.cpp OpenCL x IQ3_M (parity): placement partial — 2770.6 MiB of iq3_s weights stay on the CPU (no OpenCL
+     IQ3 kernels), 1429.8 MiB on the GPU; 512: 2.2/0.71 tok/s (slower than the CPU-only route). Stopped by the
+     testing agent after the 512 result: the 8K request (~2.5 h at this rate) and tool probes at 0.7 tok/s decode
+     would not change the classification (partly on the accelerator, far below the gates). Recorded as a
+     supervision decision; RESULT FAIL.
+   - GenieX GPU x Ornith-9B (the cell running when the board stopped, D39): runs next, everything committed first.
+   - GenieX GPU x Ornith-9B (re-run, geniex-gpu-ornith9b-r2): unsupported at defaults, the same 1280 MiB OpenCL compute
+     buffer > 1024 MB driver limit as the 4B (D34); HTTP 500 on every request; RESULT FAIL. The board did not stop
+     (uptime unbroken), so the D39 stop is not reproduced by this cell and remains unexplained.
+   With these, every runbook route has a V0c status (README.md "Every runbook route: status").
+
+D50 2026-10-05 Codex review 5410871983 of b93d339, applied (code and README in b9e9e7e, this record after it):
+   - Health verdict fails closed: tools/health_verdict.py takes health_check.py's real exit status and requires a
+     valid summary line (samples > 0); pass only for exit 0 without alerts, or exit 1 whose ALERT lines are all
+     memory-PSI (documented exception, printed as "pass (PSI-only alerts exempt)"); a traceback, missing/empty
+     file, unrecorded status, zero samples or an exit status inconsistent with the output is a failure. Tested
+     on 11 synthetic inputs (healthy, PSI-only, OOM, swap+PSI, traceback, empty, missing, two inconsistent
+     statuses, zero samples, no status) and on four real health files (verdicts unchanged). Both runners record
+     it in <run>/health-verdict.txt and in their RESULT line.
+   - run_route.sh now has the same successful-parsed post-end kernel-read barrier as run_v0c.sh, with
+     kernel_read_after_end=TIMEOUT as a failure. Both runners re-tested with a server that cannot start (exit 1).
+   - README: the corpus guard's start (19:52) is stated; D26 and D28 are marked superseded; ranges D1-D50.
+   - files.txt: its "not logged" fields and identical-command links are evidence limitations, not independent
+     per-run verification; the final V0d configuration's manifest will be captured directly.
+   The night batch's historical rc=0 lines are left as they were (D48 explains them).

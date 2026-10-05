@@ -1,0 +1,42 @@
+V0b sanity check against Arduino's figures, at the frozen measurement commit 7badb21 (corpus sha256 3611eb84...)
+File: Qwen2.5-1.5B-Instruct pure Q4_0, sha256 78b8d3c9439ec6b511ed0d3acd07f421161771ca08faba571e18137122879eb0
+Probe: speed_probe.py --depths 512 (gen 128). Prefill = prompt tokens / TTFT (request + template + queue included);
+server-reported rates beside it. Rule: a route more than 2x away from Arduino's figure is mis-set-up until explained.
+Raw: speed-v0b-7badb21.txt, runs/v0b-7badb21/<label>/ (server log, VmHWM, health window), monitor/*-runs.jsonl.
+
+route (label)                          placement (from startup log)                  prompt  decode  prefill(ttft/server)  Arduino  ratio  verdict
+llama.cpp OpenCL (llamacpp-opencl)     29/29 layers GPUOpenCL Adreno 623               484    4.92     62.3 / 63.4          7.4     0.66   PASS
+llama.cpp OpenCL, ARMv8.2 CPU side     29/29 layers GPUOpenCL                          481    4.87     61.9 / 62.8          7.4     0.66   PASS (same as default: GPU-bound)
+llama.cpp CPU, upstream default build  CPU, no DOTPROD/FP16_VA, no repack (D24)        481    5.50     20.4 / 20.4          -       -      reference (no Arduino figure)
+llama.cpp CPU, ARMv8.2 build           CPU, DOTPROD+FP16_VA, CPU_REPACK 828 MiB        478   12.04     80.3 / 80.6          -       -      reference (GenieX CPU 11.4: 1.06x)
+GenieX GPU (--compute gpu)             1 device GPUOpenCL, n_gpu_layers -1             484    7.61     61.9 / 62.2          9.2     0.83   PASS
+GenieX CPU (--compute cpu)             CPU, q4_0_4x4 repack, FA on                     482   16.54     91.2 / 91.6         11.4     1.45   PASS (faster than Arduino)
+GenieX hybrid (--compute hybrid) r1    layers HTP0 + OpenCL 131 MiB + CPU buffers        -   (32 tok)    n/a                13.9      -     HANG mid-generation (see below)
+GenieX hybrid (--compute hybrid) r2    same                                            487   11.37    171.4 / 175.7        13.9     0.82   PASS, intermittent hang 1/2
+GenieX NPU (--compute npu)             1 device HTP0 (cdsp), burst, libggml-htp-v75    480   28.81   1014.6 / 1084.0       ~25      1.15   PASS
+llama.cpp ggml-hexagon (upstream)      -                                                 -       -        -                  -       -      BLOCKED: build (qemu-user crash, D26)
+llama.cpp Vulkan (Turnip)              -                                                 -       -        -                  -       -      BLOCKED: build (spirv-headers missing, D23/D28)
+
+GenieX effective settings (startup logs, defaults, nctx 4096 for V0b): n_batch 2048; n_ubatch 512 (gpu) / 2048 (cpu)
+/ 1024 (npu, hybrid); n_seq_max 1; 8 threads (gpu: pinned 0-7 strict poll 1000; cpu: unpinned poll 50; hybrid: unpinned
+poll 1000); flash_attn 0 (gpu) / 1 (cpu, npu, hybrid); HTP power mode burst; GenieX loads the model on the first
+request (first TTFT includes load).
+llama.cpp effective settings: 8 threads, OpenMP, n_slots 4 (auto), n_ctx_slot 2048, n_batch = n_ubatch 128,
+flash_attn auto, --cache-ram 8192.
+
+GenieX hybrid r1 hang (runs/v0b-7badb21/geniex-hybrid-sanity/hang-diagnosis.txt): 32 tokens streamed, then no output
+for 13 min; server log silent since an OpenCL flash-attention kernel compile; 0.02 core-s per 10 s; 2 threads in
+fastrpc_wait_for_completion (waiting on the cDSP), the rest idle on futexes; SIGTERM ignored, SIGKILL needed; no kernel
+errors. Classified: runtime hang (GenieX hybrid, FastRPC wait), not a model failure. r2 (fresh server, 2 min later)
+completed normally.
+
+Earlier runs at 58885b8 (speed-v0b.txt, runs/v0b/) agree within run-to-run noise (OpenCL 4.87-4.90, CPU 5.27,
+CPU-v82 10.53); they stay as labelled evidence. Repeat-to-repeat variation is visible (CPU-v82 10.53 vs 12.04);
+V0c repeats with medians handle it for the shortlist.
+
+Added after the laptop cross-build (D40), same commit 7badb21, same file:
+llama.cpp ggml-hexagon (upstream)      29/29 layers HTP0 (v75), HTP0 model 828.6 MiB   486   28.26    801.6 / 903.1        ~25      1.13   PASS
+   server: env LD_LIBRARY_PATH=ADSP_LIBRARY_PATH=<pkg>/lib llama-server -m <file> --no-warmup -b 128 -c 2048 -s 11
+   -n 128 --cache-ram 8192 -lv 4 --device HTP0 -ngl 99. Setup: <pkg>/lib/libcdsprpc.so -> libcdsprpc.so.1 (the
+   backend dlopens the bare name; GenieX's installer makes the same link). HTP0 compute buffer 15.1 MiB at
+   n_ubatch 128; KV 56 MiB on HTP0. HTP0 reports 0 MiB memory, so --fit is skipped ("n_gpu_layers already set").

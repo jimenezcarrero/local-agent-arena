@@ -13,12 +13,14 @@ grep ^Prompt /etc/update-manager/release-upgrades
 # 2. Build/runtime packages (runbook list minus nodejs/npm: Node 22.23.3 and pi 0.80.10 are
 #    installed user-level with mise, decision recorded in phase-v0/decisions.txt). Extra, needed by routes in the matrix:
 #    python3-venv/pip (convert_hf_to_gguf), libvulkan-dev+glslc (Vulkan build),
-#    OpenCL ICD + qcom-adreno-cl1 (GPU route), qemu-user-static+binfmt-support (the upstream
+#    opencl-headers + qcom-adreno-cl1 (GPU route; qcom-adreno-cl1 ships its own libOpenCL.so.1 and
+#    "Provides: ocl-icd-libopencl1 (= 2.3.2)", which cannot satisfy ocl-icd-opencl-dev's exact
+#    "= 2.3.2-1build1", so ocl-icd-opencl-dev is dropped: attempt 1 failed on that conflict), qemu-user-static+binfmt-support (the upstream
 #    Hexagon toolchain container ghcr.io/snapdragon-toolchain/arm64-linux:v0.7 is amd64-only).
 apt-get update
 apt-get install -y build-essential cmake git python3 python3-pytest python3-venv python3-pip \
     gh jq clinfo vulkan-tools libvulkan-dev glslc \
-    ocl-icd-opencl-dev opencl-headers qcom-adreno-cl1 \
+    opencl-headers qcom-adreno-cl1 \
     qemu-user-static binfmt-support rsync
 
 # 3. Durable kernel log (already persistent on this image) and lingering
