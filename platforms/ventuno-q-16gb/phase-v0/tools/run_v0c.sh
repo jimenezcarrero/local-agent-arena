@@ -97,13 +97,22 @@ open(p + ".tmp", "w").write("".join(json.dumps(r) + "\n" for r in rows)); os.rep
 PY
 free -m > "$OUT/free-end.txt"
 log "END speed=$rc_speed probe=$rc_probe agentic=$rc_agentic duration=$((end-start))s"
-# wait for a kernel-journal read later than the cell's end (sampler reads every 30 s), so the cell's health
-# report includes kernel lines logged at the very end of the run (a GPU hang at 22:20:57 was missed otherwise)
+# wait for a SUCCESSFUL, parsed kernel-journal read later than the cell's end (sampler reads every 30 s), so the
+# cell's health report includes kernel lines logged at the very end of the run; a timeout of this wait is a failure
+kwait=TIMEOUT
 for i in $(seq 1 12); do
-  python3 -c "import json,sys; r=[json.loads(l) for l in open(sys.argv[1]) if '\"kern_read\"' in l]; sys.exit(0 if r and r[-1]['epoch']>int(sys.argv[2]) else 1)" ~/bench-runs/monitor/health-$(date -u +%Y%m%d).jsonl $end && break
+  if python3 -c "import json,sys
+rows=[]
+for l in open(sys.argv[1], errors='replace'):
+    try: r=json.loads(l)
+    except ValueError: continue
+    if r.get('kern_read')=='ok' and r.get('kern_parse')!='FAILED' and isinstance(r.get('kern_alert_lines'),int): rows.append(r)
+sys.exit(0 if rows and rows[-1]['epoch']>int(sys.argv[2]) else 1)" ~/bench-runs/monitor/health-$(date -u +%Y%m%d).jsonl $end; then kwait=ok; break; fi
   sleep 10
 done
-python3 ~/v0/monitor/health_check.py $(( (end-start)/60 + 3 )) > "$OUT/health.txt" 2>&1
+python3 ~/v0/monitor/health_check.py $(( (end-start)/60 + 3 )) > "$OUT/health.txt" 2>&1; rc_health=0
+# health counts as failed on real alerts only; memory-PSI spikes (every large model load) stay visible as ALERT lines
+grep -E '^ALERT' "$OUT/health.txt" | grep -vq 'memory PSI' && rc_health=1
 python3 - "$start" > "$OUT/kernel-window.txt" 2>&1 <<'PY'
 import glob, json, os, sys, time
 t0 = int(sys.argv[1]) - 60
@@ -113,3 +122,16 @@ for f in sorted(glob.glob(os.path.expanduser("~/bench-runs/monitor/kernel-*.json
         if t >= t0:
             print(time.strftime("%FT%T", time.localtime(t)), str(k.get("MESSAGE", ""))[:240])
 PY
+rc_kwin=$?
+# Aggregate result (exit code and RESULT line): 0 only if every probe, the health check and the kernel evidence passed.
+# health_check exits 1 on any ALERT (including evidence gaps); a missing/empty health file is a failure too.
+[ -s "$OUT/health.txt" ] || rc_health=5
+fails=""
+[ "$rc_speed" = 0 ] || fails="$fails speed=$rc_speed"
+[ "$rc_probe" = 0 ] || fails="$fails probe=$rc_probe"
+[ "$rc_agentic" = 0 ] || fails="$fails agentic=$rc_agentic"
+[ "$rc_health" = 0 ] || fails="$fails health=$rc_health"
+[ "$kwait" = ok ] || fails="$fails kernel_read_after_end=$kwait"
+[ "$rc_kwin" = 0 ] || fails="$fails kernel_window=$rc_kwin"
+if [ -z "$fails" ]; then log "RESULT PASS (speed, one-shot, agentic, health, kernel evidence)"; exit 0
+else log "RESULT FAIL:$fails"; exit 1; fi
