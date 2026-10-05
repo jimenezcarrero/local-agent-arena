@@ -65,7 +65,7 @@ D11 2026-10-04 --cache-ram for V0b/V0c (documented-default exploration): set exp
    default) on every llama-server and recorded; the tier value comes from V0d's sweep. GenieX: no
    equivalent setting, recorded as such. speed_probe.py sends cache_prompt=false.
 
-D12 2026-10-04 Review of 50e2054 (offline file /tmp/ventuno-pr40-review-50e2054.md), applied:
+D12 2026-10-04 Review of pre-rewrite commit P2 (offline review file), applied:
    - Sampler v2 (tools/health_sampler.sh), swapped in atomically at 12:43:27 CEST (old pid 11811 killed,
      new pid 84393; handover gap ~10 s, visible in the health log). Kernel events now come from a journal
      cursor file (exact window boundaries, survives restarts); every kernel line is kept in full
@@ -84,7 +84,7 @@ D12 2026-10-04 Review of 50e2054 (offline file /tmp/ventuno-pr40-review-50e2054.
 D13 2026-10-04 History rewrite, authorized by the campaign owner: every ventuno-q commit was rewritten with
    git filter-branch (tree filter replacing the serial and machine-id) so neither value exists in any
    branch commit. Author and committer dates are unchanged, so V0a still predates every installation.
-   Old -> new: af7314b -> 05157d7 (V0a), 50e2054 -> e19e3ca, bfc1436 -> 2b2f1e1, 98f81b5 -> 435f3ae.
+   Old -> new: P1 -> 05157d7 (V0a), P2 -> e19e3ca, bfc1436 -> 2b2f1e1, 98f81b5 -> 435f3ae.
    Final tree identical before and after. Earlier PR comments and the offline reviews cite the old hashes.
 
 D14 2026-10-04 Disk policy (campaign owner): the eMMC root fs is 54.9 GiB (40.6 used, 11.9 free after the
@@ -329,11 +329,11 @@ D40 2026-10-04 Upstream ggml-hexagon package, cross-built on the laptop (x86_64,
 D41 2026-10-04 Identifier leak caught and contained. After the 23:02 stop, journald logged "Failed to read journal file
    /var/log/journal/<machine-id>/user-1000.journal for rotation", with the machine-id inside the message text.
    publish_monitor.py dropped the _MACHINE_ID field but did not scrub message text, so the published kernel
-   extract in commit 6b95328 (pushed 23:18 CEST) contained it; the post-commit identifier check found it
+   extract in pre-rewrite commit P3 (pushed 23:18 CEST) contained it; the post-commit identifier check found it
    about a minute later. Fixes: publish_monitor.py now replaces the machine-id and serial anywhere in every
    published line; a local git pre-commit hook (not committed) refuses any commit whose staged files contain
-   either value, tested by staging a file with the machine-id (refused, rc=1). 6b95328 is amended to remove it;
-   the owner force-pushes the amended commit and adds 6b95328 to the GitHub Support purge request (D13, D16).
+   either value, tested by staging a file with the machine-id (refused, rc=1). P3 is amended to remove it;
+   the owner force-pushes the amended commit and adds P3 to the GitHub Support purge request (D13, D16).
 
 D42 2026-10-04 Upstream ggml-hexagon V0b PASS (v0b-results.txt): decode 28.26 tok/s (1.13x Arduino's ~25), prefill
    801.6/903.1, 29/29 layers on HTP0 (v75). Setup step: a user-level link <pkg>/lib/libcdsprpc.so ->
@@ -460,3 +460,10 @@ D50 2026-10-05 Codex review 5410871983 of b93d339, applied (code and README in b
    - files.txt: its "not logged" fields and identical-command links are evidence limitations, not independent
      per-run verification; the final V0d configuration's manifest will be captured directly.
    The night batch's historical rc=0 lines are left as they were (D48 explains them).
+
+D51 2026-10-05 Hash citations redacted. The three pre-rewrite commits that held device identifiers (V0a, the first
+   provenance commit, and the commit amended in D41) are referred to as P1, P2 and P3 here and above; their full
+   hashes are given to GitHub Support only, so the current files no longer point at them. Older commits on main
+   still contain the original text until Support purges the three commits (GitHub's guidance: dereference PRs,
+   garbage-collect, remove cached views). Checked on GitHub: the other two pre-rewrite commits of D13 (bfc1436,
+   98f81b5) contain no identifier. The stray local object of P3 was removed from this board (reflog expire + gc).
