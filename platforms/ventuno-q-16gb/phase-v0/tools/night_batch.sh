@@ -12,7 +12,7 @@ cleanup() {  # any leftover server from a timed-out step, matched by its executa
   for pid in $(ps -eo pid,args | awk '$2 ~ /\/(llama-server|geniex)$/ || ($2=="env" && $0 ~ /llama-server/) {print $1}'); do
     say "cleanup: killing leftover server pid $pid ($(ps -o args= -p $pid | cut -c1-80))"; kill -KILL $pid 2>/dev/null; done; sleep 5; }
 cell() {  # phase label timeout_s -- server...
-  local ph=$1 lab=$2 to=$3; shift 4
+  local ph=$1 lab=$2 to=$3; shift 3
   say "START $ph/$lab"
   PHASE=$ph timeout -k 60 "$to" ~/v0/run_v0c.sh "$lab" llama 0 -- "$@" > /dev/null 2>&1; local rc=$?
   [ $rc = 124 ] && say "TIMEOUT $ph/$lab after ${to}s"
