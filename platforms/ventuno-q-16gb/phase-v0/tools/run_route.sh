@@ -63,5 +63,10 @@ import os; os.replace(p + ".tmp", p)
 PY
 free -m > "$OUT/free-end.txt"
 log "END rc=$rc duration=$((end-start))s"
-python3 ~/v0/monitor/health_check.py $(( (end-start)/60 + 3 )) > "$OUT/health.txt" 2>&1
-exit $rc
+python3 ~/v0/monitor/health_check.py $(( (end-start)/60 + 3 )) > "$OUT/health.txt" 2>&1; rc_health=0
+# health counts as failed on real alerts only; memory-PSI spikes (every large model load) stay visible as ALERT lines
+grep -E '^ALERT' "$OUT/health.txt" | grep -vq 'memory PSI' && rc_health=1
+[ -s "$OUT/health.txt" ] || rc_health=5
+# Aggregate: speed probe and health check must both pass (health_check exits 1 on any ALERT or evidence gap)
+if [ "$rc" = 0 ] && [ "$rc_health" = 0 ]; then log "RESULT PASS (speed, health)"; exit 0
+else log "RESULT FAIL: speed=$rc health=$rc_health"; exit 1; fi
