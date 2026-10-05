@@ -388,3 +388,13 @@ D46 2026-10-05 Night plan (owner away, board free; owner asked for "the most pro
    Deferred, not skipped: llama.cpp OpenCL x Ornith-9B and x IQ3_M, GenieX GPU x Ornith-9B (GPU lockup and
    suspected board-stop risk with nobody to power-cycle). Supervision: a watcher reports each step and any
    health/kernel alert; it expires every 30 min and is re-armed after a direct check of the batch and health.
+
+D47 2026-10-05 Night results (runs/night/status.txt, README.md): V0c CPU cells for the 9B and IQ3_M completed (both
+   tool gates pass, ineligible on speed); NPU x IQ3_M not runnable (iq3_s unsupported on HTP). Exploratory 4B NPU
+   variants: 3 sessions slower (16K 282.6/7.12) and hung at 32K (FastRPC wait; stopped manually after 23 min,
+   runs/v0-explore/*/stall-diagnosis.txt), after which an independent NPU stall watchdog (tools/
+   npu_stall_watchdog.sh, 300 s) ran beside the batch and never fired; -ub 1024 fails to map. Ranking: only
+   configuration A (2 sessions, ctx-checkpoints 0) eligible. Repeats (warm-up + 3, all depths): 16K median
+   prefill 318.9 (312.0-319.2), decode 7.90 (7.82-8.08), prompts 18031-18039 tokens; memory floor min MemAvailable
+   6.11 GiB, no swap. First launch of the night batch lost its first cell to a script bug (cell() shift 4 instead
+   of 3, kept as *-batchbug); fixed and relaunched within two minutes.
