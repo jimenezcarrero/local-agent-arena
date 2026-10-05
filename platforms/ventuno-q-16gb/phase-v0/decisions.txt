@@ -507,3 +507,19 @@ D53 2026-10-05 V0d sweep results (runs/v0d-tune/, sweep-summary.txt; single runs
      reports "running"): the NPU stays degraded after a hang until it is reset. Idle-recovery checks run after 10
      and 40 idle minutes (tools/npu_recovery_check.sh); otherwise a cDSP restart or reboot (root) is needed before
      the final re-measurement.
+
+D54 2026-10-06 Overnight investigation (owner away, no root; v0d-investigation.md, bw/):
+   - Memory bandwidth (bw/bw.c): 25.6 GB/s read with 4 threads (big cores 25.3), 12.5 GB/s with 8 threads. Decode is
+     bandwidth-bound: the 4B on the NPU reads ~19 GB/s of weights; the Jetson's 9B IQ3_M ~41 GB/s of its specified
+     68 GB/s. Estimated ceilings: 4B ~11 tok/s, 9B Q4_0 ~5 tok/s.
+   - The 4B NPU graph has 3 splits; GATED_DELTA_NET and SSM_CONV run on HTP: no CPU<->NPU ping-pong.
+   - Only the GPU exposes a devfreq governor; no user-level DDR/bus clock control.
+   - Upstream llama.cpp has one Hexagon commit after 836d5717 (multi-core flash-attention split): not relevant here.
+   - GenieX v0.8.0 cannot set the NPU n_ubatch from the server (source comment in keepalive.go); it accepts
+     explicit HTP device lists. Unlocking its ubatch needs a patched build or a newer release.
+   - Mapping failures are all single large buffers (KV, compute, output layer) + 4 KiB (table in the doc); inferred
+     mechanism: per-session 32-bit DSP address space with large-buffer placement. Post-reset tests prepared
+     (tools/v0d_unlock.sh): output layer on CPU (-ngl n_layer), MBUF=256, more sessions; 4B at 65K on 4 sessions;
+     n-gram speculative decoding feasibility.
+   - The final re-measurement (tools/v0d_final.sh) and the NPU readiness probes were stopped at 00:22 so a CPU
+     thread test (tools/v0d_cpu_threads.sh) runs without concurrent NPU loads; both are relaunched after the reset.
