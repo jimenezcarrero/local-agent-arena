@@ -5,7 +5,7 @@ v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supp
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
 [`decisions.txt`](decisions.txt) (D1–D46).
 
-**Status: V0b complete; V0c exploration complete except for the deferred and untested cells listed below; one
+**Status: V0b complete; V0c exploration complete for every runbook route (statuses below); one
 V0c shortlist candidate (the ~4B) with its repeats. No configuration is called eligible here: provisional
 eligibility belongs to V0d (final settings, a declared memory floor, re-measurement), and GO needs V0e.**
 
@@ -64,9 +64,9 @@ Speeds are prefill / decode tok/s, TTFT-based; prompt sizes are in the per-run e
 | GenieX NPU | **unsupported at defaults**: ~1 GB HTP compute buffer fails to map (D30) | same | not importable (D30) |
 | GenieX hybrid | same mapping failure | same | not importable |
 | GenieX CPU | 512: 29.5/6.12 · 8K: 17.4/2.14 · 16K: 11.8/1.36 · 32K: 9.2/0.85; tools 1/10 (GenieX empty-reply defect, D33), agentic 3/3; VmHWM 6.34 GiB | 512: 14.6/3.66 · 8K: 11.8/1.97 screened out (D32); tools 1/10 (D33), 3/3; VmHWM 10.35 GiB | not importable |
-| GenieX GPU | **unsupported at defaults**: 1280 MiB OpenCL buffer > 1024 MB driver limit (D34) | deferred: board stopped during start-up (D39) | not importable |
+| GenieX GPU | **unsupported at defaults**: 1280 MiB OpenCL buffer > 1024 MB driver limit (D34) | same (re-run with the owner present, D49; the board did not stop) | not importable |
 | llama.cpp CPU (ARMv8.2) | 512: 29.7/4.66 · 8K: 24.0/2.54 screened out (D32); tools 10/10, 3/3; VmHWM 6.95 GiB | 512: 18.7/2.83 · 8K: 16.3/1.89 screened out (D32); tools 10/10, 3/3; VmHWM 10.88 GiB | 512: 2.7/1.36 · 8K: 2.6/1.10 screened out (D32); tools 10/10, 3/3; VmHWM 7.28 GiB (no fast path for iq3_s) |
-| llama.cpp OpenCL | 512: 21.5/3.16; **GPU lockup** in the 8K prefill, driver killed the server (D37) | deferred (GPU lockup risk) | deferred |
+| llama.cpp OpenCL | 512: 21.5/3.16; **GPU lockup** in the 8K prefill, driver killed the server (D37) | 512: 10.4/1.88 (31/34 layers on GPU); **GPU lockup** in the 8K prefill (D49) | partial placement; 512: 2.2/0.71; stopped after 512 (D49) |
 | ggml-hexagon, 1 session | aborts at load: KV 1280 MiB + model exceed the session window (D43) | same | – |
 | ggml-hexagon, 2 sessions, defaults | loads; 512: 288.8/9.97; ~12K prefill at ~390 tok/s, then **aborts on a context checkpoint** (`dsp-error NO-SUPPORT`, D43) | – | – |
 | **ggml-hexagon, 2 sessions, `--ctx-checkpoints 0`** (non-default, D43) | **512: 349.8/10.06 · 8K: 348.4/9.56 · 16K: 318.8/8.25 · 32K: 282.9/7.22; tools 10/10, 3/3; VmHWM 2.09 GiB** | fails to map (2 and 3 sessions, D44) | iq3_s unsupported on HTP, 2.7 GB stays on CPU, mapping fails |
@@ -84,7 +84,7 @@ Statuses: **measured** (with its V0b verdict), **unsupported at tested defaults*
 |---|---|---|
 | llama.cpp CPU, upstream defaults | measured, reference (no DOTPROD, D24) | **not run in V0c** (D29: same CPU route rebuilt with the ISA it lacked) |
 | llama.cpp CPU, ARMv8.2 build | measured, reference | measured: 4B, 9B, IQ3_M (all screened out under D32; tool gates pass) |
-| llama.cpp OpenCL (Adreno) | PASS 0.66× | 4B: GPU lockup (D37); **9B and IQ3_M deferred** |
+| llama.cpp OpenCL (Adreno) | PASS 0.66× | 4B: GPU lockup (D37); 9B: 31/34 layers on GPU, 512 10.4/1.88, GPU lockup in the 8K prefill (D49); IQ3_M: partial placement (2.8 GB iq3_s on CPU), 512 2.2/0.71, stopped after 512 (D49) |
 | llama.cpp Vulkan (Turnip) | **FAIL: GPU fault** (`device lost on Vulkan0`, kernel GPU recover; D48) | not run (route failed V0b) |
 | llama.cpp ggml-hexagon, 1 session | PASS 1.13× | 4B and 9B unsupported at tested defaults (KV mapping, D43) |
 | ggml-hexagon, 2 virtual sessions | – | 4B: loads, aborts on context checkpoint at defaults (D43); with `--ctx-checkpoints 0`: **V0c shortlist candidate**; 9B: does not map (D44); IQ3_M: iq3_s unsupported on HTP |
@@ -92,7 +92,7 @@ Statuses: **measured** (with its V0b verdict), **unsupported at tested defaults*
 | GenieX NPU | PASS 1.15× | 4B and 9B unsupported at defaults (HTP mapping, D30); IQ3_M not importable |
 | GenieX hybrid | PASS 0.82× (hung 1 of 2) | 4B and 9B unsupported at defaults (D30); IQ3_M not importable |
 | GenieX CPU | PASS 1.45× | 4B measured full depth; 9B screened out (D32); one-shot gate failed by a GenieX defect (D33); IQ3_M not importable |
-| GenieX GPU | PASS 0.83× | 4B unsupported at defaults (OpenCL 1024 MB limit, D34); **9B deferred** (board stop, D39); IQ3_M not importable |
+| GenieX GPU | PASS 0.83× | 4B and 9B unsupported at defaults (1280 MiB OpenCL buffer > 1024 MB limit, D34, D49; the 9B re-run did not stop the board); IQ3_M not importable |
 | GenieX QAIRT runtime | – | not tested (runbook: out of scope, issue #1454) |
 
 ## V0c shortlist candidate and repeats
@@ -131,8 +131,9 @@ inferred, not verified); partial offload (20 of 34 layers on the NPU) loads but 
 
 ## Still pending before any admission
 
-- **Deferred V0c cells:** llama.cpp OpenCL × 9B and × IQ3_M; GenieX GPU × 9B (GPU lockup / board-stop risk;
-  to run only with the owner present). Vulkan failed V0b and is not carried into V0c.
+- **V0c coverage:** every runbook route now has a status (the table above). The three cells deferred overnight were
+  run with the owner present (D49). Vulkan failed V0b and is not carried into V0c. The 2026-10-04 board stop (D39)
+  did not reproduce when GenieX GPU × Ornith-9B was re-run; its cause stays unexplained.
 - **V0d** (tuning on the shortlist, final settings, re-measurement), then **V0e** for the exact configuration:
   pi's streaming path and a real-pi smoke session, each intended window at its real size (40960 is not 65K),
   cached multi-turn reuse, and a ≥ 90-minute sustained run. The two NPU hangs seen in other configurations make
