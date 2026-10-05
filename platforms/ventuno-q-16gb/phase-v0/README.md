@@ -3,7 +3,7 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D46).
+[`decisions.txt`](decisions.txt) (D1–D50).
 
 **Status: V0b complete; V0c exploration complete for every runbook route (statuses below); one
 V0c shortlist candidate (the ~4B) with its repeats. No configuration is called eligible here: provisional
@@ -11,8 +11,9 @@ eligibility belongs to V0d (final settings, a declared memory floor, re-measurem
 
 ## What was measured, and how
 
-- **Measurement commit `7badb21`** (`~/v0/measure`, read-only Markdown). Corpus sha256 `3611eb84…`, recomputed
-  before every run (`tools/corpus_check.py`). V0b runs at `58885b8` (identical corpus, older `speed_probe.py`)
+- **Measurement commit `7badb21`** (`~/v0/measure`, read-only Markdown). Corpus sha256 `3611eb84…`. From
+  2026-10-04 19:52 on, `tools/corpus_check.py` recomputed it before every run; runs before 19:52 were covered by a
+  single check at that time (`git status --ignored` clean, hash unchanged), not checked individually (D31). V0b runs at `58885b8` (identical corpus, older `speed_probe.py`)
   are kept as labelled evidence.
 - **Probes:** `speed_probe.py` at 512/8K/16K/32K tokens; prefill is prompt tokens over time to first token
   (server timing beside it). `probe_toolcalls.py` one-shot (10) and agentic (3 loops). VmHWM after the deepest

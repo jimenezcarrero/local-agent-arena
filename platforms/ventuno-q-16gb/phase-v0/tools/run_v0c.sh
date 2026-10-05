@@ -110,9 +110,10 @@ for l in open(sys.argv[1], errors='replace'):
 sys.exit(0 if rows and rows[-1]['epoch']>int(sys.argv[2]) else 1)" ~/bench-runs/monitor/health-$(date -u +%Y%m%d).jsonl $end; then kwait=ok; break; fi
   sleep 10
 done
-python3 ~/v0/monitor/health_check.py $(( (end-start)/60 + 3 )) > "$OUT/health.txt" 2>&1; rc_health=0
-# health counts as failed on real alerts only; memory-PSI spikes (every large model load) stay visible as ALERT lines
-grep -E '^ALERT' "$OUT/health.txt" | grep -vq 'memory PSI' && rc_health=1
+python3 ~/v0/monitor/health_check.py $(( (end-start)/60 + 3 )) > "$OUT/health.txt" 2>&1; hc=$?
+# fail-closed verdict: checker exit status + valid summary required; PSI-only alerts are a documented exception
+hverdict=$(python3 ~/v0/health_verdict.py "$OUT/health.txt" "$hc"); rc_health=$?
+echo "$hverdict" > "$OUT/health-verdict.txt"
 python3 - "$start" > "$OUT/kernel-window.txt" 2>&1 <<'PY'
 import glob, json, os, sys, time
 t0 = int(sys.argv[1]) - 60
@@ -125,13 +126,12 @@ PY
 rc_kwin=$?
 # Aggregate result (exit code and RESULT line): 0 only if every probe, the health check and the kernel evidence passed.
 # health_check exits 1 on any ALERT (including evidence gaps); a missing/empty health file is a failure too.
-[ -s "$OUT/health.txt" ] || rc_health=5
 fails=""
 [ "$rc_speed" = 0 ] || fails="$fails speed=$rc_speed"
 [ "$rc_probe" = 0 ] || fails="$fails probe=$rc_probe"
 [ "$rc_agentic" = 0 ] || fails="$fails agentic=$rc_agentic"
-[ "$rc_health" = 0 ] || fails="$fails health=$rc_health"
+[ "$rc_health" = 0 ] || fails="$fails health=($hverdict)"
 [ "$kwait" = ok ] || fails="$fails kernel_read_after_end=$kwait"
 [ "$rc_kwin" = 0 ] || fails="$fails kernel_window=$rc_kwin"
-if [ -z "$fails" ]; then log "RESULT PASS (speed, one-shot, agentic, health, kernel evidence)"; exit 0
+if [ -z "$fails" ]; then log "RESULT PASS (speed, one-shot, agentic, health: $hverdict, kernel evidence)"; exit 0
 else log "RESULT FAIL:$fails"; exit 1; fi
