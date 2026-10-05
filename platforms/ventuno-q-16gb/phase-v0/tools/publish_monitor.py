@@ -18,6 +18,25 @@ Raw files stay in ~/bench-runs/monitor and the daily backup.
 import glob, json, os, shutil, sys
 
 DROP = ("_MACHINE_ID", "_HOSTNAME")
+
+
+def _read(path):
+    try:
+        return open(path).read().strip()
+    except OSError:
+        return ""
+
+
+# Device identifiers are scrubbed from every published line, field values and message text alike
+# (a journald message after the 23:02 stop carried the machine-id inside a journal file path).
+SCRUB = [(v, tag) for v, tag in ((_read("/etc/machine-id"), "<machine-id>"),
+                                  (_read("/sys/devices/soc0/serial_number"), "<serial>")) if v]
+
+
+def scrub(text):
+    for v, tag in SCRUB:
+        text = text.replace(v, tag)
+    return text
 PAD = 120
 src = os.environ.get("MONITOR_DIR", os.path.expanduser("~/bench-runs/monitor"))
 dst = os.path.join(sys.argv[1], "monitor")
@@ -73,32 +92,41 @@ def summarise(minute, rs):
 for f in sorted(glob.glob(f"{src}/health-*.jsonl")):
     stem = os.path.basename(f)[:-len(".jsonl")]
     rows, events = [], []
-    for line in open(f):
-        r = json.loads(line)
+    bad = 0
+    for line in open(f, errors="replace"):
+        try:
+            r = json.loads(line)
+        except ValueError:      # e.g. a NUL-filled block left by an abrupt power loss; counted, never parsed
+            bad += 1; continue
         (events if "event" in r else rows).append(r)
+    if bad:
+        events.append({"event": "unparseable_lines_skipped", "file": os.path.basename(f), "count": bad})
     minutes = {}
     for r in rows:
         minutes.setdefault(r["epoch"] // 60, []).append(r)
     with open(os.path.join(dst, stem + "-minutes.jsonl"), "w") as o:
         for e in events:
-            o.write(json.dumps(e) + "\n")
+            o.write(scrub(json.dumps(e)) + "\n")
         for m in sorted(minutes):
-            o.write(json.dumps(summarise(m, minutes[m])) + "\n")
+            o.write(scrub(json.dumps(summarise(m, minutes[m]))) + "\n")
     with open(os.path.join(dst, stem + "-runs.jsonl"), "w") as o:
         for r in rows:
             labels = [w["label"] for w in windows
                       if w["start_epoch"] - PAD <= r["epoch"] <= (w.get("end_epoch") or 10**12) + PAD]
             if labels:
-                o.write(json.dumps({**r, "run_labels": labels}) + "\n")
+                o.write(scrub(json.dumps({**r, "run_labels": labels})) + "\n")
     old = os.path.join(dst, stem + "-1min.jsonl")   # superseded format
     if os.path.exists(old):
         os.remove(old)
 for f in sorted(glob.glob(f"{src}/kernel-*.jsonl")):
     with open(os.path.join(dst, os.path.basename(f)), "w") as o:
-        for line in open(f):
-            k = json.loads(line)
-            o.write(json.dumps({x: v for x, v in k.items() if x not in DROP}) + "\n")
+        for line in open(f, errors="replace"):
+            try:
+                k = json.loads(line)
+            except ValueError:
+                continue
+            o.write(scrub(json.dumps({x: v for x, v in k.items() if x not in DROP})) + "\n")
 for name in ("health-checks.txt", "trip-points.txt", "run-windows.jsonl"):
     if os.path.exists(f"{src}/{name}"):
-        shutil.copy(f"{src}/{name}", dst)
+        open(os.path.join(dst, name), "w").write(scrub(open(f"{src}/{name}", errors="replace").read()))
 print("published to", dst)

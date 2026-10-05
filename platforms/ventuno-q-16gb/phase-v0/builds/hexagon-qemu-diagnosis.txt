@@ -1,0 +1,35 @@
+# qemu-user diagnosis for the amd64 toolchain container, 2026-10-04T18:06:59+02:00
+qemu-x86_64 version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)
+enabled
+interpreter /usr/libexec/qemu-binfmt/x86_64-binfmt-P
+flags: POF
+offset 0
+magic 7f454c4602010100000000000000000002003e00
+mask fffffffffffefefcfffffffffffffffffeffffff
+## docker run --platform linux/amd64 ghcr.io/snapdragon-toolchain/arm64-linux:v0.7 bash -c 'uname -m'
+x86_64
+## docker run --platform linux/amd64 ghcr.io/snapdragon-toolchain/arm64-linux:v0.7 bash -c 'cmake --version | head -1'
+cmake version 3.31.6
+## docker run --platform linux/amd64 ghcr.io/snapdragon-toolchain/arm64-linux:v0.7 bash -c 'clang --version | head -1'
+Debian clang version 21.1.8 (++20251221033036+2078da43e25a-1~exp1~20251221153213.50)
+## docker run --platform linux/amd64 ghcr.io/snapdragon-toolchain/arm64-linux:v0.7 bash -c 'ls /opt/hexagon'
+6.6.0.0
+## docker run --platform linux/amd64 ghcr.io/snapdragon-toolchain/arm64-linux:v0.7 bash -c 'env | grep -c .'
+x86_64-binfmt-P: QEMU internal SIGSEGV {code=MAPERR, addr=0x20}
+bash: line 1:     8 Done                    env
+        10 Segmentation fault      (core dumped) | grep -c .
+## QEMU_CPU=max: env | grep, then cmake --preset arm64-linux-snapdragon-release
+bash: line 1:     9 Done                    env
+        11 Segmentation fault      (core dumped) | grep -c .
+bash: line 1:    15 Segmentation fault      (core dumped) cmake -S . -B /tmp/t --preset arm64-linux-snapdragon-release > /tmp/c.log 2>&1
+cmake rc=139
+## QEMU_CPU=Haswell: env | grep, then cmake --preset arm64-linux-snapdragon-release
+bash: line 1:     8 Done                    env
+        10 Segmentation fault      (core dumped) | grep -c .
+bash: line 1:    14 Segmentation fault      (core dumped) cmake -S . -B /tmp/t --preset arm64-linux-snapdragon-release > /tmp/c.log 2>&1
+cmake rc=139
+## QEMU_CPU=qemu64: env | grep, then cmake --preset arm64-linux-snapdragon-release
+bash: line 1:     8 Done                    env
+        10 Segmentation fault      (core dumped) | grep -c .
+bash: line 1:    14 Segmentation fault      (core dumped) cmake -S . -B /tmp/t --preset arm64-linux-snapdragon-release > /tmp/c.log 2>&1
+cmake rc=139
