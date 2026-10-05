@@ -5,9 +5,9 @@ v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supp
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
 [`decisions.txt`](decisions.txt) (D1–D46).
 
-**Status: V0b complete; V0c exploration complete except for three deferred cells; one shortlist candidate
-(the ~4B) with its repeats. No GO is declared: provisional eligibility needs V0d's re-measurement on final
-settings, and GO needs V0e.**
+**Status: V0b complete; V0c exploration complete except for the deferred and untested cells listed below; one
+V0c shortlist candidate (the ~4B) with its repeats. No configuration is called eligible here: provisional
+eligibility belongs to V0d (final settings, a declared memory floor, re-measurement), and GO needs V0e.**
 
 ## What was measured, and how
 
@@ -17,8 +17,10 @@ settings, and GO needs V0e.**
 - **Probes:** `speed_probe.py` at 512/8K/16K/32K tokens; prefill is prompt tokens over time to first token
   (server timing beside it). `probe_toolcalls.py` one-shot (10) and agentic (3 loops). VmHWM after the deepest
   probe. Health sampled every 10 s throughout; each run's window is published (`monitor/*-runs.jsonl`).
-- **Fail-fast rule (D32, owner's decision):** 16K/32K are skipped when the valid 8K prefill is below 72.5 tok/s
-  (half the gate). The one full-depth CPU cell confirmed that prefill falls with depth (29.5 → 17.4 → 11.8 → 9.2).
+- **Fail-fast rule (D32, owner's decision, a runbook deviation):** 16K/32K are not measured when the valid 8K
+  prefill is below 72.5 tok/s (half the gate). Such cells are **screened out under D32; their 16K/32K performance
+  is unmeasured**, not a measured failure of the 16K gate. The assumption that prefill falls with depth held in the
+  one full-depth slow cell (29.5 → 17.4 → 11.8 → 9.2) and in every NPU cell, but is not proven for every route.
 - **Gates (runbook, frozen):** at 16K (prompt within ±20%), prefill ≥ 145 tok/s and decode ≥ 4.4 tok/s, both
   tool gates passed, memory floor kept.
 
@@ -50,20 +52,20 @@ settings, and GO needs V0e.**
 | GenieX hybrid | HTP0 + OpenCL + CPU | 11.37 | 171.4 | 13.9 | 0.82 | PASS, hung once in 2 runs |
 | GenieX NPU | HTP0 | 28.81 | 1014.6 | ~25 | 1.15 | PASS |
 | llama.cpp ggml-hexagon | 29/29 layers HTP0 (v75) | 28.26 | 801.6 | ~25 | 1.13 | PASS |
-| llama.cpp Vulkan | – | – | – | – | – | not built (D28; `spirv-headers` now installed) |
+| llama.cpp Vulkan | Vulkan0 Adreno623, 29/29 layers | – | – | – | – | **FAIL: device lost** (GPU fault at first compute, D48) |
 
 ## V0c — capability matrix (`-c`/`--nctx 40960`)
 
-Speeds are prefill / decode tok/s, TTFT-based; prompt sizes are in the per-run evidence. FF = fail-fast (16K/32K
-not measured).
+Speeds are prefill / decode tok/s, TTFT-based; prompt sizes are in the per-run evidence. "Screened out (D32)" =
+16K/32K unmeasured under the fail-fast rule.
 
 | Route | NeoHorse-1-4B pure Q4_0 | Ornith-1.0-9B pure Q4_0 | Ornith-1.0-9B IQ3_M (parity) |
 |---|---|---|---|
 | GenieX NPU | **unsupported at defaults**: ~1 GB HTP compute buffer fails to map (D30) | same | not importable (D30) |
 | GenieX hybrid | same mapping failure | same | not importable |
-| GenieX CPU | 512: 29.5/6.12 · 8K: 17.4/2.14 · 16K: 11.8/1.36 · 32K: 9.2/0.85; tools 1/10 (GenieX empty-reply defect, D33), agentic 3/3; VmHWM 6.34 GiB | 512: 14.6/3.66 · 8K: 11.8/1.97 FF; tools 1/10 (D33), 3/3; VmHWM 10.35 GiB | not importable |
+| GenieX CPU | 512: 29.5/6.12 · 8K: 17.4/2.14 · 16K: 11.8/1.36 · 32K: 9.2/0.85; tools 1/10 (GenieX empty-reply defect, D33), agentic 3/3; VmHWM 6.34 GiB | 512: 14.6/3.66 · 8K: 11.8/1.97 screened out (D32); tools 1/10 (D33), 3/3; VmHWM 10.35 GiB | not importable |
 | GenieX GPU | **unsupported at defaults**: 1280 MiB OpenCL buffer > 1024 MB driver limit (D34) | deferred: board stopped during start-up (D39) | not importable |
-| llama.cpp CPU (ARMv8.2) | 512: 29.7/4.66 · 8K: 24.0/2.54 FF; tools 10/10, 3/3; VmHWM 6.95 GiB | 512: 18.7/2.83 · 8K: 16.3/1.89 FF; tools 10/10, 3/3; VmHWM 10.88 GiB | 512: 2.7/1.36 · 8K: 2.6/1.10 FF; tools 10/10, 3/3; VmHWM 7.28 GiB (no fast path for iq3_s) |
+| llama.cpp CPU (ARMv8.2) | 512: 29.7/4.66 · 8K: 24.0/2.54 screened out (D32); tools 10/10, 3/3; VmHWM 6.95 GiB | 512: 18.7/2.83 · 8K: 16.3/1.89 screened out (D32); tools 10/10, 3/3; VmHWM 10.88 GiB | 512: 2.7/1.36 · 8K: 2.6/1.10 screened out (D32); tools 10/10, 3/3; VmHWM 7.28 GiB (no fast path for iq3_s) |
 | llama.cpp OpenCL | 512: 21.5/3.16; **GPU lockup** in the 8K prefill, driver killed the server (D37) | deferred (GPU lockup risk) | deferred |
 | ggml-hexagon, 1 session | aborts at load: KV 1280 MiB + model exceed the session window (D43) | same | – |
 | ggml-hexagon, 2 sessions, defaults | loads; 512: 288.8/9.97; ~12K prefill at ~390 tok/s, then **aborts on a context checkpoint** (`dsp-error NO-SUPPORT`, D43) | – | – |
@@ -73,9 +75,30 @@ Exploratory (outside V0c, labelled `v0-explore`): 9B with KV q8_0, KV q4_0 (unsu
 and KV on CPU — only KV-on-CPU loads, decoding at 2.2 tok/s (D45). 4B with 3 sessions: 16K 282.6/7.12, then an
 NPU hang at 32K (threads in `fastrpc_wait_for_completion`). 4B with `-ub 1024`: fails to map.
 
-## Shortlist and repeats
+## Every runbook route: status
 
-Only one configuration meets every gate: **llama.cpp ggml-hexagon, 2 virtual sessions (`HTP0:0,HTP0:1`),
+Statuses: **measured** (with its V0b verdict), **unsupported at tested defaults**, **blocked**, **failed**,
+**deferred** (risk; owner present needed), **not run** (decision recorded).
+
+| Runbook route | V0b (Qwen 1.5B) | V0c status |
+|---|---|---|
+| llama.cpp CPU, upstream defaults | measured, reference (no DOTPROD, D24) | **not run in V0c** (D29: same CPU route rebuilt with the ISA it lacked) |
+| llama.cpp CPU, ARMv8.2 build | measured, reference | measured: 4B, 9B, IQ3_M (all screened out under D32; tool gates pass) |
+| llama.cpp OpenCL (Adreno) | PASS 0.66× | 4B: GPU lockup (D37); **9B and IQ3_M deferred** |
+| llama.cpp Vulkan (Turnip) | **FAIL: GPU fault** (`device lost on Vulkan0`, kernel GPU recover; D48) | not run (route failed V0b) |
+| llama.cpp ggml-hexagon, 1 session | PASS 1.13× | 4B and 9B unsupported at tested defaults (KV mapping, D43) |
+| ggml-hexagon, 2 virtual sessions | – | 4B: loads, aborts on context checkpoint at defaults (D43); with `--ctx-checkpoints 0`: **V0c shortlist candidate**; 9B: does not map (D44); IQ3_M: iq3_s unsupported on HTP |
+| ggml-hexagon, partial layer offload (`-ngl 20`, 2 sessions, ckpt 0) | – | 9B: loads (20/34 layers on HTP0, rest on CPU); 512: 37.1/3.65, 8K: 28.3/2.71, screened out (D32); one-shot 10/10 (D48) |
+| GenieX NPU | PASS 1.15× | 4B and 9B unsupported at defaults (HTP mapping, D30); IQ3_M not importable |
+| GenieX hybrid | PASS 0.82× (hung 1 of 2) | 4B and 9B unsupported at defaults (D30); IQ3_M not importable |
+| GenieX CPU | PASS 1.45× | 4B measured full depth; 9B screened out (D32); one-shot gate failed by a GenieX defect (D33); IQ3_M not importable |
+| GenieX GPU | PASS 0.83× | 4B unsupported at defaults (OpenCL 1024 MB limit, D34); **9B deferred** (board stop, D39); IQ3_M not importable |
+| GenieX QAIRT runtime | – | not tested (runbook: out of scope, issue #1454) |
+
+## V0c shortlist candidate and repeats
+
+One configuration passed both speed thresholds at 16K and both tool gates in V0c, a **V0c shortlist candidate**
+(not yet provisionally eligible: V0d must fix final settings, declare the memory floor and re-measure): **llama.cpp ggml-hexagon, 2 virtual sessions (`HTP0:0,HTP0:1`),
 `--ctx-checkpoints 0`, NeoHorse-1-4B pure Q4_0**, otherwise llama-server defaults (n_ubatch 512, flash attention
 auto, 4 slots, `--cache-ram 8192`, `-c 40960`). One discarded warm-up, then 3 repeats per depth
 (`runs/v0c-repeats/`):
@@ -87,12 +110,13 @@ auto, 4 slots, `--cache-ram 8192`, `-c 40960`). One discarded warm-up, then 3 re
 | **16K** | 18,031–18,039 | **318.9 (312.0–319.2)** | **7.90 (7.82–8.08)** |
 | 32K | 31,704–31,715 | 284.3 (278.5–284.6) | 6.88 (6.70–7.18) |
 
-Memory: min MemAvailable 6.11 GiB (V0c cell with tool probes), 7.29–7.33 GiB in the repeats; no swap at any
-point; NPU sensor ≤ 50.5 °C. Against the gates: prefill 318.9 ≥ 145, decode 7.90 ≥ 4.4 — **provisionally
-eligible for the ~4B**, pending V0d and V0e.
+Memory (observed, not a declared floor): min MemAvailable 6.11 GiB (V0c cell with tool probes), 7.29–7.33 GiB
+in the repeats; no swap at any point; NPU sensor ≤ 50.5 °C. Against the frozen thresholds: median prefill 318.9
+(≥ 145) and decode 7.90 (≥ 4.4) at 16K, both tool gates passed. The memory floor is declared in V0d.
 
-**9B: no configuration found.** On the NPU, the 9B's KV cache cannot be mapped at 40960 (an NPU-wide mapping
-ceiling between ~4.7 and ~5.3 GB is inferred, not verified); every measured non-NPU route is 9–56× below the prefill gate (16.3 tok/s at best, 2.6 at worst, at 8K).
+**9B: no viable configuration observed among the tested configurations** (not an exhaustive exclusion). On the
+NPU, the 9B's KV cache cannot be mapped at 40960 (an NPU-wide mapping ceiling between ~4.7 and ~5.3 GB is
+inferred, not verified); partial offload (20 of 34 layers on the NPU) loads but decodes below the gate; every measured non-NPU route is 9–56× below the prefill gate (16.3 tok/s at best, 2.6 at worst, at 8K).
 
 ## Failure classes found
 
@@ -107,7 +131,8 @@ ceiling between ~4.7 and ~5.3 GB is inferred, not verified); every measured non-
 
 ## Still pending before any admission
 
-- **Deferred V0c cells:** llama.cpp OpenCL × 9B and × IQ3_M; GenieX GPU × 9B; llama.cpp Vulkan (now buildable).
+- **Deferred V0c cells:** llama.cpp OpenCL × 9B and × IQ3_M; GenieX GPU × 9B (GPU lockup / board-stop risk;
+  to run only with the owner present). Vulkan failed V0b and is not carried into V0c.
 - **V0d** (tuning on the shortlist, final settings, re-measurement), then **V0e** for the exact configuration:
   pi's streaming path and a real-pi smoke session, each intended window at its real size (40960 is not 65K),
   cached multi-turn reuse, and a ≥ 90-minute sustained run. The two NPU hangs seen in other configurations make
