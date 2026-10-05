@@ -427,3 +427,14 @@ D48 2026-10-05 Codex review 5410260700 of a716dfc, applied:
       successful parsed kernel read after the cell's end, kernel window); tested with a server that cannot start
       (exit 1, "RESULT FAIL"). The night batch ran on the earlier runners, so its rc=0 lines are not results; the
       per-cell evidence (END line, probe and health files) is authoritative for those runs.
+
+D49 2026-10-05 Deferred cells, run with the campaign owner present:
+   - llama.cpp OpenCL x Ornith-9B pure Q4_0: auto-fit placed 31/34 layers on the GPU (OpenCL 3909 MiB); 512: 10.4/1.88
+     tok/s; GPU lockup during the 8K prefill (kernel hangcheck 08:10:12, same signature as D37); board survived.
+     RESULT FAIL (speed). Classified: GPU driver/kernel hang.
+   - llama.cpp OpenCL x IQ3_M (parity): placement partial — 2770.6 MiB of iq3_s weights stay on the CPU (no OpenCL
+     IQ3 kernels), 1429.8 MiB on the GPU; 512: 2.2/0.71 tok/s (slower than the CPU-only route). Stopped by the
+     testing agent after the 512 result: the 8K request (~2.5 h at this rate) and tool probes at 0.7 tok/s decode
+     would not change the classification (partly on the accelerator, far below the gates). Recorded as a
+     supervision decision; RESULT FAIL.
+   - GenieX GPU x Ornith-9B (the cell running when the board stopped, D39): runs next, everything committed first.
