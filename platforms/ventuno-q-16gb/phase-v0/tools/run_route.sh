@@ -63,10 +63,26 @@ import os; os.replace(p + ".tmp", p)
 PY
 free -m > "$OUT/free-end.txt"
 log "END rc=$rc duration=$((end-start))s"
-python3 ~/v0/monitor/health_check.py $(( (end-start)/60 + 3 )) > "$OUT/health.txt" 2>&1; rc_health=0
-# health counts as failed on real alerts only; memory-PSI spikes (every large model load) stay visible as ALERT lines
-grep -E '^ALERT' "$OUT/health.txt" | grep -vq 'memory PSI' && rc_health=1
-[ -s "$OUT/health.txt" ] || rc_health=5
-# Aggregate: speed probe and health check must both pass (health_check exits 1 on any ALERT or evidence gap)
-if [ "$rc" = 0 ] && [ "$rc_health" = 0 ]; then log "RESULT PASS (speed, health)"; exit 0
-else log "RESULT FAIL: speed=$rc health=$rc_health"; exit 1; fi
+# wait for a SUCCESSFUL, parsed kernel-journal read later than the run's end (sampler reads every 30 s);
+# a timeout of this wait is a failure
+kwait=TIMEOUT
+for i in $(seq 1 12); do
+  if python3 -c "import json,sys
+rows=[]
+for l in open(sys.argv[1], errors='replace'):
+    try: r=json.loads(l)
+    except ValueError: continue
+    if r.get('kern_read')=='ok' and r.get('kern_parse')!='FAILED' and isinstance(r.get('kern_alert_lines'),int): rows.append(r)
+sys.exit(0 if rows and rows[-1]['epoch']>int(sys.argv[2]) else 1)" ~/bench-runs/monitor/health-$(date -u +%Y%m%d).jsonl $end; then kwait=ok; break; fi
+  sleep 10
+done
+python3 ~/v0/monitor/health_check.py $(( (end-start)/60 + 3 )) > "$OUT/health.txt" 2>&1; hc=$?
+hverdict=$(python3 ~/v0/health_verdict.py "$OUT/health.txt" "$hc"); rc_health=$?
+echo "$hverdict" > "$OUT/health-verdict.txt"
+# Aggregate: speed probe, fail-closed health verdict and the post-end kernel read must all pass
+fails=""
+[ "$rc" = 0 ] || fails="$fails speed=$rc"
+[ "$rc_health" = 0 ] || fails="$fails health=($hverdict)"
+[ "$kwait" = ok ] || fails="$fails kernel_read_after_end=$kwait"
+if [ -z "$fails" ]; then log "RESULT PASS (speed, health: $hverdict, kernel evidence)"; exit 0
+else log "RESULT FAIL:$fails"; exit 1; fi
