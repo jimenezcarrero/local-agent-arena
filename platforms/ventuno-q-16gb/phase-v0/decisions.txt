@@ -728,3 +728,25 @@ D69 2026-10-06 Diagnosis attempt 1 (runs/v0d-diag/attempt1/): the soak's first r
    ran): a probe hang is counted as data (baseline config) and the probe loop waits for recovery; 4 hangs in total
    stop the diagnosis. Relaunched 12:16:45 with a 15-min idle wait first. Arms, loads and the D68 reading unchanged;
    the attempt-1 probe hang is reported separately from the arm counts.
+
+D70 2026-10-06 Owner: use speculative decoding / MTP as much as possible and find the best technique per model.
+   Inventory (no board load): this build (836d5717) offers draft-simple, draft-eagle3, draft-mtp, draft-dflash,
+   draft-dspark and five n-gram types; a draft can run on the CPU (--device-draft none) while the target stays on the
+   NPU. For draft-mtp/eagle3/dflash/dspark the target gets n_max recurrent-state snapshots (need_n_rs_seq), which
+   qwen35 supports, so rejected drafts roll back without the state checkpoints that failed on HTP (D43); n-gram and
+   draft-simple roll back through checkpoints (worked once, D59). Extra snapshots add RS buffers on the NPU.
+   Per model:
+   - Ornith-1.0-9B is an MTP build ("Ornith 9b Mtp Kl", finetune mtp-kl, nextn_predict_layers 1); its MTP layer is
+     in the file, ignored today, and kept on the CPU by -ngl 33. In this build draft-mtp for qwen35 uses the loaded
+     target (no second copy, unlike the Jetson).
+   - NeoHorse-1-4B (fine-tune of Qwen3.5-4B) has no MTP head: candidates are the base model's MTP head
+     (unsloth/Qwen3.5-4B-MTP-GGUF; the Jetson saw +27-34 % for a cross-fine-tune head), a DFlash block drafter
+     (z-lab Qwen3.5-4B-DFlash via AtomicChat GGUF, 0.6B), and Qwen3.5-0.8B as a plain draft.
+   - Both: DFlash 9B drafter, 0.8B plain draft, n-gram.
+   Drafts downloaded to ~/v0/models/drafts at idle I/O priority during the diagnosis soak (8 MB/s cap), each
+   checked against the Hub's sha256 (drafts/expected-sha256.txt). Sweep (tools/v0d_spec.sh): starts after the
+   diagnosis; per model a control run, then variants, one fresh load each, 512/8K/16K, acceptance from the server
+   log; --cache-ram 2048 during the sweep (memory for drafts; speed unaffected, D53); every 9B load preceded by a
+   baseline probe. Ranking only; winners then take the D68 admission set with a recomputed memory cap. Speculation
+   gains depend on the text: the probes generate continuations of Markdown prose, so code-heavy agent sessions
+   (V0e) may differ in either direction.
