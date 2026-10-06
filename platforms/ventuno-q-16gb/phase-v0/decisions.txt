@@ -588,3 +588,20 @@ D59 2026-10-06 V0d unlock tests, rounds 1-4 (runs/v0d-unlock/, tools/v0d_unlock*
    Next (tools/v0d_9b.sh, round 5): the 9B unlock without affinity (G) vs with 4 big cores (G'), keep G unless >3 %
    slower; the 4B 65K on 4 sessions at depths 32K and 49152; then the 9B final re-measurement (warm-up + r1-r3 at
    512/8K/16K/32K) and both tool gates on the chosen config.
+
+D60 2026-10-06 Round 5 (tools/v0d_9b.sh, runs/v0d-final-9b/, 05:09-06:28, no NPU hang):
+   - Affinity is essential for the 9B: same unlock config with llama.cpp default threads (G) gives 16K 143.5/3.90,
+     below both gates; with 4 big-core threads (G', -t 4 --cpu-mask 0xF --cpu-strict 1) 152.2/5.47 (D59). G' chosen.
+   - 9B final re-measurement on G' (Ornith-1.0-9B pure Q4_0, ggml-hexagon 836d5717, 3 HTP sessions, MBUF 256,
+     -ngl 33 --no-op-offload --ctx-checkpoints 0 -c 40960 --cache-ram 8192, 4 big-core threads): warm-up + r1-r3 all
+     PASS. Medians r1-r3, prefill/decode tok/s:
+       512 163.5/6.29 | 8K 166.7/6.02 | 16K 159.4/5.49 (prompt 18024-18034) | 32K 150.1/4.95
+     Tool gates: one-shot 10/10, agentic 3/3 (0 inconclusive). Memory headroom floor (min MemAvailable in the 32K
+     runs): 5.10 GiB, swap 0; 4.05 GiB during the tool gates (one PSI-only exempt alert at load); VmHWM 2.44 GiB;
+     tmax 50.5 C. V0d eligibility for the 9B: PROVISIONAL PASS at 16K (prefill 1.10x, decode 1.25x the gates):
+     thin prefill margin. Caveat: uses the big-core affinity that hung the NPU once on the 4B (D57); its hang rate
+     must be measured (V0e marathon), not assumed.
+   - 4B on 4 sessions at -c 65536 (-ngl 99, defaults), single run: 512 335.5/9.22, 32K (32915 tokens) 273.6/6.42,
+     49152 (48933 tokens) 244.4/5.67, PASS; min MemAvailable 4.10 GiB, VmHWM 3.49 GiB. A 65K-window 4B
+     configuration is feasible for V0e window qualification (the 4B's V0d final settings stay at 40960, D58).
+   Not GO: V0e qualification is required for each configuration.
