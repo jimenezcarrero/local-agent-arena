@@ -940,3 +940,23 @@ D83 2026-10-06 Round 4c (runs/v0d-spec4c/): batch-size test and 4-session NPU-dr
    Implication: block drafting (DFlash) suits this NPU's cost curve best (8 verified tokens for ~2 steps), if it maps.
    It failed to map on 2 sessions (D72: rollback snapshots for n_max tokens). Next: one exploratory round with the
    4B target on 4 sessions (smaller per-session share) and the DFlash draft on the CPU, n_max 3 and 7.
+
+D84 2026-10-06 DFlash for the 4B (rounds 5, 5b, 5c, 5d; runs/v0d-spec5*/).
+   4B on 4 sessions without speculation: 512 319.9/8.96, 8K 339.9/8.43, 16K 311.9/7.67.
+   DFlash's draft reuses the target's token_embd, which the 4B ties to its output head, so it sits with the output
+   layer on the last NPU session. A draft on the CPU, or on another NPU session, aborts at load: "pre-allocated tensor
+   (token_embd.weight) in a buffer (HTP0:n) that cannot run the operation". --no-host and -ot output.weight=CPU do not
+   help (no separate output tensor). Only -ot token_embd.weight=CPU (table + head on the CPU) loads: n3, 16K
+   151.2/3.58, acceptance 397/689 = 0.58, 2.70 tokens per step; draft 239 ms per block on the CPU (~1.8 steps) and
+   verification ~515 ms (~4 steps: the head on the CPU plus bookkeeping). DFlash loses on this board with these
+   constraints.
+   Per-model outcome of the speculation exploration (single runs, probes of Markdown continuations):
+   - NeoHorse-1-4B: best is the base Qwen3.5-4B MTP head drafted on its own NPU session (n1): decode +6 % (8K) to
+     +10 % (16K) over same-session plain runs; prefill 315 -> 176 at 16K (still above 145); acceptance ~0.8. The 3-
+     and 4-session variants match; n2 hung the NPU (D83). All other techniques lose or do not load.
+   - Ornith-1.0-9B: no speculative configuration beats H + --no-host (16K 147.0/5.07). Its own MTP head works
+     (acceptance 0.81-0.84) but loads only with the output head on the CPU, which costs more than MTP gains (D79);
+     the GPU route is closed (D82).
+   - Limits found: the 248K-vocabulary head dominates draft cost; speculation bookkeeping adds ~0.22 steps; MTP's
+     prompt-wide outputs cut prefill ~44 %; extra recurrent-state snapshots exhaust per-session mapping; DFlash
+     cannot share the tied embedding across devices. The NPU itself verifies cheaply (1.2 steps for 2 tokens).
