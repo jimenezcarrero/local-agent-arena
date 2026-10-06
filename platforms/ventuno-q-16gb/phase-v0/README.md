@@ -3,13 +3,17 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D65).
+[`decisions.txt`](decisions.txt) (D1–D75).
 
-**Status: V0b and V0c complete. V0d in progress: A (~4B) and H (9B) are being re-measured with a
-per-configuration `--cache-ram` computed from a memory floor fixed before the runs (D65). The earlier A and G′
-results (with `--cache-ram 8192`) remain evidence; G′ is withdrawn (D63). No configuration is called provisionally
-eligible until its re-measurement passes. Nothing is GO: V0e comes after, and the NPU's degraded state (D53, D61,
-D64) is an open risk.**
+**Status (2026-10-06 17:00): V0b and V0c complete. V0d admission is not complete for any configuration.**
+- The D65/D67 re-measurement of A stopped at its first repeat on an NPU hang (D66), with no strict pinning.
+- Since then, two unchanged baseline probes hung (D69, and in the speculation sweep), and one server aborted with an
+  NPU runtime error with the prompt cache off (D71).
+- Hangs and aborts strike a server's later requests in every slot and cache setting tested. The diagnosis
+  stopped after 3 of 12 loads and is inconclusive (D71).
+- Per-model speculative decoding exploration is in progress (D70, D72, D73, D75). A board-native NPU+GPU build is
+  being attempted (D74).
+- Nothing is provisionally eligible and nothing is GO. Earlier results remain evidence under their own labels.
 
 ## What was measured, and how
 
@@ -145,22 +149,63 @@ MemAvailable plus the prompt cache held, at its lowest point in the run. It must
   context;
 - transients the cache doesn't explain: 0.14 GiB, the largest drop between health samples.
 
-With 8192 MiB neither A nor the 9B was OOM-safe. The owner chose a per-configuration value, floor(L_min − 0.33
-GiB): A 7,946 MiB, 9B H 5,365 MiB, 4B at 65K 5,724 MiB (provisional). This deviates from the runbook's single tier
-value. Admission rule for every final run: L_min ≥ `--cache-ram` + 0.33 GiB, with swap growth 0.
+With 8192 MiB neither A nor the 9B was estimated OOM-safe.
 
-**9B unlock (D59).** The 9B's 546 MiB token-embedding table sits in a DSP-shared host buffer. It cannot be mapped
-with 2 sessions, or without `--no-op-offload`. Even with 3 sessions it maps only while the NPU is clean (D61, D64).
+**Per-configuration caps (owner decision).** Each configuration gets floor(L_min − 0.33 GiB), computed in exact kB
+(D67; D65's 7,946/5,365/5,724 came from rounded values and are superseded):
+
+| Configuration | `--cache-ram` |
+|---|---|
+| A | 7,942 MiB |
+| 9B H | 5,364 MiB |
+| 4B at 65K | 5,727 MiB (provisional) |
+
+This deviates from the runbook's single tier value.
+
+**Admission rule** (`tools/memfloor.py --admit`): every final run needs L_min ≥ `--cache-ram` + 0.33 GiB, with swap
+growth 0. Missing samples never admit (D75). The policy is an estimate, to be confirmed by real pi sessions in V0e.
+
+**9B unlock (D59, D73, D75).** The 9B's 546 MiB token-embedding table sits in a DSP-shared host buffer. It cannot
+be mapped with 2 sessions, or without `--no-op-offload`. Even with 3 sessions it maps only intermittently (D61, D64,
+D73). With `--no-host` added, the table stays in plain CPU memory and H loaded on the first try (16K 147.0/5.07, single
+run, D75).
 Without any CPU placement it decodes below the gate (16K 143.5/3.90).
 
-**Hang observations** (exploratory counts across different configurations, depths and recovery states; not a
-controlled hang-rate estimate):
-- With `--cpu-strict 1`: hangs in 3 of the 5 servers that loaded (4B F twice, 9B once), each on the server's second
-  request.
-- Without it, at the final 40960 settings: none in about 28 servers. Most of these served short probe sequences
-  (512 to 32K, a few requests each).
+**NPU faults** (exploratory counts across different configurations, depths and recovery states; not a controlled
+rate):
+- **With `--cpu-strict 1`:** hangs in 3 of 5 loaded servers (D57, D62, D63). Strict pinning is excluded.
+- **Before 10:40, without strict pinning, at the final settings:** none in about 28 servers (historical count,
+  D63).
+- **Since then, without strict pinning:**
+  - A hung in its final r1 (D66);
+  - the unchanged 4B baseline probe hung twice (D69, spec round 2 at 16:17);
+  - a 4B server with the prompt cache off aborted with `dspqueue_read failed` (D71).
+- **Common factor:** every fault hit a later request on a server that had already answered, never a first request.
+  The cause is unknown.
 
-The mechanism is unknown. `--cpu-strict 1` is excluded.
+**Admission policy (D68, D71, D75; tools/v0d_runner.sh `admit_set`):**
+- A complete set (warm-up, r1–r3, both tool gates, each with the memory check) must finish with no hang or NPU
+  abort.
+- After a fault, the full set restarts once after baseline recovery. A second fault means not eligible in V0d.
+- All faults, readiness probes included, go to the phase's `faults.txt`.
+
+**Speculative decoding** (D70, D72, D73, D75; single exploratory runs, target on the NPU, drafts on the CPU unless
+noted; results so far):
+
+| Model | Variant | 16K prefill/decode | Acceptance | Note |
+|---|---|---|---|---|
+| 4B | control | 284.3/7.67 | — | |
+| 4B | base-model MTP, n=1 | 82.1/4.43 | 0.81 | drafting costs ~111 ms per token on the CPU (8 default threads), about one full target step |
+| 4B | 0.8B draft, n=4 | 41.1/2.36 | 0.54 | |
+| 4B | n-gram (`ngram-mod`) | 312.7/8.03 | 0.06 | |
+| 4B | DFlash; MTP n=2 | — | — | do not map: rollback snapshots enlarge the recurrent-state buffers in session 0 |
+| 9B | control with `--no-host` | 147.0/5.07 | — | loads (D75) |
+| 9B | own MTP, n=1, MTP layer on CPU or NPU | — | — | 546 MiB mapping fails even with `--no-host`: the draft path maps a buffer of that size (D75) |
+
+Still to run (D73 placement matrix):
+- the 4B with a faster CPU draft, the MTP layer on the NPU, and a split draft;
+- a 3- or 4-session target for 2-token drafts;
+- GPU drafts, if the board-native NPU+GPU build works (D74).
 
 **Tested, not adopted:**
 

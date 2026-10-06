@@ -24,3 +24,19 @@ classify() { local d=$1 rc=$2 wd0=$3 res hv
      && grep -q 'SERVER EXITED before ready' "$d/run.txt" 2>/dev/null && grep -q 'mapping failed' "$d/server.log" 2>/dev/null; then
     echo LOADFAIL; return 1; fi
   echo EVIDENCE; return 1; }
+
+# decide <class> <attempt> <mode: explore|admit|probe> -> one action (Codex review 14:08Z findings 2-3). Every class has an
+# explicit policy; EVIDENCE always stops (no skip path for timeouts, crashes or missing/failed health or kernel evidence).
+#   PASS     -> next
+#   LOADFAIL -> attempt 1: recover_retry (baseline probe, then retry once); attempt 2: skip (explore: the configuration
+#               does not load, recorded) | stop (admit: an admission set cannot skip a step) | retry_later (probe)
+#   HANG, DEVFAULT -> fault: explore records it and moves on after recovery; admit applies the D68 set restart;
+#               probe records it in the fault history and keeps probing
+#   EVIDENCE or anything else -> stop
+decide() { local c=$1 a=$2 m=$3
+  case "$c" in
+    PASS) echo next;;
+    LOADFAIL) if [ "$m" = probe ]; then echo retry_later; elif [ "$a" = 1 ]; then echo recover_retry; elif [ "$m" = explore ]; then echo skip; else echo stop; fi;;
+    HANG|DEVFAULT) echo fault;;
+    *) echo stop;;
+  esac; }
