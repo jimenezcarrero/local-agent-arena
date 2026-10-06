@@ -703,3 +703,18 @@ D67 2026-10-06 Codex review of #45 at b71295c (08:38Z), all three findings addre
    The floor is now worded as an estimated admission policy with explicit limitations (11 s sampling, mock pi), to be
    confirmed by real pi sessions in V0e. The re-measurement is not restarted: how the D66 hang counts is pending the
    owner's decision.
+
+D68 2026-10-06 Owner decision on the D66 hang: diagnose first, briefly, then admission under a pre-declared restart rule.
+   Both rules are recorded here before the diagnostic soak's first result (soak started 12:09:57).
+   (a) Diagnostic soak (tools/v0d_diag.sh, runs/v0d-diag/). Hypothesis: hangs follow prompt-state traffic between HTP
+       memory and the host. Arms on the 4B A base: S4C (4 slots, --cache-ram 7942), S1C (-np 1, --cache-ram 7942),
+       S4N (4 slots, --cache-ram 0); 4 fresh loads each, interleaved, 5 requests per load (512/8K/16K/8K/512 plus
+       sizing retries). A hang is the measured outcome: recorded, then a passing baseline probe before continuing.
+       Reading: an arm "reduces hangs" only if it has 0 hangs while S4C has >= 1; anything else is inconclusive at
+       this size, and admission keeps the default slots and cache. If S1C or S4N qualifies, admission uses that
+       setting (S4N only if its known prefill cost still passes the gates).
+   (b) Admission restart rule for A and H: a configuration passes the V0d re-measurement only if one complete set
+       (discarded warm-up, r1-r3, both tool gates, each run admitted by classify() and memfloor --admit) finishes
+       with no NPU hang. After a hang: baseline recovery, then the complete set restarts once from the warm-up;
+       a second hang means not eligible in V0d. Every hang and restart is reported. The D66 A set (final3, 7,946 MiB)
+       is superseded by D67's exact caps and does not count toward this rule.
