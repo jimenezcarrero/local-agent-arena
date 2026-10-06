@@ -813,3 +813,29 @@ D74 2026-10-06 NPU target + GPU draft needs one llama-server with both backends.
    commit; the loader checks the API version). tools/build_dl_npu_gpu.sh is queued to start only after speculation
    round 2, so the CPU-heavy build does not disturb measurements. Fallback: the laptop cross-build with OpenCL
    added (owner action).
+
+D75 2026-10-06 Codex review of #45 at 8cc8846 (14:08Z) and speculation round 2 (partial).
+   Round 2 (runs/v0d-spec2/, tools/v0d_spec2.sh): 9B H + --no-host loaded on its first try (512 155.7/6.31, 8K
+   149.9/5.67, 16K 147.0/5.07, single run): with token_embd in plain CPU memory the 546 MiB host-buffer mapping is
+   gone. Both 9B MTP variants (MTP layer on the CPU with 4 big-core draft threads; MTP layer on the NPU with -ngl 34)
+   still failed to load on a 546 MiB mapping (domain 11) despite --no-host, so the MTP draft path maps a buffer of that
+   size (likely the draft context not inheriting --no-op-offload/--no-host; to be checked in the source). A baseline
+   probe hung at 16:17 (npu-stalls/2849354-161634.txt; recovered by the 16:32 probe). Round 2 was stopped by the
+   testing agent during a recovery wait (16:44) to apply the review fixes before any further run.
+   Review findings, all fixed without board runs:
+   (1) memfloor.py --admit exits 2 when the run window has no samples; missing inputs raise (nonzero). Tests:
+       tools/test_memfloor.sh (6 cases: empty monitoring, above, 1 kB below the threshold, at the threshold, samples
+       outside the window, missing server log).
+   (2) The wrappers' skip path is gone. tools/v0d_runner.sh centralises every step: classify() + decide() (one
+       decision table, tools/test_decide.sh, 25 cases); EVIDENCE always stops; only a clean LOADFAIL twice is
+       skipped in exploration. Wrapper decisions are tested with mocked runs (tools/test_runner.sh, 14 scenarios,
+       including timeout + "SERVER EXITED" -> stop).
+   (3) DEVFAULT has an explicit policy everywhere: probes record it in faults.txt and keep probing; exploration
+       records it and continues after recovery; a fault cap (3) stops a sequence. admit_set() implements the D68
+       complete-set restart (one full restart after baseline recovery; a second fault -> not eligible) with the
+       exact memory check after every passing step.
+   (4) Monitoring published through 16:47 (monitor/*-20261006*, run-windows.jsonl to v0d-spec2/9B-mtp-n1-npu);
+       diag/spec/spec2 evidence committed; README and the PR description updated to the D66-D75 state, earlier
+       observations kept under their labels.
+   The board-native NPU+GPU build (D74) first failed at cmake (OpenCL library path); rebuilt with the same
+   -DOpenCL_LIBRARY as the V0c OpenCL builds, during this no-measurement window.

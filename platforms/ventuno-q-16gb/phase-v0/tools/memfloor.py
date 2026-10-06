@@ -47,7 +47,10 @@ for d in sys.argv[1:]:
         return c
     win = [(e, a) for e, a in samples if t0 <= e <= t1]
     if not win:
-        print(f"{os.path.basename(d)} | no samples"); continue
+        print(f"{'REJECT' if ADMIT is not None else ''} {os.path.basename(d)} | no samples in the run window".strip())
+        if ADMIT is not None:
+            sys.exit(2)   # admission needs a computed floor: missing samples never admit (Codex review 14:08Z)
+        continue
     ma = min(a for e, a in win)
     e2, a2 = min(win, key=lambda x: x[1] + cache_at(x[0]))
     L = a2 + cache_at(e2); G = 2**20
