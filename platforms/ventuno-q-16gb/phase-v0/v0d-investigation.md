@@ -4,24 +4,30 @@ Written 2026-10-06 overnight by the testing agent, on the campaign owner's reque
 to improve performance … the Jetson had better tokens/sec generation"). Measurements cited are in
 `runs/v0d-tune/`, `runs/v0d-cpu/` and `bw/`; decisions D52–D54.
 
-## 1. The main limit: memory bandwidth, not age or compute
+## 1. Hypothesis: decode is limited by memory bandwidth (not verified on the NPU path)
 
-Decode (generation) reads every weight once per token, so its ceiling is roughly *memory bandwidth ÷ model size*.
+> Revised after the Codex review of #45 (D65). This section first presented bandwidth as *the* limit and derived NPU
+> "ceilings" from a CPU microbenchmark. The 9B's later NPU results contradict those ceilings, so they are withdrawn.
 
-| | Measured / specified | Decode reached | Effective weight-read rate |
-|---|---|---|---|
-| VENTUNO Q, CPU read bandwidth (`bw/bw.c`, STREAM-style) | **25.6 GB/s** with 4 big-core threads; **12.5 GB/s with 8 threads** (the A55s halve it) | – | – |
-| VENTUNO Q, NPU, NeoHorse-1-4B Q4_0 (2.26 GB) | – | 7.90 tok/s at 16K (repeat median) | ≈ 19 GB/s (~73 % of the CPU-measured figure) |
-| Jetson Orin Nano 8GB, Ornith-1.0-9B IQ3_M (4.66 GB) | NVIDIA specification: 68 GB/s (102 GB/s "Super" mode) | 8.8 tok/s at ~19K | ≈ 41 GB/s |
+Decode reads every weight once per token, so memory bandwidth ÷ model size is a common first-order bound. What was
+actually measured, and what is only estimated:
 
-The Jetson has roughly 2.5–4× this board's memory bandwidth, and a mature CUDA backend that uses it well. The
-VENTUNO Q's strength is NPU compute: its 16K prefill (≈ 320 tok/s on the 4B) already beats the Jetson's 291 tok/s
-on the 9B. Decode cannot follow, because it is bandwidth-bound. The CPU figure is a lower bound for the DRAM (the
-NPU's own path may differ), so the ceilings below are estimates.
+| | Value | Kind |
+|---|---|---|
+| CPU read bandwidth on this board (`bw/bw.c`, STREAM-style) | 25.6 GB/s with 4 big-core threads; 12.5 GB/s with 8 threads | measured, CPU path only |
+| Jetson Orin Nano 8GB memory bandwidth | 68 GB/s (102 GB/s "Super") | NVIDIA specification, not measured here |
+| NPU, NeoHorse-1-4B Q4_0, 7.90 tok/s at 16K | ≈ 16 GB/s if all weights except the token-embedding table (2.02 GB) were read once per token | estimate, not measured traffic; KV reads at 16K add to it |
+| NPU, Ornith-1.0-9B Q4_0, 6.29 tok/s at 512 (G′) | ≈ 28 GB/s on the same assumption (4.49 GB: file minus the token-embedding table and the unused MTP layer) | estimate; **above** the CPU-measured 25.6 GB/s |
 
-**Consequences:**
-- **4B on the NPU:** ceiling ≈ 25.6 / 2.26 ≈ 11 tok/s; it reaches 7.9–8.6. Tuning can add little.
-- **9B Q4_0 (4.9 GB):** ceiling ≈ 5 tok/s even if it fitted on the NPU — barely above the 4.4 gate.
+The CPU measurement is not a ceiling for the NPU: the 9B's NPU decode implies a weight-read rate above it (the NPU
+or its DMA path may reach DRAM faster than the CPU cores, or the estimate's assumptions may not hold). The "≈ 11
+tok/s (4B)" and "≈ 5 tok/s (9B)" ceilings previously given here are therefore withdrawn. Bandwidth remains a
+plausible limit, untested on the NPU path. The cross-platform comparison also uses different models and files
+(Jetson: 9B IQ3_M; here: 4B and 9B Q4_0), so it cannot isolate a hardware cause.
+
+**What still follows from measurements:**
+- On the CPU path, decode tracks the measured CPU bandwidth: 4 big-core threads nearly double decode compared with
+  8 threads (§4, D55), matching the drop in measured read bandwidth with 8 threads.
 - **Smaller weights would help, but:** the NPU's fast path is Q4_0; IQ3 types are unsupported on HTP (D44,
   IQ3_M) and q4_0 KV is unsupported (`SET_ROWS`, D45).
 
@@ -62,12 +68,12 @@ This is an inference from the logs; the kernel-side IOVA layout was not inspecte
 **Post-reset tests that follow from it** (`tools/v0d_unlock.sh`, run after the final re-measurement):
 `-ngl <n_layer>` to keep the output layer and the vocabulary-sized logits on the CPU (4B: 32, 9B: 33),
 `GGML_HEXAGON_MBUF=256`, and more sessions to shrink each KV buffer — 9B on 3 and 2 sessions, the 4B on 2, the
-4B at 65K on 4 sessions. Even if the 9B fits, its bandwidth ceiling (≈ 5 tok/s, §1) leaves little margin over the
+4B at 65K on 4 sessions. Even if the 9B fits, its decode margin was then expected to be small (the ceiling estimate is withdrawn, §1) over the
 4.4 gate, and the output layer on the CPU costs a little more.
 
 ## 3. Paths that could still unlock performance, ranked
 
-1. **Speculative decoding (MTP / draft model)** — the most promising lever for a bandwidth-bound board with spare
+1. **Speculative decoding (MTP / draft model)** — a candidate lever if decode is bandwidth-limited, on a board with spare
    NPU compute: one verification pass checks several drafted tokens, so tokens per weight-read rise. On the
    Jetson, MTP gave +27 % to +78 % decode (README, MTP table: A1-4B +27–34 %, E2B +55 %, Qwen3.5-4B +52 %,
    gemma-E4B 19.1 → 32–34 tok/s). Ornith-1.0 has an MTP head (`mtp-head/…Q8_0.gguf`); NeoHorse
@@ -109,8 +115,8 @@ llama.cpp CPU route (ARMv8.2 build), `-c 40960`, single runs (`runs/v0d-cpu/`), 
 | Ornith-1.0-9B, 8 threads | 18.9 / 2.81 | 16.1 / 1.89 |
 | Ornith-1.0-9B, **4 big cores** | 18.6 / **4.58** | 15.6 / **3.32** |
 
-Decode improves by 63–96 % while prefill is unchanged: decode is bandwidth-bound and the four A55 cores halve the
-bandwidth every thread shares (§1); prefill is compute-bound. **llama.cpp's default (all 8 cores) is the wrong
+Decode improves by 63–96 % while prefill is unchanged. This is consistent with CPU decode being bandwidth-limited:
+measured CPU read bandwidth also halves with 8 threads (§1). Prefill is compute-bound. **llama.cpp's default (all 8 cores) is the wrong
 placement for decode on this SoC.** Consequences:
 - Every V0c CPU-route number (and GenieX CPU, which ran 8 unpinned threads) is the documented-default result, not
   the route's best; the CPU route still misses the 145 tok/s prefill gate by a factor of 6–9, so no eligibility
@@ -161,6 +167,9 @@ from pi's formulas, not a measurement: V0e must verify it with real pi sessions 
 
 ### Round 5 and after (D60–D61)
 
+> Superseded in part: G′ is withdrawn (strict pinning, D63). Its replacement H is re-measured under D65, with
+> per-configuration `--cache-ram` from the computed floor. The degraded state's link to full 9B loads is in D64.
+
 - **9B final, G′** (3 sessions, `-ngl 33 --no-op-offload`, MBUF 256, 4 big-core threads). Medians, prefill/decode:
 
   | 512 | 8K | 16K | 32K |
@@ -171,7 +180,7 @@ from pi's formulas, not a measurement: V0e must verify it with real pi sessions 
   - Without the affinity: 143.5/3.90, so the affinity is required.
   - Why it matters is not known. The CPU side does only the embedding lookup and graph dispatch. A plausible
     explanation, untested: host threads on the A55 cores slow every HTP round-trip.
-- **4B at 65536 on 4 sessions:** works to 48.9K tokens (244.4/5.67), with a floor of 4.10 GiB.
+- **4B at 65536 on 4 sessions:** works to 48.9K tokens (244.4/5.67); min MemAvailable 4.10 GiB in that single run.
 - **The NPU degraded with no hang** after about 32 clean loads (03:24–06:28). Every server exited cleanly (SIGTERM,
   memory breakdown printed).
   - Both the base 4B and the 9B then fail to map. The 9B still maps the 546 MiB host buffer into session 2, so it
