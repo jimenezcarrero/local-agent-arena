@@ -103,6 +103,28 @@ This is an inference from the logs; the kernel-side IOVA layout was not inspecte
    2026-10-05: flash-attention head-split for multi-core row-split NPUs; +4 % reported for Qwen3.5-4B); nothing
    about mapping limits or hangs, and this board's HTP is single-core (`hmx 1`). Changing the build means a new configuration and a new V0 baseline.
 
+## 3b. Strata (owner question, 2026-10-06): direct use or its principles
+
+[Strata](https://github.com/Niko1221/Strata) (MIT, built partly on llama.cpp/ggml) runs one 125B mixture-of-experts
+model (Qwen3.8-Flash-Next, 24,576 experts, 10 active per token). It places attention, router, KV cache and the
+most-used experts on a discrete GPU, holds all experts in RAM and computes the rest on the CPU. It keeps an n-gram
+lookup table on an NVMe SSD for prompt processing, and uses MTP speculative decoding (1.6–1.8× claimed).
+
+**Direct use: no.**
+- Strata requires an NVIDIA or AMD discrete GPU, x86-64 (AVX2), 32–64 GB of RAM and 70–120 GB on NVMe.
+- This board is aarch64, with 15.3 GiB of unified memory, an Adreno/Hexagon accelerator, and eMMC with about 19 GB
+  free.
+
+**Its principles, applied to this board:**
+
+| Strata principle | Here | Assessment |
+|---|---|---|
+| MTP speculative decoding | The 9B GGUF carries its MTP layer: `n_layer_all = 33`, kept on the CPU in H (117 MiB). This build has `--spec-type draft-mtp`. | **Most promising.** Decode is the weak side; on the Jetson MTP gave +27 % to +78 %. Untested here: needs the recurrent-state rollback that failed for context checkpoints on HTP (D43), and its own hang/memory admission. NeoHorse-1-4B has no MTP head. |
+| Hot experts on the accelerator, cold experts on CPU/RAM | Only for MoE models; ours are dense. llama.cpp offers it (`--override-tensor`, `--n-cpu-moe`). | A future model class: an MoE with ~3B active parameters could decode like a 3B dense model. It is limited by 16 GB of RAM (a 30B-A3B at Q4 does not fit) and the NPU's per-session mapping (§2b). Unified memory removes the GPU-RAM copy Strata manages. |
+| n-gram lookup table on disk | `ngram-map-k` gave no gain on the probe prompts (D59). `ngram-cache` exists in this build. | Agent sessions repeat code and tool output; measure only in real pi sessions (V0e). A disk-backed cache on eMMC is unmeasured; NVMe would help. |
+| Weights streamed from SSD | eMMC only | Not useful for weights; would page the model through slow storage. Revisit only with NVMe. |
+| 4-bit KV cache, 8,192-token prompt batches | q4_0 KV unsupported on HTP (D45); KV q8_0 hangs (D53); ubatch 1024 does not map (V0c) | Not applicable on the NPU path. |
+
 ## 4. CPU thread placement (tonight): decode nearly doubles on the big cores
 
 llama.cpp CPU route (ARMv8.2 build), `-c 40960`, single runs (`runs/v0d-cpu/`), prefill / decode tok/s:
