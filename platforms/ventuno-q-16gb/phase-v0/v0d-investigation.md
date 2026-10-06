@@ -159,4 +159,25 @@ from pi's formulas, not a measurement: V0e must verify it with real pi sessions 
   314.7/7.81). It still needs depth checks and V0e window qualification.
 - **No gain:** n-gram speculation and `--no-host`. `--cache-ram 0` is confirmed slower.
 
-The 9B final re-measurement and the 4B 65K depth check: `tools/v0d_9b.sh`, results in D60.
+### Round 5 and after (D60–D61)
+
+- **9B final, G′** (3 sessions, `-ngl 33 --no-op-offload`, MBUF 256, 4 big-core threads). Medians, prefill/decode:
+
+  | 512 | 8K | 16K | 32K |
+  |---|---|---|---|
+  | 163.5/6.29 | 166.7/6.02 | 159.4/5.49 | 150.1/4.95 |
+
+  Tools: one-shot 10/10, agentic 3/3. Memory floor 5.10 GiB.
+  - Without the affinity: 143.5/3.90, so the affinity is required.
+  - Why it matters is not known. The CPU side does only the embedding lookup and graph dispatch. A plausible
+    explanation, untested: host threads on the A55 cores slow every HTP round-trip.
+- **4B at 65536 on 4 sessions:** works to 48.9K tokens (244.4/5.67), with a floor of 4.10 GiB.
+- **The NPU degraded with no hang** after about 32 clean loads (03:24–06:28). Every server exited cleanly (SIGTERM,
+  memory breakdown printed).
+  - Both the base 4B and the 9B then fail to map. The 9B still maps the 546 MiB host buffer into session 2, so it
+    loads only on a clean NPU.
+  - The degraded state therefore builds up or lingers on the DSP side, independent of hangs. Recovery took about 3 h
+    idle once (02:36–02:46). An idle probe is timing it again.
+  - This is the main risk for V0e: an arena run that reloads the server could hit a degraded NPU in the middle of a
+    campaign. V0e needs a recovery procedure (cDSP restart as root) and a trigger study (number of loads, time, or
+    total mapped bytes).
