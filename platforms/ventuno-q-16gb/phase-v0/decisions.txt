@@ -718,3 +718,13 @@ D68 2026-10-06 Owner decision on the D66 hang: diagnose first, briefly, then adm
        with no NPU hang. After a hang: baseline recovery, then the complete set restarts once from the warm-up;
        a second hang means not eligible in V0d. Every hang and restart is reported. The D66 A set (final3, 7,946 MiB)
        is superseded by D67's exact caps and does not count toward this rule.
+
+D69 2026-10-06 Diagnosis attempt 1 (runs/v0d-diag/attempt1/): the soak's first readiness probe (unchanged baseline, 4 slots,
+   --cache-ram 8192) hung at 12:15 (watchdog). Sequence: the 512 sizing request was off-depth (377 tokens, slot 3,
+   128 tokens at 9.56 tok/s); the retry went to slot 2 right after slot 3's state was saved to the prompt cache
+   (66 MiB) and stalled after 125 tokens. Same shape as D57, D62, D63 and D66: a server's second or later request,
+   on a different slot, after a prompt-cache save; several stalls near the end of the 128-token generation.
+   The soak had treated a probe hang as STOP, which suits admission but not a diagnosis. Change (before any arm
+   ran): a probe hang is counted as data (baseline config) and the probe loop waits for recovery; 4 hangs in total
+   stop the diagnosis. Relaunched 12:16:45 with a 15-min idle wait first. Arms, loads and the D68 reading unchanged;
+   the attempt-1 probe hang is reported separately from the arm counts.
