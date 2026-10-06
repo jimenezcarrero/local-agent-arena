@@ -523,3 +523,10 @@ D54 2026-10-06 Overnight investigation (owner away, no root; v0d-investigation.m
      n-gram speculative decoding feasibility.
    - The final re-measurement (tools/v0d_final.sh) and the NPU readiness probes were stopped at 00:22 so a CPU
      thread test (tools/v0d_cpu_threads.sh) runs without concurrent NPU loads; both are relaunched after the reset.
+
+D55 2026-10-06 CPU thread placement (tools/v0d_cpu_threads.sh, runs/v0d-cpu/, single runs): with 4 threads on the A78C
+   big cores (--cpu-mask 0xF --cpu-strict 1) the llama.cpp CPU route decodes 63-96 % faster than with the default 8
+   threads (4B 8K: 2.47 -> 4.83 tok/s; 9B 8K: 1.89 -> 3.32), prefill unchanged; 2 threads on cpu2-3 are in between.
+   Matches the bandwidth measurement (D54). V0c CPU numbers stay as documented-default results; no eligibility
+   changes (prefill 6-9x below the gate). Recommendation for every CPU-side configuration in the campaign: 4 big-core
+   threads. All runs PASS (health incl. one PSI-only exemption during a 9B load).

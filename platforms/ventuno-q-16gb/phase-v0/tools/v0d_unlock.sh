@@ -27,4 +27,11 @@ run 4b-4s-mbuf256-65k      HTP0:0,HTP0:1,HTP0:2,HTP0:3 NeoHorse-1-4B-q4_0-pure.g
 # n-gram speculative decoding (no draft model, no extra NPU memory). Feasibility only: rejected drafts need the
 # recurrent state rolled back, the same state readback that crashed context checkpoints on HTP (D43).
 run 4b-2s-ngram-mapk HTP0:0,HTP0:1 NeoHorse-1-4B-q4_0-pure.gguf 40960 -ngl 99 --spec-type ngram-map-k --spec-draft-n-max 16
+# settle the cache-ram 0 anomaly (D53: 216.2/6.26 at 16K vs ~315/8.2): two plain runs, no MBUF/-ngl changes
+for r in 1 2; do say "START cram0-repeat-$r"
+  timeout -k 60 1800 ~/v0/run_route.sh 4b-2s-cram0-repeat-$r v0d-unlock --depths 512,16384 --nctx 40960 -- env LD_LIBRARY_PATH=$P/lib \
+    ADSP_LIBRARY_PATH=$P/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 40960 \
+    --cache-ram 0 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0 > /dev/null 2>&1
+  say "END cram0-repeat-$r | $(grep -h '^RESULT' ~/bench-runs/v0/v0d-unlock/4b-2s-cram0-repeat-$r/probe.txt 2>/dev/null | grep -oE 'depth=[0-9]+|prefill_tps=[^ ]+|decode_tps=[^ ]+' | paste -sd' ')"
+  for pid in $(ps -eo pid,args | awk '$2 ~ /\/llama-server$/ {print $1}'); do kill -KILL $pid; done; sleep 30; done
 say "unlock tests done"

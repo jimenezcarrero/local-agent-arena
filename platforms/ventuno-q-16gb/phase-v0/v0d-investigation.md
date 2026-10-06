@@ -79,8 +79,8 @@ This is an inference from the logs; the kernel-side IOVA layout was not inspecte
    context. Caveat: rejected drafts need the recurrent state rolled back — the same state readback that crashed
    context checkpoints on HTP (D43) — so feasibility on the NPU is the first question (`tools/v0d_unlock.sh` has
    one n-gram test). The speed probe cannot show its benefit; an agent-like workload can.
-2. **CPU route with 4 big-core threads** — bandwidth doubles vs 8 threads (12.5 → 25.6 GB/s). Measured tonight
-   (§4). The CPU route stays far below the prefill gate, but this is the right default for any CPU fallback.
+2. **CPU route with 4 big-core threads** — measured tonight (§4): decode +63 % to +96 %, prefill unchanged. The
+   CPU route stays far below the prefill gate, but this is the right default for any CPU-side work.
 3. **cDSP reset procedure** — not a speed gain but a prerequisite: after an NPU hang the NPU stays degraded until
    the cDSP is restarted (D53). V0e and the arenas need an automatic, root-scoped recovery (e.g. a sudoers rule
    for one cDSP-restart script) or a reboot policy.
@@ -97,9 +97,29 @@ This is an inference from the logs; the kernel-side IOVA layout was not inspecte
    2026-10-05: flash-attention head-split for multi-core row-split NPUs; +4 % reported for Qwen3.5-4B); nothing
    about mapping limits or hangs, and this board's HTP is single-core (`hmx 1`). Changing the build means a new configuration and a new V0 baseline.
 
-## 4. CPU thread placement (tonight)
+## 4. CPU thread placement (tonight): decode nearly doubles on the big cores
 
-See `runs/v0d-cpu/` (filled in when the run finishes).
+llama.cpp CPU route (ARMv8.2 build), `-c 40960`, single runs (`runs/v0d-cpu/`), prefill / decode tok/s:
+
+| Model, threads | 512 | 8K |
+|---|---|---|
+| NeoHorse-1-4B, 8 threads (llama.cpp default) | 30.3 / 4.16 | 24.1 / 2.47 |
+| NeoHorse-1-4B, **4 big cores** (`-t 4 --cpu-mask 0xF --cpu-strict 1`) | 31.7 / **7.74** | 23.9 / **4.83** |
+| NeoHorse-1-4B, 2 fastest cores (`-t 2 --cpu-mask 0xC`) | 19.0 / 6.46 | 14.0 / 4.23 |
+| Ornith-1.0-9B, 8 threads | 18.9 / 2.81 | 16.1 / 1.89 |
+| Ornith-1.0-9B, **4 big cores** | 18.6 / **4.58** | 15.6 / **3.32** |
+
+Decode improves by 63–96 % while prefill is unchanged: decode is bandwidth-bound and the four A55 cores halve the
+bandwidth every thread shares (§1); prefill is compute-bound. **llama.cpp's default (all 8 cores) is the wrong
+placement for decode on this SoC.** Consequences:
+- Every V0c CPU-route number (and GenieX CPU, which ran 8 unpinned threads) is the documented-default result, not
+  the route's best; the CPU route still misses the 145 tok/s prefill gate by a factor of 6–9, so no eligibility
+  changes.
+- Any CPU-side work in the campaign — the V2 rows planned on the CPU (BF16, Q8), the output layer kept on the CPU
+  in the unlock tests, partial offload — should use 4 big-core threads. The partial-offload 9B (D48: 2.71 tok/s
+  decode at 8K with 8 threads) likely decodes faster this way, but its prefill (~30–40 tok/s) still fails the gate.
+- For the NPU candidate the host threads matter less (the NPU does the work), consistent with the +5 % decode
+  seen for big-core affinity in the sweep; the final re-measurement compares exactly that (F vs A).
 
 ## 5. Blocker for the final V0d re-measurement
 
