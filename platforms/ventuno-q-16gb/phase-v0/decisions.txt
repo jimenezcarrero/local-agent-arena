@@ -605,3 +605,15 @@ D60 2026-10-06 Round 5 (tools/v0d_9b.sh, runs/v0d-final-9b/, 05:09-06:28, no NPU
      49152 (48933 tokens) 244.4/5.67, PASS; min MemAvailable 4.10 GiB, VmHWM 3.49 GiB. A 65K-window 4B
      configuration is feasible for V0e window qualification (the 4B's V0d final settings stay at 40960, D58).
    Not GO: V0e qualification is required for each configuration.
+
+D61 2026-10-06 NPU degraded WITHOUT a hang. Right after round 5 (last server: the 9B tool gates, killed 06:27:39), a
+   stability soak (tools/v0d_soak.sh: 6 fresh loads each of 4B F and 9B G', alternating, 512/8K) failed at its first
+   two loads: the base 4B no longer maps (domain_id 3 size 671092736, same signature as after the 23:44 hang) and the
+   9B G' (identical command to round 5, 5 successful loads) fails on its 546 MiB host-buffer mapping (domain_id 11
+   size 572133376). The watchdog stayed silent; no hang. So the degraded state does not need a hang: about 32 server
+   loads and kills ran without a problem between 03:24 and 06:28 before it appeared. It also shows the 9B G' config
+   still maps the token_embd host buffer into session 2: --no-op-offload alone does not explain the unlock. It fits
+   only while the DSP address space is clean, i.e. with no margin. Soak stopped by the testing agent after 2 loads.
+   An idle probe (tools/npu_recovery_probe.sh) loads the base config every 15 min for up to 6 h to time the
+   recovery, then re-runs the soak. For V0e: the NPU route needs a recovery procedure (cDSP restart, root) and the
+   degradation trigger must be found before a marathon can be trusted.
