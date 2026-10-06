@@ -839,3 +839,19 @@ D75 2026-10-06 Codex review of #45 at 8cc8846 (14:08Z) and speculation round 2 (
        observations kept under their labels.
    The board-native NPU+GPU build (D74) first failed at cmake (OpenCL library path); rebuilt with the same
    -DOpenCL_LIBRARY as the V0c OpenCL builds, during this no-measurement window.
+
+D76 2026-10-06 9B MTP load failure, hypothesis and test. common_base_params_to_speculative copies the base params, so
+   the MTP draft context inherits --no-op-offload and --no-host; the inheritance is not the cause. The failing size
+   (572,133,376 = 572,129,280 + 4 KiB) also matches the 9B's output head (output.weight, 248320 x 4096 Q4_0), a
+   single tensor kept on session 2 outside the 256 MiB chunks. Inferred, not verified in the backend source: the
+   MTP draft context maps it a second time. Test (tools/v0d_spec3.sh, on the tested runner): output head on the CPU
+   (-ot output.weight=CPU), which also frees 546 MiB in session 2 for 2-token drafts; then the remaining 4B
+   placements. The CPU head costs about 22 ms per decode token at the measured CPU read bandwidth (~180 ms steps).
+D77 2026-10-06 Board-native NPU+GPU+CPU build works (D74): ~/v0/llama.cpp/build-dl (836d5717, GGML_BACKEND_DL, CPU and
+   OpenCL modules, Hexagon through libggml-hexagon-shim.so); one llama-server lists GPUOpenCL and HTP0:0
+   (runs/dl-build-devices.txt). The first attempt failed at cmake (no libOpenCL.so dev link); the second passed
+   -DOpenCL_LIBRARY as the V0c OpenCL builds did. Round 4 (tools/v0d_spec4.sh, queued after round 3):
+   - a parity run (4B control on the new binary vs the Hexagon package), which gates the round;
+   - the GPU as draft device: 0.8B, base-model MTP layer + head, DFlash with the 4B head on the CPU;
+   - the GPU as overflow for the 9B: output head on the GPU; MTP layer + head on the GPU.
+   No laptop build is needed unless parity fails.
