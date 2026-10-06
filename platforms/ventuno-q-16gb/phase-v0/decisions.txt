@@ -538,3 +538,18 @@ D56 2026-10-06 Morning chain prepared (tools/v0d_morning.sh): after the owner's 
    ~02:40 so it begins measuring as soon as the NPU loads. Window analysis (v0d-investigation.md §4b): by pi 0.80.10's
    formulas a 40960 window avoids the 32K one-token stall; marathons at 65K+ are not possible for the 4B NPU
    candidate unless an unlock test maps 65K.
+
+D57 2026-10-06 Final re-measurement, attempt 1 (runs/v0d-final-attempt1/). The NPU recovered by itself (idle) between 02:36
+   and 02:46, about 3 h after the 23:44 hang, with no reset. F (= A + -t 4 --cpu-mask 0xF --cpu-strict 1) and A
+   warm-ups, F r1 and A r1 all PASS (16K prefill/decode: F 314.2/8.43 and 313.1/8.40; A 315.5/7.88 and 312.1/8.01;
+   32K: F 7.22/7.19, A 6.89/6.92 decode). F confirms the sweep: decode +4-7 %, prefill unchanged. Then F r2 hung the
+   NPU during the 512 request (121 of 128 tokens at 10.22 tok/s, then 4 threads in fastrpc_wait_for_completion; watchdog
+   kill 03:20:24, npu-stalls/1914078-032024.txt). The chain stopped (rc=2) as designed; unlock tests not run.
+   This is the first hang with no exotic setting (previous: GenieX hybrid, 3 sessions at 32K, KV q8_0). Like the
+   q8_0 hang it struck a decode on a server that had already answered requests after several fresh loads in a row,
+   so a cumulative NPU-side cause cannot be excluded; affinity cannot be blamed or cleared from one event.
+   Decision: the final re-measurement continues with A only (0 hangs in ~20 server loads so far), via
+   tools/v0d_final2.sh / v0d_morning2.sh (readiness probe every 10 min up to 6 h, A warm-up + r1-r3 at all depths,
+   both tool gates on A). The stale "NPU RECOVERED" shortcut from the first script was removed so readiness is
+   always probed. F's +5 % decode is recorded as a tuning result not adopted for V0e pending a hang-rate check;
+   NPU hang rate becomes an explicit V0e qualification item (marathon must run without an NPU hang).
