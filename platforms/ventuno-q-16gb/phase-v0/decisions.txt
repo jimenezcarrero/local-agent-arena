@@ -783,3 +783,23 @@ D72 2026-10-06 Speculation sweep, 4B part (runs/v0d-spec/, single runs, --cache-
    Round 2 (tools/v0d_spec2.sh, queued after the 9B part): 4B base-MTP n1 with a faster CPU draft (repacked, 4
    big-core threads, not strict) and with the MTP layer + output head on a third NPU session; 9B own MTP n1 with the
    MTP layer on the NPU (-ngl 34) and with the faster CPU draft.
+
+D73 2026-10-06 Speculation, 9B part of round 1 and the placement matrix (owner: try draft/target on NPU/CPU combinations).
+   9B round 1: the control (H, --cache-ram 2048) failed to load twice and 9B-mtp-n1 once, each after a passing
+   baseline probe, always on the 546 MiB token_embd host-buffer mapping (domain 11). The H layout loads only
+   intermittently even on a recovered NPU. Sweep stopped by the testing agent (15:25).
+   Load fix to test: H + --no-host (token_embd in plain CPU memory, never mapped). The earlier --no-host test
+   (D59) used -ngl 99, which also put the MTP layer on the NPU; H's layout with --no-host was never tried.
+   Placement matrix:
+     - Target on CPU or GPU: excluded by measurement, prefill 15-19 tok/s (CPU, D55) and 16 tok/s at best (OpenCL,
+       V0c) against the 145 gate; speculation only accelerates decode (and MTP lowers prefill).
+     - Target NPU + draft CPU: round 1 (8 default threads, 111 ms per drafted token); round 2: 4 big-core threads,
+       not strict, repacked weights.
+     - Target NPU + draft NPU: round 2: 9B MTP layer on the NPU (-ngl 34); 4B base-MTP layer and head on a third
+       session.
+     - Split draft: 4B MTP layer on the NPU, output head on the CPU.
+     - More target sessions to make room for n_max 2 (9B 4 sessions, 4B 3 sessions).
+     - Target NPU + draft GPU (Adreno): not possible with these binaries. The Hexagon package links
+       its backends directly (no dynamic backend loading), and the OpenCL build has no Hexagon backend. Needs a
+       build with both backends, cross-compiled on the laptop (owner action).
+   Round 2: tools/v0d_spec2.sh (9 runs, 9B first while the NPU is clean).

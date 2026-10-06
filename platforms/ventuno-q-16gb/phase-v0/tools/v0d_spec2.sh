@@ -1,7 +1,7 @@
 #!/bin/bash
-# V0d speculative-decoding sweep, round 2 (D72): make the MTP draft cheap. Round 1: 4B base-MTP acceptance 0.81 but 111 ms per
-# drafted token on the CPU (8 default threads, --no-repack) and prefill 284 -> 82 (the draft processes every prompt
-# position through its MTP layer on the CPU). Here: the MTP layer on the NPU, or a faster CPU draft.
+# V0d speculative-decoding sweep, round 2 (D73): placement matrix for the MTP draft, target always on the NPU (CPU and GPU
+# targets miss the 145 tok/s prefill gate by 8-9x, D55 and V0c). Round 1 (D72): CPU drafting at 8 default threads costs
+# ~111 ms per drafted token, a full target step. The 9B loads with --no-host so its token_embd is never mapped (D73).
 # runs (ranking only); winners then go through the D68 admission set. Starts after the hang diagnosis.
 # Targets: 4B A (2 sessions, -ngl 99) and 9B H (3 sessions, MBUF 256, -ngl 33 --no-op-offload -t 4), both
 # --ctx-checkpoints 0 -c 40960. Sweep runs use --cache-ram 2048 (drafts need RAM; cache size does not change speed,
@@ -41,18 +41,21 @@ run() { local lab=$1 pre=$2; shift 2; local cmd="$*"
       *) if grep -q 'SERVER EXITED before ready' $O/$lab/run.txt 2>/dev/null; then mv $O/$lab $O/$lab-exit; say "SKIP $lab: server exited at load (unsupported; see server.log)"; sleep 60; return 0; fi
          say "STOP: $lab EVIDENCE"; exit 2;;
     esac; done; }
-until grep -q 'fetch done' $DR/fetch.log; do sleep 60; done
-grep -q MISMATCH $DR/fetch.log && { say "STOP: a draft download failed its sha256 check"; exit 6; }
-while pgrep -f '^/bin/bash /home/arduino/v0/v0d_spec.sh' > /dev/null; do sleep 60; done
-grep -qE 'STOP' ~/bench-runs/v0/v0d/v0d-spec-status.txt && { say "round 2 not started: round 1 stopped"; exit 7; }
 say "spec round 2 start (pid $$)"; ready now
+FAST="--spec-draft-threads 4 --spec-draft-cpu-mask 0xF"
+T9N="$T9 --no-host"
+T9N4=$(echo "$T9N" | sed 's/HTP0:0,HTP0:1,HTP0:2/HTP0:0,HTP0:1,HTP0:2,HTP0:3/g')
 T4X="$E GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1,HTP0:2 $P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 40960 --cache-ram 2048 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0"
-FAST="--spec-draft-threads 4 --cpu-mask-draft 0xF"
-# 4B, base-model MTP head: faster CPU draft (repacked weights, 4 big-core threads, not strict)
-run 4B-mtpbase-n1-fast none $T4 -md $DR/Qwen3.5-4B-Q4_0.gguf --spec-type draft-mtp --spec-draft-n-max 1 $CPUD $FAST
-# 4B, base-model MTP head on a third NPU session: only the MTP layer (blk.32) and the output head offloaded
+T43=$(echo "$T4" | sed 's/HTP0:0,HTP0:1/HTP0:0,HTP0:1,HTP0:2/g')
+# ---- 9B Ornith, own MTP head (shared model). Load fix first.
+run 9B-ctrl-nohost probe $T9N
+run 9B-mtp-n1-cpufast probe $T9N --spec-type draft-mtp --spec-draft-n-max 1 $FAST        # MTP layer on CPU (4 big cores), head on NPU
+run 9B-mtp-n1-npu probe ${T9N/-ngl 33/-ngl 34} --spec-type draft-mtp --spec-draft-n-max 1  # MTP layer and head on NPU
+run 9B-4s-ctrl probe $T9N4                                                                  # 4 sessions: room for snapshots?
+run 9B-4s-mtp-n2-npu probe ${T9N4/-ngl 33/-ngl 34} --spec-type draft-mtp --spec-draft-n-max 2
+# ---- 4B NeoHorse, base-model MTP head (separate draft model)
+run 4B-mtpbase-n1-cpufast none $T4 -md $DR/Qwen3.5-4B-Q4_0.gguf --spec-type draft-mtp --spec-draft-n-max 1 $CPUD $FAST
 run 4B-mtpbase-n1-npu none $T4X -md $DR/Qwen3.5-4B-Q4_0.gguf --spec-type draft-mtp --spec-draft-n-max 1 --device-draft HTP0:2 --spec-draft-ngl all -otd 'blk\.([0-9]|[12][0-9]|3[01])\.=CPU' --no-repack
-# 9B, own MTP head: MTP layer on the NPU (-ngl 34 instead of 33), then a faster CPU draft
-run 9B-mtp-n1-ngl34 probe ${T9/-ngl 33/-ngl 34} --spec-type draft-mtp --spec-draft-n-max 1
-run 9B-mtp-n1-fast probe $T9 --spec-type draft-mtp --spec-draft-n-max 1 $FAST
-say "spec round 2 done (hangs $HANGS)"
+run 4B-mtpbase-n1-split none $T4X -md $DR/Qwen3.5-4B-Q4_0.gguf --spec-type draft-mtp --spec-draft-n-max 1 --device-draft HTP0:2 --spec-draft-ngl all -otd 'blk\.([0-9]|[12][0-9]|3[01])\.=CPU,output\.weight=CPU' $FAST
+run 4B-3s-mtpbase-n2-cpufast none $T43 -md $DR/Qwen3.5-4B-Q4_0.gguf --spec-type draft-mtp --spec-draft-n-max 2 $CPUD $FAST
+say "spec round 2 done (faults $HANGS)"
