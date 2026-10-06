@@ -908,3 +908,19 @@ D81 2026-10-06 Combined build v2 done (OpenMP OFF, llamafile OFF, -march=armv8.2
        9B head on CPU, MTP n1:  draft 50 ms (0.20), verify 373 ms (1.46) -> 1.84/1.66 = 1.11 (measured +11 %).
        4B base MTP n1, CPU draft: draft 111 ms (0.85), verify 297 ms (2.3) -> 1.81/3.15 = 0.57 (measured 0.58).
      The full-vocabulary output head (248K tokens, 0.35-0.55 GB read per draft token) dominates the draft cost.
+
+D82 2026-10-06 Round 4b (runs/v0d-spec4b/).
+   - Parity, build v2 (same-session, interleaved): 8K prefill -0.7 %, decode -1.7 %; 16K prefill -0.9 %, decode
+     +1.6 %. PARITY PASS (v1 failed, D80); the OpenMP/llamafile mismatch was the cause.
+   - First GPU run (target 4B on the NPU, Qwen3.5-0.8B draft on the Adreno GPU, n4): 512 PASS but slow (prefill 75.8,
+     decode 4.00, acceptance 0.57); during the 8K request the kernel reported "hangcheck detected gpu lockup"
+     (20:43:43, offending task llama-server, recovered; gpu-lockup-kernel.txt). The server returned no tokens and the
+     next request was reset. The runner classified it EVIDENCE (health pass, speed failed) and stopped the round as
+     declared. This is the same failure class as the V0c OpenCL routes (D37: GPU lockup on long submissions).
+   - Decision: the GPU route is closed for this campaign.
+     - Every remaining GPU placement makes the GPU process whole prompts (draft models; MTP's prompt-wide outputs).
+     - The one that would not (the 9B output head on the GPU without MTP) cannot enable MTP, its only purpose.
+     - A GPU lockup risks the board (D39).
+     - The working combined build stays available for later study. No laptop build is needed.
+   - The non-GPU part of round 4b runs as round 4c (tools/v0d_spec4c.sh): the batch-size test (4B, 9B) and the 4B
+     NPU-drafted MTP with the target on 3 sessions (n1, n2).
