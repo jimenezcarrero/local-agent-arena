@@ -553,3 +553,16 @@ D57 2026-10-06 Final re-measurement, attempt 1 (runs/v0d-final-attempt1/). The N
    both tool gates on A). The stale "NPU RECOVERED" shortcut from the first script was removed so readiness is
    always probed. F's +5 % decode is recorded as a tuning result not adopted for V0e pending a hang-rate check;
    NPU hang rate becomes an explicit V0e qualification item (marathon must run without an NPU hang).
+
+D58 2026-10-06 V0d final settings re-measured (runs/v0d-final/, A only, 03:24-04:02). The F hang at 03:20 did NOT degrade
+   the NPU (readiness probe passed at 03:24), unlike the KV q8_0 hang at 23:44 (~3 h self-recovery). All PASS, no hang:
+   warm-up (discarded) + r1-r3 at 512/8K/16K/32K, then both tool gates. Medians r1-r3, prefill/decode tok/s:
+     512 326.4/9.54 | 8K 342.6/9.31 | 16K 312.9/8.06 (prompt 18031-18036 tokens, within +-20 %) | 32K 279.3/6.71
+   Tool gates: one-shot 10/10, agentic 3/3 (1 inconclusive, no stack failure). Memory: min MemAvailable 7.10 GiB
+   during speed repeats, 6.10 GiB during the tool gates; swap 0; server VmHWM 2.09 GiB; tmax 49 C.
+   Final V0d settings for NeoHorse-1-4B pure Q4_0 on ggml-hexagon 836d5717: 2 HTP sessions (HTP0:0,HTP0:1), -ngl 99,
+   --ctx-checkpoints 0, -c 40960, --cache-ram 8192, other settings at defaults. Memory floor for V0e: keep
+   MemAvailable >= 4 GiB (observed minimum 6.10 GiB, 2 GiB margin). V0d eligibility: PROVISIONAL PASS of every
+   gate at 16K (prefill 2.2x and decode 1.8x the gates). Not adopted: 4 big-core threads (+4-7 % decode, one hang
+   in 3 runs, D57), KV q8_0 (hangs), 3+ sessions, 65K (does not map). Not GO: V0e qualification still required,
+   including a hang-free marathon.
