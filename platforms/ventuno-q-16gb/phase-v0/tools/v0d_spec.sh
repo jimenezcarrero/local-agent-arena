@@ -6,7 +6,7 @@
 # D53) and record every draft on the CPU (--device-draft none) so NPU mappings stay as admitted.
 # Each run: fresh server, depths 512/8K/16K, draft acceptance from the server log. A control run without speculation
 # precedes each model's variants. Every 9B load waits for a passing baseline probe (D64).
-# Fail-closed: EVIDENCE stops; HANG is recorded, then recovery and continue (cap: 3 hangs); a config that fails to
+# Fail-closed: EVIDENCE stops; HANG or DEVFAULT (NPU runtime abort, D71) is recorded, then recovery and continue (cap: 3 hangs); a config that fails to
 # load twice is recorded as unsupported and skipped.
 set -uo pipefail
 source ~/v0/v0d_lib.sh
@@ -23,7 +23,7 @@ ready() { for i in $(seq 1 13); do [ $i = 1 ] && [ "${1:-wait}" = now ] || sleep
     local lab=probe-$(date +%H%M%S) wd0=$(wdcount)
     timeout -k 60 900 ~/v0/run_route.sh $lab $PH --depths 512 --nctx 40960 -- $BASE > /dev/null 2>&1; local rc=$?; killall_srv
     local c=$(classify $O/$lab $rc $wd0); say "PROBE $lab: $c"
-    case $c in PASS) sleep 180; return 0;; HANG) HANGS=$((HANGS+1)); [ $HANGS -ge 3 ] && { say "STOP: 3 hangs"; exit 5; };; EVIDENCE) say "STOP: probe EVIDENCE"; exit 2;; esac; done
+    case $c in PASS) sleep 180; return 0;; HANG|DEVFAULT) HANGS=$((HANGS+1)); [ $HANGS -ge 3 ] && { say "STOP: 3 hangs"; exit 5; };; EVIDENCE) say "STOP: probe EVIDENCE"; exit 2;; esac; done
   say "STOP: NPU not ready after 3 h"; exit 1; }
 acc() { sed 's/\x1b\[[0-9;]*m//g' $1/server.log 2>/dev/null | grep -aoE '[0-9]+ accepted / *[0-9]+ generated' | awk '{a+=$1; g+=$4} END{if(g>0) printf "acceptance %d/%d = %.2f", a, g, a/g; else print "acceptance n/a"}'; }
 run() { local lab=$1 pre=$2; shift 2; local cmd="$*"
@@ -34,12 +34,11 @@ run() { local lab=$1 pre=$2; shift 2; local cmd="$*"
     say "END $lab: $c | $(grep -h '^RESULT' $O/$lab/probe.txt 2>/dev/null | grep -oE 'depth=[0-9]+|prefill_tps=[^ ]+|decode_tps=[^ ]+' | awk '!s[$0]++' | paste -sd' ') | $(acc $O/$lab) | $(grep -aoE 'mapping failed[^:]*: domain_id [0-9]+ size [0-9]+|error: [^|]{0,80}' $O/$lab/server.log | head -1)"
     case $c in
       PASS) [ $pre = probe ] || sleep 180; return 0;;
-      HANG) HANGS=$((HANGS+1)); [ $HANGS -ge 3 ] && { say "STOP: 3 hangs"; exit 5; }; ready wait; return 0;;
+      HANG|DEVFAULT) HANGS=$((HANGS+1)); [ $HANGS -ge 3 ] && { say "STOP: 3 device faults (hangs or aborts)"; exit 5; }; ready wait; return 0;;
       LOADFAIL) mv $O/$lab $O/$lab-loadfail$attempt; [ $attempt = 2 ] && { say "SKIP $lab: failed to load twice"; return 0; }; ready wait;;
       *) if grep -q 'SERVER EXITED before ready' $O/$lab/run.txt 2>/dev/null; then mv $O/$lab $O/$lab-exit; say "SKIP $lab: server exited at load (unsupported; see server.log)"; sleep 60; return 0; fi
          say "STOP: $lab EVIDENCE"; exit 2;;
     esac; done; }
-while pgrep -f '^/bin/bash /home/arduino/v0/v0d_diag.sh' > /dev/null; do sleep 60; done
 until grep -q 'fetch done' $DR/fetch.log; do sleep 60; done
 grep -q MISMATCH $DR/fetch.log && { say "STOP: a draft download failed its sha256 check"; exit 6; }
 say "spec sweep start (pid $$)"; ready now
