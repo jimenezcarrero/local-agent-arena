@@ -803,3 +803,13 @@ D73 2026-10-06 Speculation, 9B part of round 1 and the placement matrix (owner: 
        its backends directly (no dynamic backend loading), and the OpenCL build has no Hexagon backend. Needs a
        build with both backends, cross-compiled on the laptop (owner action).
    Round 2: tools/v0d_spec2.sh (9 runs, 9B first while the NPU is clean).
+
+D74 2026-10-06 NPU target + GPU draft needs one llama-server with both backends. Board-native route instead of a laptop
+   cross-build: the prebuilt Hexagon package's libggml-hexagon.so exports ggml_backend_hexagon_reg and needs only the
+   shared libggml-base.so.0, so a native build of the same commit (836d5717) with dynamic backends (GGML_BACKEND_DL,
+   CPU + OpenCL with Adreno kernels) can load it through a shim (tools/shim_hexagon.c -> libggml-hexagon-shim.so,
+   exporting ggml_backend_init/score). The Hexagon SDK itself cannot run on the board (x86 IDL compiler and DSP
+   toolchain). Risk: ABI match between the board-built libggml-base and the one the package was built with (same
+   commit; the loader checks the API version). tools/build_dl_npu_gpu.sh is queued to start only after speculation
+   round 2, so the CPU-heavy build does not disturb measurements. Fallback: the laptop cross-build with OpenCL
+   added (owner action).
