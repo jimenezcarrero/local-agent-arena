@@ -1,6 +1,7 @@
 #!/bin/bash
 # V0d speculation round 4 (D77): the board-native NPU+GPU+CPU binary (D74, ~/v0/llama.cpp/build-dl, Hexagon via shim).
-# 1. Parity: 4B control on the new binary vs the Hexagon package (ABI and speed sanity); stops the round if it fails.
+# 1. Parity gate (D78): reference and combined binary interleaved twice in this session, tools/parity.py; stops the round
+#    unless all four runs pass and the candidate is within +-5 % of the reference at 8K and 16K (prefill and decode).
 # 2. GPU as draft device (target on the NPU): 0.8B draft, base-model MTP layer + head, DFlash.
 # 3. GPU as overflow for the 9B: output head on the GPU (546 MiB, under the 1 GiB OpenCL buffer limit), then MTP with
 #    its layer and head on the GPU. GPU caveat: OpenCL lockups on long prompts in V0c (D37); depths 512/8K/16K only.
@@ -18,8 +19,14 @@ T9="$E GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1,HTP0:2 GGML_HEXAGON_MBUF=256 $B/llama-
 GPUD="--device-draft GPUOpenCL --spec-draft-ngl all"
 while pgrep -f '^/bin/bash /home/arduino/v0/v0d_spec3.sh' > /dev/null; do sleep 60; done
 say "spec round 4 start (pid $$)"; ready now
-explore dl-4B-ctrl none $T4
-grep -q 'END dl-4B-ctrl: PASS' $ST || { say "STOP: the combined binary failed its parity run"; exit 8; }
+# Parity gate (D78, pre-declared): reference (Hexagon package) and candidate (combined build) interleaved, same config,
+# both runs of each must PASS, candidate mean within +-5 % of the reference mean at 8K and 16K for prefill and decode.
+R4="${T4/$B\/llama-server/$P/bin/llama-server}"; R4="${R4/LD_LIBRARY_PATH=$B:$H/LD_LIBRARY_PATH=$P/lib}"
+for i in 1 2; do explore ref-4B-ctrl-$i none $R4; explore dl-4B-ctrl-$i none $T4; done
+for l in ref-4B-ctrl-1 ref-4B-ctrl-2 dl-4B-ctrl-1 dl-4B-ctrl-2; do grep -q "END $l: PASS" $ST || { say "STOP: parity run $l did not pass"; exit 8; }; done
+python3 ~/v0/parity.py $O/ref-4B-ctrl-1 $O/ref-4B-ctrl-2 $O/dl-4B-ctrl-1 $O/dl-4B-ctrl-2 > $O/parity.txt 2>&1; prc=$?
+while read -r l; do say "PARITY $l"; done < $O/parity.txt
+[ $prc = 0 ] || { say "STOP: combined build fails the parity gate"; exit 8; }
 explore dl-4B-d08-n4-gpu none $T4 -md $DR/Qwen3.5-0.8B-Q4_0.gguf --spec-type draft-simple --spec-draft-n-max 4 $GPUD
 explore dl-4B-mtpbase-n1-gpu none $T4 -md $DR/Qwen3.5-4B-Q4_0.gguf --spec-type draft-mtp --spec-draft-n-max 1 $GPUD -otd 'blk\.([0-9]|[12][0-9]|3[01])\.=CPU' --no-repack
 explore dl-4B-outcpu-dflash-gpu none $T4 -ot 'output\.weight=CPU' -md $DR/Qwen3.5-4B-DFlash.Q8_0.gguf --spec-type draft-dflash --spec-draft-n-max 4 $GPUD
