@@ -642,3 +642,21 @@ D63 2026-10-06 9B placement variants (tools/v0d_affinity.sh, runs/v0d-affinity/)
    evidence. Replacement H = G' with -t 4 only (no mask, no strict): best decode among non-strict variants, prefill
    margin 1.03x (thin). tools/v0d_h.sh: wait for recovery, then H warm-up + r1-r3 + both tool gates, then a soak
    of 6 loads each of A and H (3 min idle between loads).
+
+D64 2026-10-06 9B H re-measurement, part 1 (runs/v0d-final-9b-h/). NPU ready at 08:05 (idle recovery ~16 min after the
+   07:48 hang). H warm-up PASS (16K 149.5/5.11) and r1 PASS (512 158.5/6.01, 8K 160.0/5.76, 16K 153.9/5.27, 32K
+   144.8/4.75). Then r2, r3 and the tool gates failed to load (546 MiB host buffer, domain 11), and the soak's A and
+   H loads failed too (A: domain 3, 640 MiB), all with 3 min idle between loads. Soak stopped by the testing agent at
+   08:55. Load timeline (tools/load_timeline.py -> load-timeline.txt, every ggml-hexagon load since 03:23; the
+   soak-F4-1/G9-1 rows mix the start of attempt 1 with the end of attempt 2 because attempt 2 reused the labels):
+   - 03:23-05:07, ~18 4B loads (2 and 4 sessions, 40960 and 65536) and 8 9B loads that failed on capacity: the NPU
+     never degraded.
+   - Each degraded state followed successful 9B 3-session loads: after 7 (04:32-06:27) and after 2 (08:09-08:34).
+     The 07:22-07:39 pair ended in the strict-pinning hang instead.
+   - Idle recovery: ~3 h (after the 23:44 hang), then ~17, ~16 and ~16 min.
+   Interpretation (inferred, not verified without root): a fully loaded 9B (3 sessions, ~2.25 GiB + the 546 MiB host
+   buffer in session 2) leaves DSP-side mappings that are released slowly after the process exits; reloads inside
+   that window fail. Consequences: the 4B A route reloads freely, while the 9B route must keep one long-lived server
+   per session or allow ~20 min between server restarts. V0e must test this explicitly.
+   Next (tools/v0d_h2.sh): H r2, r3 and the tool gates, each preceded by a base-config readiness probe (every 15
+   min, up to 3 h) and 3 min idle. Medians use r1 + the two completion repeats (labels r2b, r3b).
