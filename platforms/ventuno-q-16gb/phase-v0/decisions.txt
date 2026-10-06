@@ -660,3 +660,16 @@ D64 2026-10-06 9B H re-measurement, part 1 (runs/v0d-final-9b-h/). NPU ready at 
    per session or allow ~20 min between server restarts. V0e must test this explicitly.
    Next (tools/v0d_h2.sh): H r2, r3 and the tool gates, each preceded by a base-config readiness probe (every 15
    min, up to 3 h) and 3 min idle. Medians use r1 + the two completion repeats (labels r2b, r3b).
+
+D65 2026-10-06 Codex review of #45 (reviews of 22:12Z and 06:29Z, not read at the checkpoints where they arrived: a
+   process miss by the testing agent). Responses so far: (1) H r2b paused before it ran. (2) Fail-closed step logic:
+   tools/v0d_lib.sh classify() -> PASS / HANG / LOADFAIL / EVIDENCE from runner rc, RESULT line, health verdict and
+   the watchdog; 10 synthetic cases pass (tools/test_v0d_lib.sh); every later sequence stops on HANG or EVIDENCE and
+   requires a baseline readiness probe after a LOADFAIL. (3) Memory floor computed, not chosen
+   (memfloor/memory-floor.txt): L_min (MemAvailable + prompt cache held) must cover --cache-ram + pi (0.19 GiB
+   measured) + unexplained transients (0.14 GiB measured). With --cache-ram 8192 neither A (short 0.24 GiB) nor the 9B
+   (short 2.85 GiB) is OOM-safe in a long arena. Owner decision: per-configuration --cache-ram = floor(L_min - 0.33
+   GiB): A 7,946 MiB, 9B H 5,365 MiB, 4B 65K 5,724 MiB (RUNBOOK deviation from "one tier value"). Consequence: A and H
+   are re-measured with these values (the earlier A and G' runs used 8192 and stay as evidence); G' withdrawn (D63).
+   Pending: manifests for V0d phases, wording downgrades (bandwidth as hypothesis, hang counts with denominators),
+   README/description to the D63+ state, full execution brief in the PR description.

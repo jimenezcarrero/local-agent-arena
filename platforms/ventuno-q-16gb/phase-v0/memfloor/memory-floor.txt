@@ -38,3 +38,12 @@ Caveats: pi measured with a mock model (real responses add no pi-side memory bey
 covered by the 479 KB case). The 9B tool-gate L comes from G' (H's tool gate is not measured yet). A real arena may
 run more concurrent slots than the probes (pi uses one); a fresh server load needs the model's page-cache transient,
 already inside the measured runs.
+
+4. Decision (owner, 2026-10-06): compute the cache size per configuration instead of one tier value (RUNBOOK
+   deviation: "one tier value"). --cache-ram = floor(L_min - 0.33 GiB), L_min from the configuration's lowest
+   (tool-gate) run before the admission re-measurement:
+     4B A        7,946 MiB   (L 8.09 GiB, from its own V0d runs)
+     9B H        5,365 MiB   (L 5.57 GiB, from G' tool gate; H's own tool gate must confirm, else recompute lower)
+     4B 4s 65K   5,724 MiB   (L 5.92 GiB, speed run only; provisional until it has a tool gate)
+   Admission criterion, fixed before the re-measurement: in every final-settings speed and tool run,
+   L_min >= --cache-ram + 0.33 GiB and swap growth 0. Observed min MemAvailable is reported separately.
