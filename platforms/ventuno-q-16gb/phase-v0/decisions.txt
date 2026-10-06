@@ -750,3 +750,17 @@ D70 2026-10-06 Owner: use speculative decoding / MTP as much as possible and fin
    baseline probe. Ranking only; winners then take the D68 admission set with a recomputed memory cap. Speculation
    gains depend on the text: the probes generate continuations of Markdown prose, so code-heavy agent sessions
    (V0e) may differ in either direction.
+
+D71 2026-10-06 Diagnosis soak result (runs/v0d-diag/). After a 15-min idle wait the probe passed (12:32); S4C-1 PASS, S1C-1
+   PASS; S4N-1 (4 slots, --cache-ram 0, so no prompt-cache saves) served 512, 8K and 16K (16K 231.1/6.24: the known
+   cache-ram 0 slowdown), then on its fourth request the server aborted: "ggml-hex: dspqueue_read failed:
+   0x0000002e" (ggml-hexagon.cpp:4036), ggml_abort. Not a hang: an NPU runtime error reported to the host.
+   The classifier had no class for it (EVIDENCE) and stopped the soak after 3 of 12 loads.
+   Reading under D68: inconclusive (S4C has no hang in 1 load). New fact: NPU faults also occur with the prompt cache
+   off, so the "prompt-cache save" hypothesis is not supported; the remaining common factor is a server's later
+   request (never the first), on any slot setting tested. Admission keeps the default slots and cache (D68).
+   Classifier: new class DEVFAULT (an NPU runtime abort after the server was ready), counted with hangs as a
+   device fault; a fault at load stays LOADFAIL. 18 synthetic cases pass (tools/test_v0d_lib.sh); S4N-1 reclassifies
+   as DEVFAULT. The speculation sweep (D70) was restarted with this classifier before its first run; it treats a
+   device fault like a hang (recorded, recovery, continue; cap 3). The admission restart rule (D68 b) counts a
+   DEVFAULT the same as a hang.

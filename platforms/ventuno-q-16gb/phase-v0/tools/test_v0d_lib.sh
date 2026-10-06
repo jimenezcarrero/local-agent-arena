@@ -27,5 +27,11 @@ t RESULT FAIL: speed=4 kernel_read_after_end=TIMEOUT" "pass" "$MAP"; chk lf-kern
 mk lf-noresult "$LF" "pass" "$MAP"; chk lf-noresult 1 EVIDENCE
 mk lf-crash "$LF
 t RESULT FAIL: speed=4" "pass" "$MAP"; chk lf-crash 2 EVIDENCE
+mk devfault "t RESULT FAIL: speed=1" "pass" "/w/ggml-hexagon.cpp:4036: ggml-hex: dspqueue_read failed: 0x0000002e
+#2 0x0 in ggml_abort () from libggml-base.so.0"; chk devfault 1 DEVFAULT
+mk devfault-atload "$LF
+t RESULT FAIL: speed=4" "pass" "E ggml-hex: HTP0:0 buffer mapping failed : domain_id 3 size 1
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  ggml-hex: fastrpc_mmap failed"; chk devfault-atload 1 LOADFAIL
 echo "y NPU-WATCHDOG killed" >> $WD_LOG; chk pass 0 HANG
 rm -rf $T; echo "failures: $fails"; exit $fails
