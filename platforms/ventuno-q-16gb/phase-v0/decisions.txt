@@ -673,3 +673,16 @@ D65 2026-10-06 Codex review of #45 (reviews of 22:12Z and 06:29Z, not read at th
    are re-measured with these values (the earlier A and G' runs used 8192 and stay as evidence); G' withdrawn (D63).
    Pending: manifests for V0d phases, wording downgrades (bandwidth as hypothesis, hang counts with denominators),
    README/description to the D63+ state, full execution brief in the PR description.
+
+D66 2026-10-06 First NPU hang in configuration A (runs/v0d-final3/, tools/v0d_final3.sh, stopped by the fail-closed rule).
+   A with --cache-ram 7946: warm-up PASS (L_min 8.61 GiB >= 7.76 + 0.33); r1: 512 PASS (336.0/9.73), the 8K sizing
+   attempt was off-depth (12,265 tokens, 334.9/8.69), then the 8K retry hung after its prefill and 15 decoded tokens
+   (4 threads in fastrpc_wait_for_completion; watchdog 10:43:01, npu-stalls/2441079-104300.txt). It was the
+   server's fourth request; the server had just saved the previous slot's 12,392-token state to the prompt cache
+   (a read of the KV from HTP memory). No strict pinning, no non-default setting except --cache-ram.
+   This contradicts the D63 reading: hangs are not confined to --cpu-strict 1. Exploratory counts now: strict 3 of 5
+   servers; non-strict 1 in ~30 at the final settings (plus the earlier KV q8_0 and 3-session hangs). Every hang
+   struck a server that had already served at least one request; no first request has hung. Mechanism unknown.
+   Per the fail-closed rule, the sequence stopped; nothing was rerun. How a hang in a final re-measurement counts
+   for eligibility is an owner decision (the frozen rule needs passing repeats; rerunning until a pass would
+   select results).
