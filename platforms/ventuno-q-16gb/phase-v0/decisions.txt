@@ -686,3 +686,20 @@ D66 2026-10-06 First NPU hang in configuration A (runs/v0d-final3/, tools/v0d_fi
    Per the fail-closed rule, the sequence stopped; nothing was rerun. How a hang in a final re-measurement counts
    for eligibility is an owner decision (the frozen rule needs passing repeats; rerunning until a pass would
    select results).
+
+D67 2026-10-06 Codex review of #45 at b71295c (08:38Z), all three findings addressed without new benchmarks:
+   (1) classify(): LOADFAIL now requires a clean load failure (runner rc 1, last RESULT exactly "RESULT FAIL:
+       speed=4", passing health verdict, "SERVER EXITED before ready" and an NPU "mapping failed" line); timeouts,
+       crashes, missing/failed health or kernel evidence take precedence as EVIDENCE. 16 synthetic cases pass
+       (tools/test_v0d_lib.sh, 6 mixed conditions); real runs still classify as before (9b-H-r2 and soak-A-1 LOADFAIL,
+       final3/A-warmup and 9b-Gbig-tools PASS).
+   (2) Memory admission is compared in kB without rounding (tools/memfloor.py --admit). This exposed that D65's caps
+       came from rounded L values: A 7,946 MiB would fail its own basis run (L_min 8,478,829 kB < 8,482,734 kB).
+       Exact caps, rounded down: A 7,942 MiB, 9B H 5,364 MiB, 4B 65K 5,727 MiB (memfloor/memory-floor.txt section 5).
+       The final3 A warm-up ran with 7,946 MiB and is superseded; the next sequence uses phase v0d-final4.
+   (3) Monitoring inputs published (tools/publish_monitor.py: monitor/health-20261006-*.jsonl, kernel-20261006.jsonl,
+       run-windows.jsonl through v0d-final3/A-r1). memfloor.py and memfloor_transient.py reproduce every L_min and
+       the 145,820 kB transient from the committed inputs alone (MONITOR_DIR=monitor).
+   The floor is now worded as an estimated admission policy with explicit limitations (11 s sampling, mock pi), to be
+   confirmed by real pi sessions in V0e. The re-measurement is not restarted: how the D66 hang counts is pending the
+   owner's decision.
