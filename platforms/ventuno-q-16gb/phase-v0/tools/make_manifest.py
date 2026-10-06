@@ -6,7 +6,15 @@ A field the evidence does not contain is written as "not logged"; nothing is inf
 import glob, hashlib, os, re, sys
 
 H = os.path.expanduser("~")
-PHASES = ["v0b-7badb21", "v0c", "v0-explore", "v0c-repeats"]
+PHASES = ["v0b-7badb21", "v0c", "v0-explore", "v0c-repeats", "v0d-final", "v0d-final-9b", "v0d-final-9b-h", "v0d-final3"]
+# V0d status per phase/label prefix (D58, D60, D63, D64, D65)
+STATUS = [("v0d-final/", "V0d A with --cache-ram 8192 (D58): evidence only, superseded by the D65 re-measurement"),
+          ("v0d-final-9b/9b-Gbig", "V0d 9B G' (D60): WITHDRAWN (--cpu-strict 1 linked to NPU hangs, D63)"),
+          ("v0d-final-9b/", "V0d exploratory single run (D60)"),
+          ("v0d-final-9b-h/probe", "baseline readiness probe (unchanged A config), not a measurement"),
+          ("v0d-final-9b-h/", "V0d 9B H with --cache-ram 8192 (D64): partial, superseded by the D65 re-measurement"),
+          ("v0d-final3/probe", "baseline readiness probe (unchanged A config), not a measurement"),
+          ("v0d-final3/", "V0d final re-measurement with per-configuration --cache-ram (D65)")]
 MODELS = {"qwen2.5-1.5b-instruct-q4_0-pure.gguf": "78b8d3c9439ec6b511ed0d3acd07f421161771ca08faba571e18137122879eb0",
           "NeoHorse-1-4B-q4_0-pure.gguf": "f822fa2602af45d802e54bac518bab3f62b08943029626114a474afc3d8f3049",
           "Ornith-1.0-9B-q4_0-pure.gguf": "d21c19e56e1a7d2cdc42a0714cb318769fcc53c28ad2c8b19e500c70cc490528",
@@ -67,7 +75,7 @@ def main():
     prescan()
     print("# Effective-settings manifest (RUNBOOK.md V0c 'Effective-settings manifest'), generated", end=" ")
     print(os.popen("date -Is").read().strip(), "by tools/make_manifest.py from each run's own evidence.")
-    print("# Measurement commit 7badb21 for every run below (corpus sha256 3611eb84...); 'not logged' = absent from the evidence.")
+    print("# Measurement commit 7badb21 for every run below (V0b-V0d) (corpus sha256 3611eb84...); 'not logged' = absent from the evidence.")
     print("# Request-side settings: speed_probe.py sends stream=true, max_tokens=128 (gen), cache_prompt=false, no sampling")
     print("#   fields (server defaults apply), and nctx=40960 in V0c (GenieX per-request field; llama-server ignores it).")
     print("#   probe_toolcalls.py sends no sampling fields either; its evidence records the effective server sampling.")
@@ -84,6 +92,9 @@ def main():
             cmd = re.search(r"SERVER (.*)", run)
             cmd = cmd.group(1) if cmd else "not logged"
             print(f"\n## {ph}/{lab}")
+            st = next((t for k, t in STATUS if f"{ph}/{lab}".startswith(k)), None)
+            if st:
+                print(f"status: {st}")
             print(f"server command: {cmd}")
             mfile = next((m for m in MODELS if m in cmd), None)
             te0 = tool_evidence(lab)
