@@ -630,3 +630,15 @@ D62 2026-10-06 Soak, attempt 2 (runs/v0d-soak/; the 06:29 attempt is in runs/v0d
    Next (tools/v0d_affinity.sh): wait for recovery, then the 9B with milder placement, one fresh load each, 3 min
    idle between loads, one retry after 15 min on a failed mapping: -t 4 alone; -t 4 --cpu-mask 0xF (not strict);
    strict with --poll 0 (no busy polling). G' stays provisional; its hang rate is the open question for V0e.
+
+D63 2026-10-06 9B placement variants (tools/v0d_affinity.sh, runs/v0d-affinity/). NPU recovered idle in ~16 min after the
+   07:01 hang (probe PASS 07:18). One fresh load each, 3 min idle between loads, no mapping failure this time.
+   16K prefill/decode: -t 4 alone 149.0/5.25 PASS; -t 4 --cpu-mask 0xF (not strict) 154.1/4.55 PASS; -t 4 --cpu-mask
+   0xF --cpu-strict 1 --poll 0: HANG on the second request (512 retry after an off-depth first attempt, 116 tokens;
+   watchdog 07:48:51). Every strict-pinning server that hung did so on its second request: 3 hangs in 5 strict
+   servers (4B F twice, 9B once). No ggml-hexagon server without --cpu-strict 1 at the final settings has hung
+   (A ~25, 9B G 1, 9B t4/t4-mask 2). Conclusion: --cpu-strict 1 is excluded; it is the strongest hang predictor
+   found (mechanism unknown). G' (D60) is withdrawn as the 9B final configuration, though its re-measurement stays as
+   evidence. Replacement H = G' with -t 4 only (no mask, no strict): best decode among non-strict variants, prefill
+   margin 1.03x (thin). tools/v0d_h.sh: wait for recovery, then H warm-up + r1-r3 + both tool gates, then a soak
+   of 6 loads each of A and H (3 min idle between loads).
