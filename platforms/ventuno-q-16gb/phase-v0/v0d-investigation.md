@@ -121,6 +121,24 @@ placement for decode on this SoC.** Consequences:
 - For the NPU candidate the host threads matter less (the NPU does the work), consistent with the +5 % decode
   seen for big-core affinity in the sweep; the final re-measurement compares exactly that (F vs A).
 
+## 4b. What the 40960 cap means for pi and the arenas
+
+The 4B NPU candidate is capped at a 40960-token window (D53). Using pi 0.80.10's own formulas, documented in
+`platforms/jetson-orin-nano-8gb/pi-32k-window.txt`:
+- output budget = window − context − 4096 → the one-token stall starts at a context ≥ 36,864 at 40960;
+- compaction triggers at context > window − 16,384 = 24,576 and keeps ~20K recent tokens plus a summary
+  (≈ 26–29K left after compaction in the Jetson's 32K sessions).
+
+At 32K the post-compaction context sat above the stall point (28,672) and sessions stalled; at 40960 the same
+context leaves ≈ 8–10K tokens of output budget, so the 32K stall mechanism should not occur. This is arithmetic
+from pi's formulas, not a measurement: V0e must verify it with real pi sessions at the window used.
+
+| Cell | Window | 4B NPU candidate |
+|---|---|---|
+| 32K crusher (pi defaults; comparable with the Jetson) | 32768 | fits |
+| Marathons (runbook: 65K or more) | ≥ 65536 | **not possible** unless an unlock test makes 65K map |
+| Arenas 1–2 (Jetson parity flags used 65K) | 65536 | only at a smaller window, reported as such |
+
 ## 5. Blocker for the final V0d re-measurement
 
 The NPU has been degraded since the KV q8_0 hang at 23:44 (D53): the base configuration no longer loads, an idle

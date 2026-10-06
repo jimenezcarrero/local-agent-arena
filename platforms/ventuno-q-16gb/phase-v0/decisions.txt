@@ -530,3 +530,11 @@ D55 2026-10-06 CPU thread placement (tools/v0d_cpu_threads.sh, runs/v0d-cpu/, si
    Matches the bandwidth measurement (D54). V0c CPU numbers stay as documented-default results; no eligibility
    changes (prefill 6-9x below the gate). Recommendation for every CPU-side configuration in the campaign: 4 big-core
    threads. All runs PASS (health incl. one PSI-only exemption during a 9B load).
+
+D56 2026-10-06 Morning chain prepared (tools/v0d_morning.sh): after the owner's cDSP reset, v0d_final.sh (readiness probes
+   every 10 min for up to 6 h, then F and A warm-up + 3 interleaved repeats at all depths, tool gates on F), then — only
+   if no NPU hang occurred — v0d_unlock.sh (output layer on CPU, MBUF=256, more sessions, 4B at 65K on 4 sessions,
+   partial-offload 9B with 4 big-core threads, n-gram speculation feasibility, two cache-ram 0 repeats). Started at
+   ~02:40 so it begins measuring as soon as the NPU loads. Window analysis (v0d-investigation.md §4b): by pi 0.80.10's
+   formulas a 40960 window avoids the 32K one-token stall; marathons at 65K+ are not possible for the 4B NPU
+   candidate unless an unlock test maps 65K.
