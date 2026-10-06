@@ -855,3 +855,15 @@ D77 2026-10-06 Board-native NPU+GPU+CPU build works (D74): ~/v0/llama.cpp/build-
    - the GPU as draft device: 0.8B, base-model MTP layer + head, DFlash with the 4B head on the CPU;
    - the GPU as overflow for the 9B: output head on the GPU; MTP layer + head on the GPU.
    No laptop build is needed unless parity fails.
+
+D78 2026-10-06 Codex: the combined-build parity gate needs a current-run comparison against the reference build. The
+   D77 gate only required the candidate's run to PASS. Replaced before round 4 started (it was still waiting for
+   round 3). Pre-declared gate (tools/parity.py, tools/v0d_spec4.sh):
+   - reference (Hexagon package) and candidate (combined build) runs, interleaved ref, cand, ref, cand, with the
+     same 4B config in the same session;
+   - all four runs must classify PASS;
+   - the candidate mean must be within +-5 % of the reference mean for prefill and decode at 8K and 16K;
+   - any missing value fails.
+   Tolerance basis: A's repeat spread was ~2 % (16K prefill) and ~1.4 % (decode).
+   Checker verified on synthetic inputs (pass; -6.5 % -> FAIL; missing 16K value -> FAIL), and the reference command
+   resolves to the package binary and libraries.
