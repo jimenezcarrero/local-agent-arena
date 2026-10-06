@@ -139,9 +139,24 @@ from pi's formulas, not a measurement: V0e must verify it with real pi sessions 
 | Marathons (runbook: 65K or more) | ≥ 65536 | **not possible** unless an unlock test makes 65K map |
 | Arenas 1–2 (Jetson parity flags used 65K) | 65536 | only at a smaller window, reported as such |
 
-## 5. Blocker for the final V0d re-measurement
+## 5. Outcome of the morning chain (D57–D59)
 
-The NPU has been degraded since the KV q8_0 hang at 23:44 (D53): the base configuration no longer loads, an idle
-check at 23:59 failed. A cDSP restart (root) is needed; then `tools/v0d_final.sh` runs the final settings
-(F = candidate + 4 big-core threads, A = candidate; warm-up + 3 interleaved repeats at all depths; both tool gates
-on F; memory floor from the 32K runs).
+- **NPU recovery.** The NPU recovered by itself (idle) about 3 h after the 23:44 hang; no reset was needed.
+- **F hung once.** F (4 big-core threads) hung the NPU once in 3 runs (D57). That hang did not degrade the NPU.
+- **Final 4B re-measurement on A** (2 sessions, defaults; D58). All runs PASS, no hang:
+
+  | 512 | 8K | 16K | 32K |
+  |---|---|---|---|
+  | 326.4/9.54 | 342.6/9.31 | 312.9/8.06 | 279.3/6.71 |
+
+  Both tool gates passed. Memory headroom floor: 7.10 GiB.
+- **The 9B mapping failure is the token-embedding table** (D59), not the session total:
+  - The table stays on the CPU, but lives in ggml-hexagon's DSP-shared host buffer. Op offload sends its lookup to an
+    HTP session, which then maps all 546 MiB.
+  - Fix: `--no-op-offload` with `-ngl 33` on 3 sessions. The 9B then reaches 152/5.5 at 16K (single run).
+  - The mechanism in §2b (single large buffers) holds. The "output layer" in its table was this embedding table.
+- **4B at 65K.** It loads on 4 sessions, with every per-session buffer small enough, at the same speed (16K
+  314.7/7.81). It still needs depth checks and V0e window qualification.
+- **No gain:** n-gram speculation and `--no-host`. `--cache-ram 0` is confirmed slower.
+
+The 9B final re-measurement and the 4B 65K depth check: `tools/v0d_9b.sh`, results in D60.
