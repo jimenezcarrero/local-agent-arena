@@ -878,3 +878,19 @@ D79 2026-10-06 Round 3, 9B part (runs/v0d-spec3/): the D76 hypothesis holds. Wit
    head costs more than that (decode -23 %, prefill -15 %), and every MTP variant falls below the 145 prefill gate.
    The GPU output head (round 4) is the remaining 9B MTP placement. The unchanged baseline probe hung twice more
    (17:00, 17:22; 2 of round 3's 3-fault cap); load failures on probes at 17:47 and 18:23 (retried, passed).
+
+D80 2026-10-06 Round 3, 4B part, and the round 4 parity gate.
+   4B base-model MTP n1 (single runs), 512 / 8K / 16K prefill/decode:
+     draft on CPU, 4 big-core threads, repacked     156.3/6.91  126.4/6.43   95.1/5.57   acceptance 0.78
+     draft (MTP layer + head) on a 3rd NPU session  187.0/10.10 187.4/9.56  176.1/8.72  acceptance 0.81
+     head on CPU + n2                               does not map (domain 11, 640 MiB, twice)
+   The NPU-drafted MTP is the first speculative configuration to beat the plain 4B on decode. Against the same-session
+   reference (round 4 ref runs, mean): 8K 9.04 -> 9.56 (+6 %), 16K 7.95 -> 8.72 (+10 %). Prefill falls to 176 at 16K
+   (gate 145), because MTP outputs every prompt position. Single run: needs its own admission set.
+   Round 4 parity gate (D78), same session, interleaved: prefill matches (8K -0.0 %, 16K -0.1 %); decode is slower
+   in the combined build (8K -5.1 % FAIL, 16K -4.5 %). PARITY FAIL; round 4 stopped as declared, no GPU run made.
+   Cause found in the logs: the combined build's CPU backend uses OpenMP and llamafile, while the reference package
+   was built (preset arm64-linux-snapdragon) with OpenMP OFF and llamafile OFF, clang 21, -O3 -flto
+   -march=armv8.2a+fp16+dotprod. Decode depends on the CPU-side threadpool every token; prefill barely does.
+   Version 2 (tools/build_dl_npu_gpu_v2.sh): same options except the compiler (gcc 13; clang is not installed and
+   installing needs root). It must pass the same pre-declared gate as a new attempt; version 1 stays failed.
