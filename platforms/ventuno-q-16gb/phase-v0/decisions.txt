@@ -894,3 +894,17 @@ D80 2026-10-06 Round 3, 4B part, and the round 4 parity gate.
    -march=armv8.2a+fp16+dotprod. Decode depends on the CPU-side threadpool every token; prefill barely does.
    Version 2 (tools/build_dl_npu_gpu_v2.sh): same options except the compiler (gcc 13; clang is not installed and
    installing needs root). It must pass the same pre-declared gate as a new attempt; version 1 stays failed.
+
+D81 2026-10-06 Combined build v2 done (OpenMP OFF, llamafile OFF, -march=armv8.2-a+fp16+dotprod; gcc 13); lists GPUOpenCL and
+   HTP0:0. Round 4b (tools/v0d_spec4b.sh), recorded before its first result:
+   (a) the D78 parity gate on build v2, as a new attempt (v1 stays failed). On PASS: the GPU section of round 4
+       runs. On FAIL: only the GPU section is skipped.
+   (b) batch-size test: llama-bench (Hexagon package) -p 1,2,3,4,8 -n 0 -r 3 -d 0,8192, 4B A and 9B H + --no-host.
+       It gives the cost of processing n tokens in one call on the NPU. Speculation needs verification of 2 tokens
+       to cost about one step; D80 measured 1.46 (9B) and 2.3 (4B) with speculation's bookkeeping included.
+   (c) 4B NPU-drafted MTP with room for longer drafts: target on 3 sessions, draft on a 4th, n_max 1 and 2.
+   Per-step accounting behind the speculation results (from the server's dur(b,g,a) statistics):
+     speedup ~= (1 + acceptance) / (draft cost + verify cost), both in units of one plain decode step.
+       9B head on CPU, MTP n1:  draft 50 ms (0.20), verify 373 ms (1.46) -> 1.84/1.66 = 1.11 (measured +11 %).
+       4B base MTP n1, CPU draft: draft 111 ms (0.85), verify 297 ms (2.3) -> 1.81/3.15 = 0.57 (measured 0.58).
+     The full-vocabulary output head (248K tokens, 0.35-0.55 GB read per draft token) dominates the draft cost.
