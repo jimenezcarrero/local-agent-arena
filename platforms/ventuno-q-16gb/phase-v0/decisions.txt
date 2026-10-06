@@ -567,3 +567,24 @@ D58 2026-10-06 V0d final settings re-measured (runs/v0d-final/, A only, 03:24-04
    gate at 16K (prefill 2.2x and decode 1.8x the gates). Not adopted: 4 big-core threads (+4-7 % decode, one hang
    in 3 runs, D57), KV q8_0 (hangs), 3+ sessions, 65K (does not map). Not GO: V0e qualification still required,
    including a hang-free marathon.
+
+D59 2026-10-06 V0d unlock tests, rounds 1-4 (runs/v0d-unlock/, tools/v0d_unlock*.sh; single runs at 512/16K, rank only;
+   all with GGML_HEXAGON_MBUF=256; no NPU hang in 18 loads). 16K prefill/decode tok/s:
+   - 9B: every failure maps 572133376 bytes = 572129280 + 4 KiB, exactly the Q4_0 token_embd (248320 x 4096). It
+     stays on the CPU but in ggml-hexagon's host buffer (rpcmem shared with the DSP); with op offload on (default),
+     its lookup is sent to an HTP session, which maps the whole table. Fails: -ngl 33 on 2 or 3 sessions; -ngl 20;
+     --no-op-offload on 2 sessions; --no-host with -ngl 99 on 2 or 3 sessions (the output layer, same size, then
+     sits on the NPU). WORKS: 3 sessions, -ngl 33 (32 repeating layers + output layer on the NPU; the unused MTP
+     layer and token_embd on the CPU), --no-op-offload, 4 big-core threads: 512 157.5/6.44, 16K 152.2/5.47; min
+     MemAvailable 5.61 GiB. First 9B configuration to reach both speed gates (145/4.4), single run.
+   - 4B at -c 65536: loads on 4 sessions, both with -ngl 99 (16K 314.7/7.81) and -ngl 32 (output on CPU: 238.6/5.16,
+     8 threads; 243.4/7.89 with --no-op-offload and 4 big cores). Fails on 3 sessions (token_embd 357 MiB map) and on
+     2 sessions even with --no-host (256 MiB KV chunk). 4 sessions at 40960: 320.0/7.73 (2 sessions: 312.9/8.06).
+   - 4B other: output layer on CPU + --no-op-offload + 4 big cores on 2 sessions 245.1/8.30 (decode +3 %, prefill
+     -22 %); --no-host on 2 sessions 320.9/8.08 (neutral). n-gram speculation (ngram-map-k, 16): 319.7/8.00, no
+     gain on these prompts (no repetition to exploit); feasibility only, agent workloads may differ.
+   - cache-ram 0 anomaly confirmed in two repeats: 16K 219.4/6.27 and 215.6/6.48 (vs ~313/8.1 at 8192). Cause not
+     investigated; --cache-ram 0 is excluded.
+   Next (tools/v0d_9b.sh, round 5): the 9B unlock without affinity (G) vs with 4 big cores (G'), keep G unless >3 %
+   slower; the 4B 65K on 4 sessions at depths 32K and 49152; then the 9B final re-measurement (warm-up + r1-r3 at
+   512/8K/16K/32K) and both tool gates on the chosen config.
