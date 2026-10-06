@@ -617,3 +617,16 @@ D61 2026-10-06 NPU degraded WITHOUT a hang. Right after round 5 (last server: th
    An idle probe (tools/npu_recovery_probe.sh) loads the base config every 15 min for up to 6 h to time the
    recovery, then re-runs the soak. For V0e: the NPU route needs a recovery procedure (cDSP restart, root) and the
    degradation trigger must be found before a marathon can be trusted.
+
+D62 2026-10-06 Soak, attempt 2 (runs/v0d-soak/; the 06:29 attempt is in runs/v0d-soak/attempt1/). The NPU recovered
+   idle after ~17 min (probe PASS 06:47; the earlier recovery took ~3 h). Sequence, 30 s idle between loads:
+   F4-1 PASS (512 345.2/10.16, 8K 343.2/9.71) -> G9-1 load fails (546 MiB host buffer, domain 11) -> F4-2 load fails
+   (domain 3, 640 MiB) -> G9-2 load fails -> F4-3 loads, then HANGS the NPU on its second request (the 512 retry,
+   after 84 tokens; watchdog kill 07:01:13, npu-stalls/2182710-070112.txt). Soak stopped (STOP rule).
+   Findings: (1) strict big-core pinning has now hung the NPU twice in 4 loaded F servers (D57, here), both on the
+   second request, while A (defaults) has 0 hangs in ~25 servers: F's affinity is the leading suspect, not proven.
+   (2) Mapping is fragile right after another session closes: loads 30 s apart fail intermittently; the 9B (which
+   needs the host-buffer mapping in session 2) is the most exposed. (3) The 9B G' relies on the same strict pinning.
+   Next (tools/v0d_affinity.sh): wait for recovery, then the 9B with milder placement, one fresh load each, 3 min
+   idle between loads, one retry after 15 min on a failed mapping: -t 4 alone; -t 4 --cpu-mask 0xF (not strict);
+   strict with --poll 0 (no busy polling). G' stays provisional; its hang rate is the open question for V0e.
