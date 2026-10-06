@@ -924,3 +924,19 @@ D82 2026-10-06 Round 4b (runs/v0d-spec4b/).
      - The working combined build stays available for later study. No laptop build is needed.
    - The non-GPU part of round 4b runs as round 4c (tools/v0d_spec4c.sh): the batch-size test (4B, 9B) and the 4B
      NPU-drafted MTP with the target on 3 sessions (n1, n2).
+
+D83 2026-10-06 Round 4c (runs/v0d-spec4c/): batch-size test and 4-session NPU-drafted MTP.
+   llama-bench (Hexagon package), time per call for n tokens relative to n = 1 (pp1 = 95 ms 4B, 157 ms 9B at d0):
+       n:        1     2     3     4     8
+       4B d0   1.00  1.18  1.63  1.92  2.01      4B d8192  1.00  1.17  1.57  1.84  1.98
+       9B d0   1.00  1.20  1.78  2.00  2.21      9B d8192  1.00  1.18  1.66  1.90  1.98
+   Verifying 2 tokens costs ~1.2 steps on the NPU itself; 8 tokens cost about the same as 4 (tile-like steps).
+   Per-step accounting of the NPU-drafted 4B MTP n1 (16K): draft 32.8 ms (0.26 step; the CPU draft took 111 ms),
+   verification 174.7 ms (1.39 step: 1.17 raw + ~0.22 speculation bookkeeping), 1.81 tokens per step ->
+   predicted 1.10x, measured +10 %. With n1 the ceiling is ~1.27x even with zero bookkeeping.
+   4B, target on 3 sessions + MTP draft on a 4th: n1 512 186.3/9.89, 8K 186.5/9.11, 16K 176.3/8.55, acceptance 0.79
+   (same as the 2-session draft, D80). n2: 512 190.9/9.98, 8K 188.0/8.92 (acceptance 0.68), then an NPU HANG at 16K
+   (fault 1 of the round; npu-stalls copy in the run dir).
+   Implication: block drafting (DFlash) suits this NPU's cost curve best (8 verified tokens for ~2 steps), if it maps.
+   It failed to map on 2 sessions (D72: rollback snapshots for n_max tokens). Next: one exploratory round with the
+   4B target on 4 sessions (smaller per-session share) and the DFlash draft on the CPU, n_max 3 and 7.
