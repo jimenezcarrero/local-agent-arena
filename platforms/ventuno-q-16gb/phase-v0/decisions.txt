@@ -867,3 +867,14 @@ D78 2026-10-06 Codex: the combined-build parity gate needs a current-run compari
    Tolerance basis: A's repeat spread was ~2 % (16K prefill) and ~1.4 % (decode).
    Checker verified on synthetic inputs (pass; -6.5 % -> FAIL; missing 16K value -> FAIL), and the reference command
    resolves to the package binary and libraries.
+
+D79 2026-10-06 Round 3, 9B part (runs/v0d-spec3/): the D76 hypothesis holds. With the output head on the CPU
+   (-ot output.weight=CPU) every 9B MTP variant loads (round 2: none did). Single runs, 16K prefill/decode:
+     head on CPU, no speculation       125.2/3.92
+     MTP n1, MTP layer on CPU (4 big)   96.5/4.35   acceptance 289/343 = 0.84
+     MTP n1, MTP layer on NPU (-ngl 34) 114.0/4.61  acceptance 283/350 = 0.81
+     MTP n2, MTP layer on CPU           94.3/4.15   acceptance 359/548 = 0.66
+   Reference H + --no-host (round 2): 147.0/5.07. MTP adds 11-18 % decode over the same layout, but the CPU output
+   head costs more than that (decode -23 %, prefill -15 %), and every MTP variant falls below the 145 prefill gate.
+   The GPU output head (round 4) is the remaining 9B MTP placement. The unchanged baseline probe hung twice more
+   (17:00, 17:22; 2 of round 3's 3-fault cap); load failures on probes at 17:47 and 18:23 (retried, passed).
