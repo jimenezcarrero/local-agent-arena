@@ -3,11 +3,11 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D50).
+[`decisions.txt`](decisions.txt) (D1–D61).
 
-**Status: V0b complete; V0c exploration complete for every runbook route (statuses below); one
-V0c shortlist candidate (the ~4B) with its repeats. No configuration is called eligible here: provisional
-eligibility belongs to V0d (final settings, a declared memory floor, re-measurement), and GO needs V0e.**
+**Status: V0b and V0c complete. V0d has given provisional eligibility to one ~4B configuration and one 9B
+configuration (final settings, declared memory floor, re-measurement; section "V0d" below). Nothing is GO: each
+configuration still needs V0e qualification, and the NPU's degraded state (D53, D61) is an open risk for it.**
 
 ## What was measured, and how
 
@@ -119,6 +119,57 @@ in the repeats; no swap at any point; NPU sensor ≤ 50.5 °C. Against the froze
 NPU, the 9B's KV cache cannot be mapped at 40960 (an NPU-wide mapping ceiling between ~4.7 and ~5.3 GB is
 inferred, not verified); partial offload (20 of 34 layers on the NPU) loads but decodes below the gate; every measured non-NPU route is 9–56× below the prefill gate (16.3 tok/s at best, 2.6 at worst, at 8K).
 
+## V0d — tuning, final settings and re-measurement
+
+Tuning sweep (D53), CPU thread placement (D55), unlock tests (D59) and final re-measurements (D58, D60); method
+and analysis in [`v0d-investigation.md`](v0d-investigation.md). Each final configuration: discarded warm-up, 3
+repeats (medians below), both tool gates, from measurement commit 7badb21. Both use ggml-hexagon 836d5717,
+pure Q4_0, `--ctx-checkpoints 0 -c 40960 --cache-ram 8192`, and otherwise llama-server defaults.
+
+| Configuration | 512 | 8K | **16K** | 32K | Tools | Memory floor¹ |
+|---|---|---|---|---|---|---|
+| **~4B A**: NeoHorse-1-4B, 2 sessions, `-ngl 99` | 326.4/9.54 | 342.6/9.31 | **312.9/8.06** | 279.3/6.71 | 10/10, 3/3 | 7.10 GiB |
+| **9B G′**: Ornith-1.0-9B, 3 sessions, `GGML_HEXAGON_MBUF=256 -ngl 33 --no-op-offload -t 4 --cpu-mask 0xF --cpu-strict 1` | 163.5/6.29 | 166.7/6.02 | **159.4/5.49** | 150.1/4.95 | 10/10, 3/3 | 5.10 GiB |
+
+Prefill/decode in tok/s. ¹ The RUNBOOK's floor: the minimum MemAvailable during the 32K repeats; swap stayed at 0
+throughout. The tool-gate runs went lower: 6.10 GiB for the 4B and 4.05 GiB for the 9B. Against the gates
+(145/4.4 at 16K), the 4B has margins of 2.2×/1.8× and the 9B of 1.10×/1.25×.
+
+**Provisional eligibility (V0d):**
+- **~4B: A.**
+- **9B: G′**, the first 9B configuration to reach the gates. The 9B unlock (D59):
+  - The 9B's 546 MiB token-embedding table sits in a DSP-shared host buffer. With 2 sessions, or without
+    `--no-op-offload`, it cannot be mapped.
+  - G′ needs the big-core affinity: without it, 16K gives 143.5/3.90.
+
+**Tested, not adopted:**
+
+| Setting | Result |
+|---|---|
+| 4 big-core threads on the 4B (F) | +4–7 % decode, but hung the NPU once in 3 runs (D57) |
+| KV q8_0 | hangs the NPU |
+| `--cache-ram 0` | 16K about 217/6.4 (3 runs) |
+| ubatch 128/256 | prefill drops |
+| ubatch 1024 | does not map |
+| n-gram speculation | no gain |
+| `--no-host` | no gain |
+| 4B with the output layer on the CPU | slower prefill |
+
+**65K window for the 4B:** it loads on 4 sessions (`-ngl 99`). A single run reached a depth of 48.9K tokens
+(244.4/5.67), with a floor of 4.10 GiB. It is a candidate for window qualification in V0e; the 4B's final
+setting stays at 40960.
+
+**Why decode trails the Jetson:**
+- Decode is limited by memory bandwidth. The CPU reads at 25.6 GB/s with 4 threads; the Jetson is specified at
+  68 GB/s (D54).
+- On the CPU route, llama.cpp's default 8 threads halve decode compared with 4 threads on the big cores (D55).
+
+**Open risk — the NPU's degraded state:**
+- After a hang (D53), and once with no hang after about 32 clean loads (D61), no configuration maps any more until
+  the NPU recovers.
+- It recovered idle in about 3 h once. Otherwise it needs a cDSP restart, which requires root.
+- V0e must define a recovery procedure and find what triggers the state.
+
 ## Failure classes found
 
 | Class | Where |
@@ -127,7 +178,8 @@ inferred, not verified); partial offload (20 of 34 layers on the NPU) loads but 
 | Unsupported quantization | IQ3_M on GenieX (import) and on HTP (iq3_s) |
 | Driver allocation limit | GenieX GPU, 1024 MB OpenCL buffer (D34) |
 | Runtime defect | GenieX empty reply on a fully cached prompt (D33); ggml-hexagon context checkpoint `NO-SUPPORT` (D43) |
-| Hangs | GenieX hybrid (V0b, FastRPC wait); ggml-hexagon 3 sessions at 32K (FastRPC wait); OpenCL GPU lockup (D37); unexplained board stop (D39) |
+| Hangs | GenieX hybrid (V0b, FastRPC wait); ggml-hexagon 3 sessions at 32K (FastRPC wait), KV q8_0 (D53), 4B with big-core affinity (D57); OpenCL GPU lockup (D37); unexplained board stop (D39) |
+| NPU degraded state | no mapping until recovery; after a hang (D53) or with no hang after ~32 loads (D61) |
 | Client/tooling | `speed_probe.py` SSE parsing, fixed in #44 (D25) |
 
 ## Still pending before any admission
@@ -135,11 +187,13 @@ inferred, not verified); partial offload (20 of 34 layers on the NPU) loads but 
 - **V0c coverage:** every runbook route now has a status (the table above). The three cells deferred overnight were
   run with the owner present (D49). Vulkan failed V0b and is not carried into V0c. The 2026-10-04 board stop (D39)
   did not reproduce when GenieX GPU × Ornith-9B was re-run; its cause stays unexplained.
-- **V0d** (tuning on the shortlist, final settings, re-measurement), then **V0e** for the exact configuration:
-  pi's streaming path and a real-pi smoke session, each intended window at its real size (40960 is not 65K),
-  cached multi-turn reuse, and a ≥ 90-minute sustained run. The two NPU hangs seen in other configurations make
-  the sustained run essential.
-- **9B:** tuning paths (KV q8_0 on fewer layers, partial `-ngl`, smaller windows) need their own decision.
+- **V0d** is done (section above). **V0e** comes next for each exact configuration:
+  - pi's streaming path and a real-pi smoke session;
+  - each intended window at its real size (40960 is not 65K);
+  - cached multi-turn reuse;
+  - a ≥ 90-minute sustained run with no NPU hang;
+  - a recovery procedure for the NPU's degraded state (D61).
+- **9B:** G′ is provisionally eligible. Its prefill margin is thin (1.10×), and it loads only on a clean NPU.
 - **`--ctx-checkpoints 0`** is a non-default setting adopted in V0c (D43); it is part of the candidate's manifest.
 - `speed_probe.py`'s `timeout=3600` is a socket read timeout, not a per-request cap (several 8K requests on the
   slowest routes took longer than an hour and completed).
