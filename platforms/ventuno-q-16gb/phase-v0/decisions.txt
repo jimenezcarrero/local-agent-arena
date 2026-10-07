@@ -1124,3 +1124,12 @@ D93 2026-10-08 Codex review of #47 at ee7042a (2026-10-07 22:08Z), before instal
        preconditions first and restarts before its first probe.
    Exclusive use: the board runs one sequence at a time (each starts only after the previous server is killed);
    no other agent or job launches inference on it; the helper itself refuses while any cDSP client is open.
+
+D94 2026-10-08 Codex review of #47 at b091504 (2026-10-07 22:16Z), before installation; nothing has run as root.
+   [P2] Remaining branch of the descriptor finding: after a failed readlink, a failed re-listing of the fd table no
+   longer counts as "fd gone". The helper skips an entry only if the process directory has vanished or a successful
+   re-listing lacks the fd; a failed re-listing while the process exists refuses (exit 4) before BEGIN. Regressions
+   (fault injected only in the temp copy): relist-fails (refused, state unchanged, no BEGIN) and fd-vanished
+   (skipped, restart OK). tools/test_cdsp_restart.sh: 26 checks pass.
+   Wording correction to D93 (3): each H2 admission step's probe/load pair follows a restart; recovery probes after a
+   fault or load failure stay plain idle probes and do not restart (D92). Not "every NPU load".

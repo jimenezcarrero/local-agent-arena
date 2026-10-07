@@ -24,7 +24,8 @@ H="$E GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1,HTP0:2 GGML_HEXAGON_MBUF=256 $P/bin/lla
 $CHECK_PROC '^/bin/bash /home/arduino/v0/npu_stall_watchdog.sh' > /dev/null || { say "STOP: NPU stall watchdog not running"; exit 6; }
 $CHECK_PROC '^/bin/bash /home/arduino/v0/monitor/health_sampler.sh' > /dev/null || { say "STOP: health sampler not running"; exit 6; }
 # H2 (D93, Codex review of #47 22:08Z): its helper is checked before anything loads, and there is no plain initial
-# probe: the set's first step is restart + settle -> baseline probe -> warm-up, so every NPU load follows a restart.
+# probe: the first step is restart + settle -> baseline probe -> warm-up. Each admission step's probe/load pair follows
+# a restart; recovery probes (after a fault or load failure) do not restart.
 [ $S = H2 ] && { $HELPER_CHECK > /dev/null 2>&1 || { say "STOP: cDSP restart helper not installed (D92)"; exit 6; }; }
 say "admission $S start (pid $$)"; [ $S = H2 ] || ready now
 case $S in
