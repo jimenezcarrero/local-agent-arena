@@ -27,5 +27,10 @@ echo "arduino ALL=(root) NOPASSWD: $BIN \"\"" > "$tmpd/rule"
 visudo -cf "$tmpd/rule" > /dev/null
 install -o root -g root -m 0755 "$tmpd/helper" "$BIN"
 install -o root -g root -m 0440 "$tmpd/rule" "$RULE"
-visudo -c > /dev/null || { rm -f "$RULE"; echo "sudoers check failed; rule removed" >&2; exit 3; }
+# Post-install check of what this installer owns (D95): the board image ships vendor sudoers.d files with modes other
+# than 0440, so a whole-configuration "visudo -c" fails regardless of this rule. Check the installed rule itself, and
+# that sudo actually grants this command without a password; otherwise remove the rule.
+# (the rule's exact text, with its no-argument "", is the staged file checked above; this confirms sudo loads it)
+visudo -cf "$RULE" > /dev/null && sudo -l -U arduino 2>/dev/null | grep -qE "NOPASSWD: $BIN( |\$)" \
+  || { rm -f "$RULE"; echo "installed rule not active (visudo -cf or sudo -l -U arduino); rule removed" >&2; exit 3; }
 echo "installed $BIN (sha256 $(sha256sum "$BIN" | cut -c1-64), expires $(date -d @"$exp" -Is)) and $RULE:"; cat "$RULE"

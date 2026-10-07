@@ -1133,3 +1133,12 @@ D94 2026-10-08 Codex review of #47 at b091504 (2026-10-07 22:16Z), before instal
    (skipped, restart OK). tools/test_cdsp_restart.sh: 26 checks pass.
    Wording correction to D93 (3): each H2 admission step's probe/load pair follows a restart; recovery probes after a
    fault or load failure stay plain idle probes and do not restart (D92). Not "every NPU load".
+
+D95 2026-10-08 First installation (00:26) left the helper installed (sha256 2ba2c68c..., expiry 2026-10-08T09:00, as
+   expected) but no sudoers rule: the installer's final whole-configuration "visudo -c" failed on the board image's own
+   files (owner's output: 10-arduino-passwd, 20-arduino-ssh, 30-arduino-keyboard, 90-arduino-sysupgrade "bad
+   permissions, should be mode 0440"; /etc/sudoers and the README parse OK), so it removed its rule as designed.
+   No restart ran. The vendor files are not changed (outside the authorized scope; reported to the owner). The
+   installer's post-check now verifies only what it installed: visudo -cf on its rule file, and that sudo -l -U arduino
+   lists the helper as NOPASSWD; otherwise it removes the rule. The rule's exact text (no arguments, "") is unchanged
+   and still visudo-checked before installation. Helper unchanged.
