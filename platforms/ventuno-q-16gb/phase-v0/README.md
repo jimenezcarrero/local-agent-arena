@@ -3,16 +3,19 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D75).
+[`decisions.txt`](decisions.txt) (D1–D88).
 
-**Status (2026-10-06 17:00): V0b and V0c complete. V0d admission is not complete for any configuration.**
+**Status (2026-10-07 18:00): V0b and V0c complete. V0d admission is not complete for any configuration; the
+admission sets are running.**
 - The D65/D67 re-measurement of A stopped at its first repeat on an NPU hang (D66), with no strict pinning.
-- Since then, two unchanged baseline probes hung (D69, and in the speculation sweep), and one server aborted with an
-  NPU runtime error with the prompt cache off (D71).
-- Hangs and aborts strike a server's later requests in every slot and cache setting tested. The diagnosis
-  stopped after 3 of 12 loads and is inconclusive (D71).
-- Per-model speculative decoding exploration is in progress (D70, D72, D73, D75). A board-native NPU+GPU build is
-  being attempted (D74).
+- Since then, unchanged baseline probes hung (D69, and in the speculation sweep), one server aborted with an NPU
+  runtime error with the prompt cache off (D71), and a 4B MTP n=2 server hung at 16K (D83).
+- Hangs and aborts strike a server's later requests in every slot and cache setting tested; the cause is unknown
+  (D71).
+- Speculation exploration is finished (D84): only the 4B's base-model MTP head, drafted on its own NPU session, beats
+  its control; nothing beats the 9B's plain H.
+- Three configurations are in admission (D85): A, A + NPU-drafted MTP (AM) and 9B H with `--no-host`.
+- Kernel faults now fail a run on their own (D86).
 - Nothing is provisionally eligible and nothing is GO. Earlier results remain evidence under their own labels.
 
 ## What was measured, and how
@@ -158,15 +161,16 @@ With 8192 MiB neither A nor the 9B was estimated OOM-safe.
 |---|---|
 | A | 7,942 MiB |
 | 9B H | 5,364 MiB |
-| 4B at 65K | 5,727 MiB (provisional) |
+| AM (A + NPU-drafted MTP) | 4,188 MiB (provisional: its only run had no tool gate; A's speed-to-tool drop applied, D85) |
+| 4B at 65K | 5,727 MiB (provisional; not in admission) |
 
 This deviates from the runbook's single tier value.
 
 **Admission rule** (`tools/memfloor.py --admit`): every final run needs L_min ≥ `--cache-ram` + 0.33 GiB, with swap
 growth 0. Missing samples never admit (D75). The policy is an estimate, to be confirmed by real pi sessions in V0e.
 
-**9B unlock (D59, D73, D75).** The 9B's 546 MiB token-embedding table sits in a DSP-shared host buffer. It cannot
-be mapped with 2 sessions, or without `--no-op-offload`. Even with 3 sessions it maps only intermittently (D61, D64,
+**9B unlock (D59, D73, D75).** The 9B's 546 MiB token-embedding table sits in a DSP-shared host buffer. The 9B
+does not load with 2 sessions, or without `--no-op-offload`. Even with 3 sessions it maps only intermittently (D61, D64,
 D73). With `--no-host` added, the table stays in plain CPU memory and H loaded on the first try (16K 147.0/5.07, single
 run, D75).
 Without any CPU placement it decodes below the gate (16K 143.5/3.90).
@@ -188,24 +192,30 @@ rate):
   abort.
 - After a fault, the full set restarts once after baseline recovery. A second fault means not eligible in V0d.
 - All faults, readiness probes included, go to the phase's `faults.txt`.
+- A GPU, DSP, SMMU or FastRPC fault line in the run's kernel window is a device fault even when the speed probe
+  passed; an unknown kernel alert stops the sequence (D86, `tools/kernel_audit.py`).
+- Admission sets (D85, `tools/v0d_admit_chain.sh`, in this order): A at 7,942 MiB, AM at 4,188 MiB, 9B H with
+  `--no-host` at 5,364 MiB. The 4B at 65K is not run.
 
-**Speculative decoding** (D70, D72, D73, D75; single exploratory runs, target on the NPU, drafts on the CPU unless
-noted; results so far):
+**Speculative decoding** (D70–D84; single exploratory runs, Markdown-continuation probes; the outcome per model):
 
 | Model | Variant | 16K prefill/decode | Acceptance | Note |
 |---|---|---|---|---|
-| 4B | control | 284.3/7.67 | — | |
-| 4B | base-model MTP, n=1 | 82.1/4.43 | 0.81 | drafting costs ~111 ms per token on the CPU (8 default threads), about one full target step |
+| 4B | control (same-session reference, round 4 mean) | ~315/7.95 | — | 8K decode 9.04 |
+| 4B | **base-model MTP head, n=1, drafted on a 3rd NPU session** | 176.1/8.72 | 0.81 | +10 % decode at 16K, +6 % at 8K; prefill falls (MTP outputs every prompt position) but stays above 145. **In admission (AM).** |
+| 4B | same, target on 3 sessions + draft on a 4th | 176.3/8.55 | 0.79 | equal; n=2 hung the NPU at 16K (D83) |
+| 4B | base-model MTP, n=1, drafted on the CPU | 95.1/5.57 (4 big cores) | 0.78 | CPU drafting costs about one target step |
 | 4B | 0.8B draft, n=4 | 41.1/2.36 | 0.54 | |
-| 4B | n-gram (`ngram-mod`) | 312.7/8.03 | 0.06 | |
-| 4B | DFlash; MTP n=2 | — | — | do not map: rollback snapshots enlarge the recurrent-state buffers in session 0 |
-| 9B | control with `--no-host` | 147.0/5.07 | — | loads (D75) |
-| 9B | own MTP, n=1, MTP layer on CPU or NPU | — | — | 546 MiB mapping fails even with `--no-host`: the draft path maps a buffer of that size (D75) |
+| 4B | n-gram (`ngram-mod`) | 312.7/8.03 | 0.06 | no gain |
+| 4B | DFlash, n=3 (head on the CPU, the only layout that loads) | 151.2/3.58 | 0.58 | below the decode gate (D84) |
+| 4B | GPU draft (combined NPU+GPU+CPU build v2) | — | — | Adreno lockup on the 8K prompt: GPU device fault, route closed (D82, D86) |
+| 9B | **plain H with `--no-host`** | 147.0/5.07 | — | best 9B; **in admission** |
+| 9B | own MTP, n=1, output head on the CPU | below H | 0.81–0.84 | loads only in this layout; the head on the CPU costs more than MTP gains (D79) |
 
-Still to run (D73 placement matrix):
-- the 4B with a faster CPU draft, the MTP layer on the NPU, and a split draft;
-- a 3- or 4-session target for 2-token drafts;
-- GPU drafts, if the board-native NPU+GPU build works (D74).
+The combined build v1 failed the parity gate on decode (−5.1 % at 8K, D80); v2 (gcc 13, OpenMP and llamafile off,
+different -march flags) passed it (D82). v2 changed several build options, so the pass supports a build-configuration
+explanation, not one isolated cause (D88). Batch-cost ratios from llama-bench (D83, audited offline in
+`runs/v0d-spec4c/bench-audit.txt`) are derived per-call costs for these layouts and depths, not NPU-only timings.
 
 **Tested, not adopted:**
 
@@ -246,7 +256,7 @@ setting stays at 40960.
 | Unsupported quantization | IQ3_M on GenieX (import) and on HTP (iq3_s) |
 | Driver allocation limit | GenieX GPU, 1024 MB OpenCL buffer (D34) |
 | Runtime defect | GenieX empty reply on a fully cached prompt (D33); ggml-hexagon context checkpoint `NO-SUPPORT` (D43) |
-| Hangs | GenieX hybrid (V0b, FastRPC wait); ggml-hexagon 3 sessions at 32K (FastRPC wait), KV q8_0 (D53), strict CPU pinning, 4B and 9B (D57, D62, D63); OpenCL GPU lockup (D37); unexplained board stop (D39) |
+| Hangs | GenieX hybrid (V0b, FastRPC wait); ggml-hexagon 3 sessions at 32K (FastRPC wait), KV q8_0 (D53), strict CPU pinning, 4B and 9B (D57, D62, D63), later requests at final settings (D66, D69, D71), MTP n=2 (D83); OpenCL GPU lockup (D37, D82); unexplained board stop (D39) |
 | NPU degraded state | no mapping until idle recovery; after a hang (D53) or after full 9B loads (D61, D64) |
 | Client/tooling | `speed_probe.py` SSE parsing, fixed in #44 (D25) |
 
@@ -255,7 +265,7 @@ setting stays at 40960.
 - **V0c coverage:** every runbook route now has a status (the table above). The three cells deferred overnight were
   run with the owner present (D49). Vulkan failed V0b and is not carried into V0c. The 2026-10-04 board stop (D39)
   did not reproduce when GenieX GPU × Ornith-9B was re-run; its cause stays unexplained.
-- **V0d:** the D65 re-measurements of A and H, their manifests, then eligibility. **V0e** comes next for each exact configuration:
+- **V0d:** the D85 admission sets (A, AM, H), their manifests (`files.txt`), then eligibility. **V0e** comes next for each exact configuration:
   - pi's streaming path and a real-pi smoke session;
   - each intended window at its real size (40960 is not 65K);
   - cached multi-turn reuse;
