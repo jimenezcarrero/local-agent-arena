@@ -1,0 +1,33 @@
+V0e plan for configuration A (proposal, 2026-10-08; NOT started: V0e needs the owner's go-ahead)
+
+Configuration (exact, from the D90 admission set; manifest in files.txt, runs/v0d-admit-A):
+  NeoHorse-1-4B pure Q4_0 (sha256 f822fa26...), ggml-hexagon 836d5717 release package (llama-server sha256 815b22bb...),
+  2 HTP sessions (HTP0:0, HTP0:1), -ngl 99, -c 40960, --ctx-checkpoints 0, --cache-ram 7942, 4 slots, llama-server
+  defaults otherwise (sampling: server defaults, as in V0d). Measurement commit 7badb21.
+  Ranked first under the runbook rule (Codex review 2026-10-07 20:24Z); AM is a separately eligible alternative and
+  would need its own V0e.
+
+Windows: A's server context is 40960, so its windows are 32K (the crusher; pi's advertised window 32768) and 40960.
+  65K is NOT part of A: the 4B at 65K needs 4 sessions (D59, D60; cap 5,727 MiB provisional, D67) and is a different
+  configuration with its own V0d admission and V0e. Marathons at 65K therefore need that configuration first; until
+  then A can run the short arenas and the 32K crusher only.
+
+Steps (RUNBOOK V0e 1-4), all through run_route-style wrappers (window registered, health, kernel audit, fail-closed
+classify/decide, watchdog and sampler required), from ~/bench-runs, never inside the repo:
+  1. Streaming tool calls: suite/tools/probe_toolcalls.py probe ... --stream (10/10) and agentic ... --stream (3/3)
+     against A; then suite/tools/pi_smoke.py, a short real-pi session (pi 0.80.10, D7) that reads a scratch file,
+     edits it, runs a command and recovers from a deliberate tool error.
+  2. Windows at real size, for 32768 and 40960: a near-limit prompt with room for the reply, a tool continuation and
+     a compaction; check that the GGUF metadata, llama-server's effective n_ctx (per slot) and pi's advertised window
+     agree. A failing window is recorded as unsupported for A, never shortened. Note: with 4 slots, check the per-slot
+     context llama-server reports against the window pi is told.
+  3. Cached multi-turn reuse: reuse a transcript, append tool output, compact; record cached-token counts from the
+     server's timings, reported separately from fresh-prefix speed (--cache-ram 7942 binds here; memfloor per run).
+  4. Sustained run >= 90 min with one server kept up (a repeating pi workload), sampling temperatures, clocks,
+     MemAvailable, swap, PSI and kernel errors throughout; compare early and late throughput. An NPU hang or abort
+     during the run fails it (D66/D69/D71/D83 show these strike later requests); a cDSP restart can never count
+     inside it (D92).
+  Also required before V1: an NPU recovery procedure (degraded state D61/D64), separate from the restart question
+  (D96, D98).
+
+Evidence: phase-v0e/ (or a v0e section), same rules: .txt/.json/.jsonl, manifests, raw monitoring, decisions.
