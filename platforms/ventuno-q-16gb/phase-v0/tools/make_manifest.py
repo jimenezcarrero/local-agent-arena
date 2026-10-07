@@ -6,7 +6,9 @@ A field the evidence does not contain is written as "not logged"; nothing is inf
 import glob, hashlib, os, re, sys
 
 H = os.path.expanduser("~")
-PHASES = ["v0b-7badb21", "v0c", "v0-explore", "v0c-repeats", "v0d-final", "v0d-final-9b", "v0d-final-9b-h", "v0d-final3"]
+PHASES = ["v0b-7badb21", "v0c", "v0-explore", "v0c-repeats", "v0d-final", "v0d-final-9b", "v0d-final-9b-h", "v0d-final3",
+          "v0d-soak", "v0d-affinity", "v0d-diag", "v0d-spec", "v0d-spec2", "v0d-spec3", "v0d-spec4", "v0d-spec4b", "v0d-spec4c",
+          "v0d-spec5", "v0d-spec5b", "v0d-spec5c", "v0d-spec5d", "v0d-admit-A", "v0d-admit-AM", "v0d-admit-H"]
 # V0d status per phase/label prefix (D58, D60, D63, D64, D65)
 STATUS = [("v0d-final/", "V0d A with --cache-ram 8192 (D58): evidence only, superseded by the D65 re-measurement"),
           ("v0d-final-9b/9b-Gbig", "V0d 9B G' (D60): WITHDRAWN (--cpu-strict 1 linked to NPU hangs, D63)"),
@@ -14,7 +16,33 @@ STATUS = [("v0d-final/", "V0d A with --cache-ram 8192 (D58): evidence only, supe
           ("v0d-final-9b-h/probe", "baseline readiness probe (unchanged A config), not a measurement"),
           ("v0d-final-9b-h/", "V0d 9B H with --cache-ram 8192 (D64): partial, superseded by the D65 re-measurement"),
           ("v0d-final3/probe", "baseline readiness probe (unchanged A config), not a measurement"),
-          ("v0d-final3/", "V0d final re-measurement with per-configuration --cache-ram (D65)")]
+          ("v0d-final3/", "V0d final re-measurement with per-configuration --cache-ram (D65)"),
+          ("v0d-soak/", "V0d soak (D61-D63): exploratory"), ("v0d-affinity/", "V0d affinity test (D63): exploratory"),
+          ("v0d-diag/", "V0d diagnostic soak (D68-D71): exploratory"),
+          ("v0d-spec4/dl-", "combined build v1 (D77): FAILED parity (D80), exploratory only"),
+          ("v0d-spec4b/dl-4B-d08-n4-gpu", "combined build v2, GPU draft: GPU device fault (D82, D86), route closed"),
+          ("v0d-spec4b/dl-", "combined build v2 (D81): parity PASS (D82), exploratory"),
+          ("v0d-spec", "V0d speculation exploration (D70-D84): single exploratory run, not an admission run"),
+          ("v0d-admit-A/probe", "baseline readiness probe (unchanged A config), not a measurement"),
+          ("v0d-admit-AM/probe", "baseline readiness probe (unchanged A config), not a measurement"),
+          ("v0d-admit-H/probe", "baseline readiness probe (unchanged A config), not a measurement"),
+          ("v0d-admit-", "V0d admission set (D85, D68 restart rule)")]
+# Draft models (drafts/expected-sha256.txt, verified at download: drafts/fetch.log.txt)
+DRAFTS = {"Qwen3.5-0.8B-Q4_0.gguf": "444406ddd926550c724ec18d5120a9d40ded44908a063b0e66e9a7e5464c652c",
+          "Qwen3.5-4B-Q4_0.gguf": "14e6ef39302330c63c2c1a1ab548c7f6f1b7e36b3150ca8b42cab7193b0c3669",
+          "Qwen3.5-4B-DFlash.Q8_0.gguf": "f0689eadab0d46468bc2629bb2706f4aba7f794b63e1c9f6eb291269d572a52b",
+          "Qwen3.5-9B-DFlash.Q8_0.gguf": "27b9d18e605aea9c50ef506e4b63921e0dc624cc91c63c60617a8295f153d436"}
+# Backend libraries hashed next to each llama-server binary: the release package (lib/) or a combined build (bin/, DL
+# modules + the Hexagon shim). Source revision: package name / build log "ggml commit" line.
+LIBS = {"hexpkg/pkg-linux/bin": ("../lib", ["libggml-base.so.0.25.3", "libggml.so.0.25.3", "libggml-cpu.so.0.25.3",
+                                            "libggml-hexagon.so.0.25.3", "libggml-htp-v75.so", "libllama.so.0.5.0"],
+                                 "836d5717 (pkg-linux-836d5717.tar.gz, Hexagon release package)"),
+        "llama.cpp/build-dl/bin": (".", ["libggml-base.so", "libggml.so", "libggml-cpu.so", "libggml-opencl.so",
+                                         "libggml-hexagon-shim.so", "libllama.so"],
+                                   "836d57176 (builds/dl-build.log.txt; v1, D77)"),
+        "llama.cpp/build-dl2/bin": (".", ["libggml-base.so", "libggml.so", "libggml-cpu.so", "libggml-opencl.so",
+                                          "libggml-hexagon-shim.so", "libllama.so"],
+                                    "836d57176 (builds/dl-build2.log.txt; v2, D81)")}
 MODELS = {"qwen2.5-1.5b-instruct-q4_0-pure.gguf": "78b8d3c9439ec6b511ed0d3acd07f421161771ca08faba571e18137122879eb0",
           "NeoHorse-1-4B-q4_0-pure.gguf": "f822fa2602af45d802e54bac518bab3f62b08943029626114a474afc3d8f3049",
           "Ornith-1.0-9B-q4_0-pure.gguf": "d21c19e56e1a7d2cdc42a0714cb318769fcc53c28ad2c8b19e500c70cc490528",
@@ -107,6 +135,18 @@ def main():
             exe = next((w for w in cmd.split() if w.endswith("/llama-server") or w == "geniex"), None)
             if exe and exe.startswith("/"):
                 print(f"server binary: {exe} sha256 {binhash(exe)}")
+                lk = next((k for k in LIBS if exe.endswith(k + "/llama-server")), None)
+                if lk:
+                    rel, libs, rev = LIBS[lk]
+                    print(f"source revision: {rev}")
+                    for lib in libs:
+                        print(f"  lib {lib} sha256 {binhash(os.path.normpath(os.path.join(os.path.dirname(exe), rel, lib)))}")
+                    if "hexpkg" not in lk:   # the combined build loads the Hexagon backend through the shim from the package
+                        print(f"  lib libggml-hexagon.so.0.25.3 (package, via shim) sha256 {binhash(H + '/v0/hexpkg/pkg-linux/lib/libggml-hexagon.so.0.25.3')}")
+            md = re.search(r"-md (\S+)", cmd)
+            if md:
+                dn = os.path.basename(md.group(1))
+                print(f"draft model: {dn} sha256 {DRAFTS.get(dn, 'not in drafts/expected-sha256.txt')}")
             elif exe == "geniex":
                 print("server binary: GenieX v0.8.0 launcher; bundled files hashed in geniex-install.txt")
             te = te0
@@ -125,9 +165,10 @@ def main():
                     ["system_info", "using device", "offloaded \\d+/\\d+", "model buffer size", "KV buffer size", "RS buffer size",
                      "compute buffer size =", "llama_kv_cache: size =", "n_slots =", "llama_context: n_ctx +=", "llama_context: n_batch",
                      "llama_context: n_ubatch", "llama_context: flash_attn", "type_k", "HTP0 power", "Hexagon Arch",
-                     "allocating new session", "op batching"])
+                     "allocating new session", "op batching", "n_rs_seq", "loading draft model",
+                     "adding speculative implementation", "- n_max=", "devices=\\["])
             print("startup evidence:")
-            for l in grab(log, pats, 26):
+            for l in grab(log, pats, 40 if "-md " in cmd else 26):
                 print("  " + l)
             if not gen:
                 aff = "set" if re.search(r"--cpu-mask|-C |--poll ", cmd) else "not set (llama.cpp defaults; no affinity mask)"

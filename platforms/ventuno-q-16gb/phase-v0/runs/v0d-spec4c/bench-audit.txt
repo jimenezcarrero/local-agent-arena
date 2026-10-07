@@ -1,0 +1,20 @@
+Offline audit of the two llama-bench runs of round 4c (D83), 2026-10-07, Codex review of #45 20:32Z finding 2.
+They ran under bench() in tools/v0d_spec4c.sh, which checked only the exit status, a timeout and the stall watchdog
+(the watchdog then selected llama-server only). Audited after the fact with the evidence the board kept:
+
+run       window (status.txt START/END)             rc  numeric rows  kernel audit*  health samples (raw, in window)
+bench-4B  2026-10-06T20:47:16 .. 20:47:57 +02:00    0   10 of 10      pass           3; min MemAvailable 9.41 GiB, swap 0, kernel reads 4 ok / 0 failed, ok read after END, 0 alert / 0 OOM lines
+bench-9B  2026-10-06T21:05:26 .. 21:07:02 +02:00    0   10 of 10      pass           9; min MemAvailable 7.35 GiB, swap 0, kernel reads 5 ok / 0 failed, ok read after END, 0 alert / 0 OOM lines
+* tools/kernel_audit.py over START .. END + 30 s of the durable kernel journal (monitor/kernel-20261006.jsonl).
+stderr (bench.err): backend start-up lines only; the one "failed" line is "FASTRPC_GET_DOMAINS query failed (0x6c),
+using static CDSP domains", a domain-query fallback at backend start-up; the next lines enumerate exactly the requested
+sessions (cdsp:3, HTP0:0..n). It also appears in the GenieX server logs; the llama-server logs (-lv 4) do not carry
+this line, so it was not compared against them. No abort, no watchdog line
+in either window (the 21:27 watchdog kill is the later n2 server run). Build line: 836d57176 (11381), the package
+binary used for all Hexagon runs.
+Result: both runs pass the outcome checks the wrapper now applies (tools/bench_checked.sh: exit status, output rows,
+kernel audit, health, kernel read after END). Binary/library hashes were not recorded at the time (the wrapper now
+records them); the build line matches the Hexagon package used for every Hexagon run. The D83 ratios stand as single
+llama-bench runs (3 repetitions each), i.e. derived per-call costs for these layouts and depths, not NPU-only timings.
+Their windows were registered after the fact in run-windows.jsonl (marked "registered_after") so the raw health
+samples are published with the other run windows.
