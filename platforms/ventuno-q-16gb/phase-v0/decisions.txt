@@ -960,3 +960,37 @@ D84 2026-10-06 DFlash for the 4B (rounds 5, 5b, 5c, 5d; runs/v0d-spec5*/).
    - Limits found: the 248K-vocabulary head dominates draft cost; speculation bookkeeping adds ~0.22 steps; MTP's
      prompt-wide outputs cut prefill ~44 %; extra recurrent-state snapshots exhaust per-session mapping; DFlash
      cannot share the tied embedding across devices. The NPU itself verifies cheaply (1.2 steps for 2 tokens).
+
+D85 2026-10-07 Admission sets, declared before any run (owner: run the three recommended; the 4B at 65K is not run).
+   Scripts: tools/v0d_admit.sh (one set per call, own phase dir and fault counter), tools/v0d_admit_chain.sh (A, AM, H in
+   that order; continues after "admitted" or "not eligible", stops on any other exit). Each set is D68 (b): discarded
+   warm-up, r1-r3 at 512/8K/16K/32K, both tool gates, every run classified and passed through memfloor --admit; one
+   fault restarts the whole set after recovery, a second fault means not eligible in V0d.
+     A    NeoHorse-1-4B plain, 2 sessions, --cache-ram 7,942 MiB (D67).
+     AM   A + base Qwen3.5-4B MTP head drafted on a 3rd NPU session, n1 (D80, the 2-session-target variant: same speed
+          as 3 sessions and 0.29 GiB more headroom), --cache-ram 4,188 MiB.
+     H    Ornith-1.0-9B, 3 sessions, MBUF 256, -ngl 33 --no-op-offload -t 4 --no-host, --cache-ram 5,364 MiB (D67);
+          a passing baseline probe before every step (D64).
+   AM cap (computed, provisional): the MTP draft keeps the draft model's trunk in host memory, so its only run
+   (v0d-spec3/4B-mtpbase-n1-npu) left L_min 5,138,358 kB against A's 8.98-9.02 M kB. AM has no tool gate yet; A's
+   tool gate sits 503,055 kB under A's lowest speed run (8,981,884 - 8,478,829), and that drop is applied:
+   (5,138,358 - 503,055 - 346,030) / 1024 = 4,188 MiB. The set's own runs must pass memfloor --admit at 4,188; a
+   reject stops the set (recorded, then recomputed from the set's own tool gate).
+
+D86 2026-10-07 Codex review of #45 at 7dba8b0 (20:32Z) finding 1 (read today, before the D85 sets): accelerator kernel faults
+   now fail admission on their own. tools/kernel_audit.py audits every kernel line in a run window (START .. END + 30 s;
+   the sampler's ALERT_RE matches plus any fault-pattern match, since a GPU "lockup" line has no ALERT_RE word) and
+   puts each in one class: fault (GPU/display hangcheck, SMMU, DSP/remoteproc crash, any fastrpc/adsprpc/cdsp line
+   other than a mapping failure, hung task, segfault, OOM), npu_map ("fastrpc ... failed to map buffer"), allowed
+   (audited allowlist: USB disconnect only) or unknown. classify() (tools/v0d_lib.sh) now writes kernel-audit.txt and:
+   fault -> DEVFAULT; unknown or missing input -> EVIDENCE; PASS needs a clean audit; npu_map only inside a LOADFAIL.
+   Replay over the 221 committed run directories: the 6 GPU runs (including v0d-spec4b/dl-4B-d08-n4-gpu, 31 lines)
+   are faults; all 55 npu_map runs are load failures (the server exited before ready, or a soak load retry inside
+   the run); 159 pass; v0c/geniex-cpu-ornith9b spans a reboot (boot lines: fault/unknown) and v0c/geniex-gpu-ornith9b
+   has no window. The GPU-lockup run is reclassified: GPU device fault, failed health (it had stopped only on speed).
+   Tests: tools/test_kernel_audit.sh (18, including the published GPU-lockup journal as an offline regression),
+   test_v0d_lib.sh (+6), test_runner.sh (+2: a kernel fault behind a passing probe restarts the set; unknown stops).
+   The NPU stall watchdog had not been restarted after today's boot (no @reboot entry); it was started before any run
+   and tools/v0d_admit.sh now refuses to start without the watchdog and the health sampler.
+   Findings 2 (llama-bench wrapper) and 3 (provenance, manifests, report) do not touch the admission sets; they are
+   handled while the sets run.

@@ -1,6 +1,6 @@
 #!/bin/bash
 # mocked tests for v0d_runner.sh: real classify()/decide(), fake run_route/run_v0c/memfloor driven by a script of outcomes.
-# Outcomes per call (one line each in $T/plan): PASS, LOADFAIL, HANG, DEVFAULT, TIMEOUT, NOVERDICT, EXITEVID (timeout + exit line)
+# Outcomes per call (one line each in $T/plan): PASS, KFAULT (speed passes, GPU/DSP fault in the kernel window), KUNKNOWN, LOADFAIL, HANG, DEVFAULT, TIMEOUT, NOVERDICT, EXITEVID (timeout + exit line)
 fails=0
 setup() { T=$(mktemp -d); export T WD_LOG=$T/wd.txt; echo x > $WD_LOG; printf "%s\n" "$@" > $T/plan
 cat > $T/fake_run.sh <<'EOS'
@@ -12,12 +12,18 @@ case $out in
  LOADFAIL) printf "t SERVER EXITED before ready (see server.log)\nt RESULT FAIL: speed=4\n" > $o/run.txt; echo pass > $o/health-verdict.txt; echo "E ggml-hex: HTP0:0 buffer mapping failed : domain_id 3 size 1" > $o/server.log; exit 1;;
  HANG) echo "y NPU-WATCHDOG killed" >> $WD_LOG; echo "t RESULT FAIL: speed=1" > $o/run.txt; echo pass > $o/health-verdict.txt; : > $o/server.log; exit 1;;
  DEVFAULT) echo "t RESULT FAIL: speed=1" > $o/run.txt; echo pass > $o/health-verdict.txt; printf "ggml-hex: dspqueue_read failed: 0x2e\nggml_abort\n" > $o/server.log; exit 1;;
+ KFAULT|KUNKNOWN) echo "t RESULT PASS (speed, health: pass, kernel evidence)" > $o/run.txt; echo pass > $o/health-verdict.txt; : > $o/server.log
+   [ $out = KFAULT ] && echo "fault fault=23|1" > $o/kaudit || echo "unknown unknown=1|2" > $o/kaudit; exit 0;;
  TIMEOUT) echo "t START" > $o/run.txt; : > $o/server.log; exit 124;;
  NOVERDICT) echo "t RESULT PASS" > $o/run.txt; : > $o/server.log; exit 0;;
  EXITEVID) echo "t SERVER EXITED before ready (see server.log)" > $o/run.txt; : > $o/server.log; exit 124;;
 esac
 EOS
-chmod +x $T/fake_run.sh; printf 'import sys\nsys.exit(0)\n' > $T/fake_mem.py
+cat > $T/kaudit.sh <<'K'
+#!/bin/bash
+v="pass|0"; [ -f "$1/kaudit" ] && v=$(cat "$1/kaudit"); echo "${v%|*}"; exit "${v#*|}"
+K
+chmod +x $T/fake_run.sh $T/kaudit.sh; export KAUDIT=$T/kaudit.sh; printf 'import sys\nsys.exit(0)\n' > $T/fake_mem.py
 export RUN_ROUTE=$T/fake_run.sh RUN_V0C=$T/fake_run.sh MEMFLOOR=$T/fake_mem.py PROBE_WAIT=0 SET_PAUSE=0 FAULT_CAP=${FAULT_CAP:-3}; }
 # The fake run_v0c gets "<label> llama 0 -- cmd": its $1 is the label too.
 run_case() { local name=$1 want_rc=$2 want_calls=$3 body=$4; shift 4
@@ -43,4 +49,8 @@ FAULT_CAP=9 run_case admit-two-faults-not-eligible 3 6 'admit_set A 100 none cmd
 run_case admit-evidence-stops 2 2 'admit_set A 100 none cmd' PASS TIMEOUT
 run_case admit-loadfail-retry 0 7 'admit_set A 100 none cmd' PASS LOADFAIL PASS PASS PASS PASS PASS
 run_case admit-loadfail-twice-stops 2 4 'admit_set A 100 none cmd' PASS LOADFAIL PASS LOADFAIL
+# kernel audit (Codex review 20:32Z finding 1): a kernel fault behind a passing speed probe is a device fault (set
+# restart), an unknown kernel alert stops
+run_case admit-kernel-fault-restarts 0 7 'admit_set A 100 none cmd' KFAULT PASS PASS PASS PASS PASS PASS
+run_case admit-kernel-unknown-stops 2 1 'admit_set A 100 none cmd' KUNKNOWN
 echo "failures: $fails"; exit $fails
