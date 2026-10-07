@@ -53,4 +53,10 @@ run_case admit-loadfail-twice-stops 2 4 'admit_set A 100 none cmd' PASS LOADFAIL
 # restart), an unknown kernel alert stops
 run_case admit-kernel-fault-restarts 0 7 'admit_set A 100 none cmd' KFAULT PASS PASS PASS PASS PASS PASS
 run_case admit-kernel-unknown-stops 2 1 'admit_set A 100 none cmd' KUNKNOWN
+# D89 (Codex review 15:58Z): probe and recovery faults count toward the set budget
+run_case admit-recovery-probe-fault-not-eligible 3 2 'admit_set A 100 none cmd' HANG DEVFAULT PASS PASS PASS PASS PASS PASS
+run_case admit-step-probe-fault-restarts 0 15 'admit_set H 100 probe cmd' PASS PASS DEVFAULT PASS PASS PASS PASS PASS PASS PASS PASS PASS PASS PASS PASS
+run_case admit-fault-in-attempt2-not-eligible 3 7 'admit_set H 100 probe cmd' PASS HANG PASS PASS PASS PASS DEVFAULT
+run_case admit-probe-fault-in-attempt2-not-eligible 3 6 'admit_set H 100 probe cmd' PASS HANG PASS PASS PASS HANG
+run_case admit-cap-does-not-preempt-budget 3 2 'FAULT_CAP=1; admit_set A 100 none cmd' HANG DEVFAULT
 echo "failures: $fails"; exit $fails

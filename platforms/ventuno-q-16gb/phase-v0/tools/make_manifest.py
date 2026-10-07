@@ -104,6 +104,9 @@ def main():
     print("# Effective-settings manifest (RUNBOOK.md V0c 'Effective-settings manifest'), generated", end=" ")
     print(os.popen("date -Is").read().strip(), "by tools/make_manifest.py from each run's own evidence.")
     print("# Measurement commit 7badb21 for every run below (V0b-V0d) (corpus sha256 3611eb84...); 'not logged' = absent from the evidence.")
+    print("# Binary, library and model hashes are computed from the files on disk when this manifest is generated, not")
+    print("#   recorded at run time: for earlier runs they are retrospective. Each binary line gives the file's mtime;")
+    print("#   a binary modified after a run's date would not be the one that run used.")
     print("# Request-side settings: speed_probe.py sends stream=true, max_tokens=128 (gen), cache_prompt=false, no sampling")
     print("#   fields (server defaults apply), and nctx=40960 in V0c (GenieX per-request field; llama-server ignores it).")
     print("#   probe_toolcalls.py sends no sampling fields either; its evidence records the effective server sampling.")
@@ -134,7 +137,8 @@ def main():
             print(f"model: {mfile or 'not logged'} sha256 {MODELS.get(mfile, 'n/a')}")
             exe = next((w for w in cmd.split() if w.endswith("/llama-server") or w == "geniex"), None)
             if exe and exe.startswith("/"):
-                print(f"server binary: {exe} sha256 {binhash(exe)}")
+                mt = os.popen(f"date -r {exe} -Is 2>/dev/null").read().strip() or "not available"
+                print(f"server binary: {exe} sha256 {binhash(exe)} (retrospective; mtime {mt})")
                 lk = next((k for k in LIBS if exe.endswith(k + "/llama-server")), None)
                 if lk:
                     rel, libs, rev = LIBS[lk]
