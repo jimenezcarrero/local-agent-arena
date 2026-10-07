@@ -1023,3 +1023,21 @@ D88 2026-10-07 Codex review of #45 (20:32Z) findings 2 and 3, and its wording co
      build-configuration explanation, not OpenMP/llamafile as the isolated cause.
    - The batch-cost subtraction, the ~0.22-step bookkeeping and the ~1.27x n=1 ceiling are estimates derived from
      these layouts and depths, not independently measured NPU-only timings or hardware bounds.
+
+D89 2026-10-07 Codex review of #45 at 54b730e (15:58Z), during set A (A-s1-r2 running, no fault so far).
+   (1) [P2] Probe and recovery faults now count toward the admission budget. Before, ready() recorded a fault and kept
+   probing, and admit_set() counted only measured-step faults, so a hang plus a faulting recovery probe could still
+   be admitted, and a fault in a pre-step probe did not restart the set. Rule now (tools/v0d_runner.sh), the literal
+   reading of D68 (b): every fault after the set starts counts, whether in a measured step, a readiness probe before a
+   step or a recovery probe. The first ends that attempt and the whole set restarts once after recovery; a second
+   fault anywhere means not eligible. The exploratory fault cap no longer preempts the set budget. The readiness probe
+   before the set (v0d_admit.sh) stays outside the set and is reported in faults.txt. Tests: test_runner.sh +5
+   (Codex's two cases, a second fault in attempt 2 in a step and in a probe, cap vs budget); 21 pass.
+   Set A was started with the earlier runner (functions loaded at start). Declared now, before any fault in A: A's
+   verdict is recomputed from its faults.txt and status under this rule, and if the earlier code would admit where
+   this rule does not, A is not eligible. AM and H load the corrected runner.
+   (2) Correction to D85's wording: the owner did not choose between three and four sets ("merged, let's continue");
+   the three sets are the testing agent's recommendation, run as declared, and the owner can still add the 4B at 65K.
+   (3) Monitoring published at 54b730e ends at 17:42:07 +02:00, not "through 18:00" as the PR comment said.
+   (4) files.txt now states that binary, library and model hashes are computed when the manifest is generated
+   (retrospective for earlier runs), with each binary's mtime. PR description rewritten to D89.

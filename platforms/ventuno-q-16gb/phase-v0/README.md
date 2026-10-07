@@ -3,7 +3,7 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D88).
+[`decisions.txt`](decisions.txt) (D1–D89).
 
 **Status (2026-10-07 18:00): V0b and V0c complete. V0d admission is not complete for any configuration; the
 admission sets are running.**
@@ -191,6 +191,7 @@ rate):
 - A complete set (warm-up, r1–r3, both tool gates, each with the memory check) must finish with no hang or NPU
   abort.
 - After a fault, the full set restarts once after baseline recovery. A second fault means not eligible in V0d.
+  Faults in readiness or recovery probes during a set count toward the same budget (D89).
 - All faults, readiness probes included, go to the phase's `faults.txt`.
 - A GPU, DSP, SMMU or FastRPC fault line in the run's kernel window is a device fault even when the speed probe
   passed; an unknown kernel alert stops the sequence (D86, `tools/kernel_audit.py`).
