@@ -1109,3 +1109,18 @@ D92 2026-10-07 Owner authorization: "activate the one root step only for tonight
        3/6 failed H loads stay on record; a restart can never count inside a sustained V0e session.
    Restart lifecycle kernel lines are not allowlisted: the settle keeps them before the run window; if one still
    falls inside a window the kernel audit fails that run and the sequence stops for inspection.
+
+D93 2026-10-08 Codex review of #47 at ee7042a (2026-10-07 22:08Z), before installation; nothing has run as root.
+   (1) [P2] An fd entry that is still listed but cannot be read (readlink fails) now refuses (exit 4, before BEGIN);
+       only an entry that has disappeared (process exited or fd closed) is skipped. Regression: fd-uninspectable.
+   (2) [P2] If the terminal audit line cannot be written, the helper never returns 0: exit 8 ("AUDIT FAIL ... stop the
+       campaign") on an otherwise successful restart, the failure's own code otherwise. cdsp_pre.sh passes that code
+       through, so the screen and H2 stop. Regression: log-fails-after-begin (BEGIN only, rc 8).
+       tools/test_cdsp_restart.sh: 23 checks pass.
+   (3) Entry point: v0d_admit.sh H2 now checks the helper before anything loads and has no plain initial probe; its
+       first step is restart + settle -> baseline probe -> warm-up, so every NPU load in H2 follows a restart. The
+       other sets keep the initial probe. tools/test_admit_entry.sh (mocked): helper missing -> exit 6 with no load; H2's
+       first action is the restart; A's first action is the probe. The screen (v0d_cdsp_test.sh) already checks its
+       preconditions first and restarts before its first probe.
+   Exclusive use: the board runs one sequence at a time (each starts only after the previous server is killed);
+   no other agent or job launches inference on it; the helper itself refuses while any cDSP client is open.

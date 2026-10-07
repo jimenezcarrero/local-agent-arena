@@ -11,7 +11,9 @@
 #   - BEGIN is logged (and the log write must succeed) before the first state change; every write runs in the
 #     background with its own 90 s deadline, so a write that blocks in the kernel ends the helper with UNKNOWN (exit 7)
 #     instead of hanging it; a later call then refuses (state not "running") and the campaign must stop
-#   - one terminal line per call: OK, FAIL, REFUSED or UNKNOWN, with states and duration
+#   - one terminal line per call: OK, FAIL, REFUSED or UNKNOWN, with states and duration; if that line cannot be
+#     written the helper never returns 0 (exit 8: unaudited) (Codex review of #47, 22:08Z)
+#   - an fd entry that is still present but cannot be read is a refusal, not "no client" (same review)
 # Exit 0 only after stop -> offline -> start -> running.
 set -u
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
@@ -30,7 +32,9 @@ now() { date +%s; }
 t0=$(now)
 rd() { timeout 5 cat "$1" 2>/dev/null; }                   # every sysfs read is bounded too
 log() { echo "$(date -Is) $*" >> "$LOG" && echo "$(date -Is) $*"; }
-fin() { log "$1 ($(( $(now) - t0 )) s)"; exit "$2"; }   # terminal line; if even this write fails the exit code stands
+# terminal line; if it cannot be written the call is unaudited: never report success (exit 8), keep a failure's code
+fin() { log "$1 ($(( $(now) - t0 )) s)" && exit "$2"
+  echo "AUDIT FAIL: terminal record not written to $LOG ($1); stop the campaign" >&2; [ "$2" = 0 ] && exit 8; exit "$2"; }
 [ "$(id -u)" = "$NEED_UID" ] || { echo "must run as root (sudo /usr/local/sbin/v0-cdsp-restart)" >&2; exit 2; }
 [ $# = 0 ] || { echo "takes no arguments" >&2; exit 2; }
 [ "$EXPIRES" -gt 0 ] 2>/dev/null || { echo "not configured (no expiry); install with install_cdsp_restart.sh" >&2; exit 2; }
@@ -46,7 +50,8 @@ for p in "$PROC"/[0-9]*; do
   [ -d "$p/fd" ] || continue
   fds=$(ls "$p/fd" 2>/dev/null) || { [ -d "$p" ] && fin "REFUSED cannot inspect $p/fd: quiescence not established" 4; continue; }
   for f in $fds; do
-    t=$(readlink "$p/fd/$f" 2>/dev/null) || continue
+    # an fd that cannot be read is skipped only if it is gone (process exited or fd closed); still present -> refuse
+    t=$(readlink "$p/fd/$f" 2>/dev/null) || { ls "$p/fd" 2>/dev/null | grep -qx "$f" && fin "REFUSED cannot inspect $p/fd/$f: quiescence not established" 4; continue; }
     for dev in $DEVS; do [ "$t" = "$dev" ] && holders="$holders ${p##*/}($(rd "$p/comm"))"; done
   done
 done
