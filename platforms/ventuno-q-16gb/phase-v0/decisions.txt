@@ -1041,3 +1041,26 @@ D89 2026-10-07 Codex review of #45 at 54b730e (15:58Z), during set A (A-s1-r2 ru
    (3) Monitoring published at 54b730e ends at 17:42:07 +02:00, not "through 18:00" as the PR comment said.
    (4) files.txt now states that binary, library and model hashes are computed when the manifest is generated
    (retrospective for earlier runs), with each binary's mtime. PR description rewritten to D89.
+
+D90 2026-10-07 D85 admission results (runs/v0d-admit-A, -AM, -H; runs/v0d-admit-chain.txt). No fault (hang or NPU abort)
+   in any set or probe: every faults.txt is empty, so the D89 recomputation of A gives the same verdict.
+   A   ADMITTED in attempt 1 (17:39-18:27). 16K r1-r3 317.5/8.22, 317.4/8.14, 312.5/8.28 -> median 317.4/8.22;
+       8K median 345.4/9.80; 32K 282.3/7.21. Tools 10/10, agentic 3/3. memfloor --admit at 7,942 MiB in every run;
+       lowest margin the tool gate, 28,494 kB (L_min 8,507,132 vs 8,478,638 required).
+   AM  ADMITTED in attempt 1 (18:31-19:36). 16K 178.8/8.56, 175.9/8.64, 178.4/8.81 -> median 178.4/8.64; 8K decode
+       median 9.76; 32K 165.6/7.71 (medians); draft acceptance 0.78-0.80 on the probes, 0.85 on the tool gates.
+       Tools 10/10, agentic 3/3. memfloor --admit at 4,188 MiB in every run; lowest margin the warm-up, 250,516 kB.
+       The provisional cap holds: AM's tool gate left L_min 4,991,496 kB, about its speed runs' level (the A-based
+       projection had assumed ~490 MiB less). Against A (same depths, medians): decode 8K -0.4 %, 16K +5 %, 32K +7 %;
+       prefill -44 %; prompt-cache cap 3,754 MiB smaller.
+   H   STOPPED, not admitted (19:39-21:26): r3 failed to load twice (clean LOADFAIL, "HTP0:2 buffer mapping failed:
+       domain_id 11 size 572133376", the 546 MiB output-layer buffer on the third session), which stops a set under
+       the declared rule. Completed before that: warm-up (after one load failure and recovery) 148.8/5.00 at 16K,
+       r1 150.3/4.96, r2 151.8/4.90; all memory checks passed at 5,364 MiB (margin >= 955,733 kB). H loads: 3 of 6
+       failed to map. After two of H's three completed runs the unchanged 4B baseline probe also failed to load
+       (LOADFAIL, retry_later) and passed about 16 min later; a passing probe did not guarantee the next H load.
+   Reading: A and AM complete V0d admission and meet both median 16K gates (>= 145 prefill, >= 4.4 decode), the tool
+   gates and the memory criterion, so both are provisionally eligible for the 4B. The 9B (H) is not admitted in V0d:
+   it ran and passed speed, health and memory while loaded, but it does not load reliably on this NPU (half of its
+   loads in this set, consistent with D61/D64). No V0e work starts without the owner's go-ahead; whether H gets
+   another declared attempt is the owner's decision.
