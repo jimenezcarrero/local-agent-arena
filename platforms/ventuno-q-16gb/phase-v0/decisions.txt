@@ -65,7 +65,7 @@ D11 2026-10-04 --cache-ram for V0b/V0c (documented-default exploration): set exp
    default) on every llama-server and recorded; the tier value comes from V0d's sweep. GenieX: no
    equivalent setting, recorded as such. speed_probe.py sends cache_prompt=false.
 
-D12 2026-10-04 Review of 50e2054 (offline file /tmp/ventuno-pr40-review-50e2054.md), applied:
+D12 2026-10-04 Review of pre-rewrite commit P2 (offline review file), applied:
    - Sampler v2 (tools/health_sampler.sh), swapped in atomically at 12:43:27 CEST (old pid 11811 killed,
      new pid 84393; handover gap ~10 s, visible in the health log). Kernel events now come from a journal
      cursor file (exact window boundaries, survives restarts); every kernel line is kept in full
@@ -84,7 +84,7 @@ D12 2026-10-04 Review of 50e2054 (offline file /tmp/ventuno-pr40-review-50e2054.
 D13 2026-10-04 History rewrite, authorized by the campaign owner: every ventuno-q commit was rewritten with
    git filter-branch (tree filter replacing the serial and machine-id) so neither value exists in any
    branch commit. Author and committer dates are unchanged, so V0a still predates every installation.
-   Old -> new: af7314b -> 05157d7 (V0a), 50e2054 -> e19e3ca, bfc1436 -> 2b2f1e1, 98f81b5 -> 435f3ae.
+   Old -> new: P1 -> 05157d7 (V0a), P2 -> e19e3ca, bfc1436 -> 2b2f1e1, 98f81b5 -> 435f3ae.
    Final tree identical before and after. Earlier PR comments and the offline reviews cite the old hashes.
 
 D14 2026-10-04 Disk policy (campaign owner): the eMMC root fs is 54.9 GiB (40.6 used, 11.9 free after the
@@ -329,11 +329,11 @@ D40 2026-10-04 Upstream ggml-hexagon package, cross-built on the laptop (x86_64,
 D41 2026-10-04 Identifier leak caught and contained. After the 23:02 stop, journald logged "Failed to read journal file
    /var/log/journal/<machine-id>/user-1000.journal for rotation", with the machine-id inside the message text.
    publish_monitor.py dropped the _MACHINE_ID field but did not scrub message text, so the published kernel
-   extract in commit 6b95328 (pushed 23:18 CEST) contained it; the post-commit identifier check found it
+   extract in pre-rewrite commit P3 (pushed 23:18 CEST) contained it; the post-commit identifier check found it
    about a minute later. Fixes: publish_monitor.py now replaces the machine-id and serial anywhere in every
    published line; a local git pre-commit hook (not committed) refuses any commit whose staged files contain
-   either value, tested by staging a file with the machine-id (refused, rc=1). 6b95328 is amended to remove it;
-   the owner force-pushes the amended commit and adds 6b95328 to the GitHub Support purge request (D13, D16).
+   either value, tested by staging a file with the machine-id (refused, rc=1). P3 is amended to remove it;
+   the owner force-pushes the amended commit and adds P3 to the GitHub Support purge request (D13, D16).
 
 D42 2026-10-04 Upstream ggml-hexagon V0b PASS (v0b-results.txt): decode 28.26 tok/s (1.13x Arduino's ~25), prefill
    801.6/903.1, 29/29 layers on HTP0 (v75). Setup step: a user-level link <pkg>/lib/libcdsprpc.so ->
@@ -460,3 +460,623 @@ D50 2026-10-05 Codex review 5410871983 of b93d339, applied (code and README in b
    - files.txt: its "not logged" fields and identical-command links are evidence limitations, not independent
      per-run verification; the final V0d configuration's manifest will be captured directly.
    The night batch's historical rc=0 lines are left as they were (D48 explains them).
+
+D51 2026-10-05 Hash citations redacted. The three pre-rewrite commits that held device identifiers (V0a, the first
+   provenance commit, and the commit amended in D41) are referred to as P1, P2 and P3 here and above; their full
+   hashes are given to GitHub Support only, so the current files no longer point at them. Older commits on main
+   still contain the original text until Support purges the three commits (GitHub's guidance: dereference PRs,
+   garbage-collect, remove cached views). Checked on GitHub: the other two pre-rewrite commits of D13 (bfc1436,
+   98f81b5) contain no identifier. The stray local object of P3 was removed from this board (reflog expire + gc).
+
+D52 2026-10-05 V0d tuning plan (RUNBOOK V0d step 2, the campaign owner's go; tools/v0d_tune.sh, night run):
+   Base = V0c shortlist candidate (ggml-hexagon, 2 virtual sessions HTP0:0,HTP0:1, --ctx-checkpoints 0, -c 40960,
+   --cache-ram 8192, llama-server defaults, NeoHorse-1-4B pure Q4_0). One setting at a time, each a fresh server,
+   speed at 512 and 16K (single run; sweeps rank, they do not qualify), aggregate PASS/FAIL with health:
+   - 9B feasibility on the NPU: GGML_HEXAGON_MBUF=256 and 512 (the backend's max buffer size, default 1 GiB; every
+     9B failure was one ~1 GB mapping), and MBUF=256 with GGML_HEXAGON_VMEM=0 (backend measures the real limit).
+   - 4B: threads -t 2/4/6 (8 = base), -t 4 -tb 8 (decode vs batch threads), -t 4 on the big cores only
+     (--cpu-mask 0xF --cpu-strict 1; cpu0-3 = A78C by MIDR 0xd4b, cpu4-7 = A55 0xd05); -ub 128/256 (512 = base;
+     1024 failed to map in V0c); GGML_HEXAGON_OPPOLL=1 (upstream run.py's default); --cache-ram 0/512/2048.
+     Power mode: not exposed by upstream ggml-hexagon (GenieX-only), recorded as not applicable.
+   - Window: the 4B at -c 65536 (load + 512), to know whether 65K is possible before V0e.
+   - The base is re-run at the start and the end of the 4B sweep to bound drift.
+   Then (after review of these results): final settings = the best value of each knob that keeps both thresholds,
+   combined; re-measured with one discarded warm-up + 3 repeats at 512/8K/16K/32K and both tool gates; memory
+   headroom floor declared as the minimum MemAvailable during the final configuration's 32K runs, with no swap.
+   A combined configuration is accepted only on its own re-measurement, never on the sweeps.
+
+D53 2026-10-05 V0d sweep results (runs/v0d-tune/, sweep-summary.txt; single runs, rank only):
+   - Batch bugs, fixed before results: the first launch did not set GGML_HEXAGON_DEVICES ("invalid device HTP0:0"),
+     and the OOM/swap STOP guard used grep without -E (could never fire; same in night_batch.sh and v0c_batch.sh,
+     whose runs had no OOM and no swap per the sampler). First attempts kept as *-batchbug.
+   - 9B on the NPU, 2 sessions: GGML_HEXAGON_MBUF=256 / 512 and MBUF=256 + VMEM=0 all fail to map (a 572 MB-1.07 GB
+     buffer); VMEM=0 logged no measured limit. No 9B NPU configuration among those tested.
+   - 4B, 16K prefill/decode: base 319.5/8.16 (start) and 315.4/8.20 (end; drift ~1%); threads 2/4/6 and 4+tb8 within
+     ~2% of base (the NPU does the work); 4 threads on the big cores (--cpu-mask 0xF --cpu-strict 1): 315.5/8.55, the
+     only decode gain (+5%, one run); ubatch 256: 302.5/8.20 (-5%), ubatch 128: 276.6/8.18 (-13%); OPPOLL=1: 313.3/8.22;
+     cache-ram 512/2048: 323.2/8.09, 314.6/7.95; cache-ram 0: 216.2/6.26 (prefill decaying 454 -> 225 tok/s inside the
+     request, no external cause in the samples; its repeat could not run, see below).
+   - 65K window: the 4B does not load at -c 65536 (f16 KV 1024 MiB/session; ~1 GB mapping fails), nor with KV q8_0
+     (KV 544 MiB/session, compute 341 MiB; a 570 MB mapping fails although the NPU total, ~4.23 GB, equals that of
+     the working 40960 configuration): the limit is not a simple total (inferred: buffer layout/fragmentation).
+     Every tested 4B NPU configuration is limited to the 40960 window.
+   - KV q8_0 at 40960 (+ -fa on): the first request worked (512: 340.5/9.14), the second hung the NPU (dspqueue
+     wait_signal timeouts every second from 23:43:58); the NPU stall watchdog killed the server after 300 s
+     (runs/v0d-tune/npu-stalls/). After that hang, the unchanged base configuration no longer loads (cram0-r2 and
+     base-end2: fastrpc_mmap of a 671 MB buffer fails; no process holds /dev/fastrpc-cdsp; the cDSP remoteproc
+     reports "running"): the NPU stays degraded after a hang until it is reset. Idle-recovery checks run after 10
+     and 40 idle minutes (tools/npu_recovery_check.sh); otherwise a cDSP restart or reboot (root) is needed before
+     the final re-measurement.
+
+D54 2026-10-06 Overnight investigation (owner away, no root; v0d-investigation.md, bw/):
+   - Memory bandwidth (bw/bw.c): 25.6 GB/s read with 4 threads (big cores 25.3), 12.5 GB/s with 8 threads. Decode is
+     bandwidth-bound: the 4B on the NPU reads ~19 GB/s of weights; the Jetson's 9B IQ3_M ~41 GB/s of its specified
+     68 GB/s. Estimated ceilings: 4B ~11 tok/s, 9B Q4_0 ~5 tok/s.
+   - The 4B NPU graph has 3 splits; GATED_DELTA_NET and SSM_CONV run on HTP: no CPU<->NPU ping-pong.
+   - Only the GPU exposes a devfreq governor; no user-level DDR/bus clock control.
+   - Upstream llama.cpp has one Hexagon commit after 836d5717 (multi-core flash-attention split): not relevant here.
+   - GenieX v0.8.0 cannot set the NPU n_ubatch from the server (source comment in keepalive.go); it accepts
+     explicit HTP device lists. Unlocking its ubatch needs a patched build or a newer release.
+   - Mapping failures are all single large buffers (KV, compute, output layer) + 4 KiB (table in the doc); inferred
+     mechanism: per-session 32-bit DSP address space with large-buffer placement. Post-reset tests prepared
+     (tools/v0d_unlock.sh): output layer on CPU (-ngl n_layer), MBUF=256, more sessions; 4B at 65K on 4 sessions;
+     n-gram speculative decoding feasibility.
+   - The final re-measurement (tools/v0d_final.sh) and the NPU readiness probes were stopped at 00:22 so a CPU
+     thread test (tools/v0d_cpu_threads.sh) runs without concurrent NPU loads; both are relaunched after the reset.
+
+D55 2026-10-06 CPU thread placement (tools/v0d_cpu_threads.sh, runs/v0d-cpu/, single runs): with 4 threads on the A78C
+   big cores (--cpu-mask 0xF --cpu-strict 1) the llama.cpp CPU route decodes 63-96 % faster than with the default 8
+   threads (4B 8K: 2.47 -> 4.83 tok/s; 9B 8K: 1.89 -> 3.32), prefill unchanged; 2 threads on cpu2-3 are in between.
+   Matches the bandwidth measurement (D54). V0c CPU numbers stay as documented-default results; no eligibility
+   changes (prefill 6-9x below the gate). Recommendation for every CPU-side configuration in the campaign: 4 big-core
+   threads. All runs PASS (health incl. one PSI-only exemption during a 9B load).
+
+D56 2026-10-06 Morning chain prepared (tools/v0d_morning.sh): after the owner's cDSP reset, v0d_final.sh (readiness probes
+   every 10 min for up to 6 h, then F and A warm-up + 3 interleaved repeats at all depths, tool gates on F), then — only
+   if no NPU hang occurred — v0d_unlock.sh (output layer on CPU, MBUF=256, more sessions, 4B at 65K on 4 sessions,
+   partial-offload 9B with 4 big-core threads, n-gram speculation feasibility, two cache-ram 0 repeats). Started at
+   ~02:40 so it begins measuring as soon as the NPU loads. Window analysis (v0d-investigation.md §4b): by pi 0.80.10's
+   formulas a 40960 window avoids the 32K one-token stall; marathons at 65K+ are not possible for the 4B NPU
+   candidate unless an unlock test maps 65K.
+
+D57 2026-10-06 Final re-measurement, attempt 1 (runs/v0d-final-attempt1/). The NPU recovered by itself (idle) between 02:36
+   and 02:46, about 3 h after the 23:44 hang, with no reset. F (= A + -t 4 --cpu-mask 0xF --cpu-strict 1) and A
+   warm-ups, F r1 and A r1 all PASS (16K prefill/decode: F 314.2/8.43 and 313.1/8.40; A 315.5/7.88 and 312.1/8.01;
+   32K: F 7.22/7.19, A 6.89/6.92 decode). F confirms the sweep: decode +4-7 %, prefill unchanged. Then F r2 hung the
+   NPU during the 512 request (121 of 128 tokens at 10.22 tok/s, then 4 threads in fastrpc_wait_for_completion; watchdog
+   kill 03:20:24, npu-stalls/1914078-032024.txt). The chain stopped (rc=2) as designed; unlock tests not run.
+   This is the first hang with no exotic setting (previous: GenieX hybrid, 3 sessions at 32K, KV q8_0). Like the
+   q8_0 hang it struck a decode on a server that had already answered requests after several fresh loads in a row,
+   so a cumulative NPU-side cause cannot be excluded; affinity cannot be blamed or cleared from one event.
+   Decision: the final re-measurement continues with A only (0 hangs in ~20 server loads so far), via
+   tools/v0d_final2.sh / v0d_morning2.sh (readiness probe every 10 min up to 6 h, A warm-up + r1-r3 at all depths,
+   both tool gates on A). The stale "NPU RECOVERED" shortcut from the first script was removed so readiness is
+   always probed. F's +5 % decode is recorded as a tuning result not adopted for V0e pending a hang-rate check;
+   NPU hang rate becomes an explicit V0e qualification item (marathon must run without an NPU hang).
+
+D58 2026-10-06 V0d final settings re-measured (runs/v0d-final/, A only, 03:24-04:02). The F hang at 03:20 did NOT degrade
+   the NPU (readiness probe passed at 03:24), unlike the KV q8_0 hang at 23:44 (~3 h self-recovery). All PASS, no hang:
+   warm-up (discarded) + r1-r3 at 512/8K/16K/32K, then both tool gates. Medians r1-r3, prefill/decode tok/s:
+     512 326.4/9.54 | 8K 342.6/9.31 | 16K 312.9/8.06 (prompt 18031-18036 tokens, within +-20 %) | 32K 279.3/6.71
+   Tool gates: one-shot 10/10, agentic 3/3 (1 inconclusive, no stack failure). Memory: min MemAvailable 7.10 GiB
+   during speed repeats, 6.10 GiB during the tool gates; swap 0; server VmHWM 2.09 GiB; tmax 49 C.
+   Final V0d settings for NeoHorse-1-4B pure Q4_0 on ggml-hexagon 836d5717: 2 HTP sessions (HTP0:0,HTP0:1), -ngl 99,
+   --ctx-checkpoints 0, -c 40960, --cache-ram 8192, other settings at defaults. Memory headroom floor (RUNBOOK
+   definition: minimum MemAvailable during a 32K run, no swap growth): 7.10 GiB, swap 0 (6.10 GiB during the tool
+   gates, which reload the model). V0d eligibility: PROVISIONAL PASS of every
+   gate at 16K (prefill 2.2x and decode 1.8x the gates). Not adopted: 4 big-core threads (+4-7 % decode, one hang
+   in 3 runs, D57), KV q8_0 (hangs), 3+ sessions, 65K (does not map). Not GO: V0e qualification still required,
+   including a hang-free marathon.
+
+D59 2026-10-06 V0d unlock tests, rounds 1-4 (runs/v0d-unlock/, tools/v0d_unlock*.sh; single runs at 512/16K, rank only;
+   all with GGML_HEXAGON_MBUF=256; no NPU hang in 18 loads). 16K prefill/decode tok/s:
+   - 9B: every failure maps 572133376 bytes = 572129280 + 4 KiB, exactly the Q4_0 token_embd (248320 x 4096). It
+     stays on the CPU but in ggml-hexagon's host buffer (rpcmem shared with the DSP); with op offload on (default),
+     its lookup is sent to an HTP session, which maps the whole table. Fails: -ngl 33 on 2 or 3 sessions; -ngl 20;
+     --no-op-offload on 2 sessions; --no-host with -ngl 99 on 2 or 3 sessions (the output layer, same size, then
+     sits on the NPU). WORKS: 3 sessions, -ngl 33 (32 repeating layers + output layer on the NPU; the unused MTP
+     layer and token_embd on the CPU), --no-op-offload, 4 big-core threads: 512 157.5/6.44, 16K 152.2/5.47; min
+     MemAvailable 5.61 GiB. First 9B configuration to reach both speed gates (145/4.4), single run.
+   - 4B at -c 65536: loads on 4 sessions, both with -ngl 99 (16K 314.7/7.81) and -ngl 32 (output on CPU: 238.6/5.16,
+     8 threads; 243.4/7.89 with --no-op-offload and 4 big cores). Fails on 3 sessions (token_embd 357 MiB map) and on
+     2 sessions even with --no-host (256 MiB KV chunk). 4 sessions at 40960: 320.0/7.73 (2 sessions: 312.9/8.06).
+   - 4B other: output layer on CPU + --no-op-offload + 4 big cores on 2 sessions 245.1/8.30 (decode +3 %, prefill
+     -22 %); --no-host on 2 sessions 320.9/8.08 (neutral). n-gram speculation (ngram-map-k, 16): 319.7/8.00, no
+     gain on these prompts (no repetition to exploit); feasibility only, agent workloads may differ.
+   - cache-ram 0 anomaly confirmed in two repeats: 16K 219.4/6.27 and 215.6/6.48 (vs ~313/8.1 at 8192). Cause not
+     investigated; --cache-ram 0 is excluded.
+   Next (tools/v0d_9b.sh, round 5): the 9B unlock without affinity (G) vs with 4 big cores (G'), keep G unless >3 %
+   slower; the 4B 65K on 4 sessions at depths 32K and 49152; then the 9B final re-measurement (warm-up + r1-r3 at
+   512/8K/16K/32K) and both tool gates on the chosen config.
+
+D60 2026-10-06 Round 5 (tools/v0d_9b.sh, runs/v0d-final-9b/, 05:09-06:28, no NPU hang):
+   - Affinity is essential for the 9B: same unlock config with llama.cpp default threads (G) gives 16K 143.5/3.90,
+     below both gates; with 4 big-core threads (G', -t 4 --cpu-mask 0xF --cpu-strict 1) 152.2/5.47 (D59). G' chosen.
+   - 9B final re-measurement on G' (Ornith-1.0-9B pure Q4_0, ggml-hexagon 836d5717, 3 HTP sessions, MBUF 256,
+     -ngl 33 --no-op-offload --ctx-checkpoints 0 -c 40960 --cache-ram 8192, 4 big-core threads): warm-up + r1-r3 all
+     PASS. Medians r1-r3, prefill/decode tok/s:
+       512 163.5/6.29 | 8K 166.7/6.02 | 16K 159.4/5.49 (prompt 18024-18034) | 32K 150.1/4.95
+     Tool gates: one-shot 10/10, agentic 3/3 (0 inconclusive). Memory headroom floor (min MemAvailable in the 32K
+     runs): 5.10 GiB, swap 0; 4.05 GiB during the tool gates (one PSI-only exempt alert at load); VmHWM 2.44 GiB;
+     tmax 50.5 C. V0d eligibility for the 9B: PROVISIONAL PASS at 16K (prefill 1.10x, decode 1.25x the gates):
+     thin prefill margin. Caveat: uses the big-core affinity that hung the NPU once on the 4B (D57); its hang rate
+     must be measured (V0e marathon), not assumed.
+   - 4B on 4 sessions at -c 65536 (-ngl 99, defaults), single run: 512 335.5/9.22, 32K (32915 tokens) 273.6/6.42,
+     49152 (48933 tokens) 244.4/5.67, PASS; min MemAvailable 4.10 GiB, VmHWM 3.49 GiB. A 65K-window 4B
+     configuration is feasible for V0e window qualification (the 4B's V0d final settings stay at 40960, D58).
+   Not GO: V0e qualification is required for each configuration.
+
+D61 2026-10-06 NPU degraded WITHOUT a hang. Right after round 5 (last server: the 9B tool gates, killed 06:27:39), a
+   stability soak (tools/v0d_soak.sh: 6 fresh loads each of 4B F and 9B G', alternating, 512/8K) failed at its first
+   two loads: the base 4B no longer maps (domain_id 3 size 671092736, same signature as after the 23:44 hang) and the
+   9B G' (identical command to round 5, 5 successful loads) fails on its 546 MiB host-buffer mapping (domain_id 11
+   size 572133376). The watchdog stayed silent; no hang. So the degraded state does not need a hang: about 32 server
+   loads and kills ran without a problem between 03:24 and 06:28 before it appeared. It also shows the 9B G' config
+   still maps the token_embd host buffer into session 2: --no-op-offload alone does not explain the unlock. It fits
+   only while the DSP address space is clean, i.e. with no margin. Soak stopped by the testing agent after 2 loads.
+   An idle probe (tools/npu_recovery_probe.sh) loads the base config every 15 min for up to 6 h to time the
+   recovery, then re-runs the soak. For V0e: the NPU route needs a recovery procedure (cDSP restart, root) and the
+   degradation trigger must be found before a marathon can be trusted.
+
+D62 2026-10-06 Soak, attempt 2 (runs/v0d-soak/; the 06:29 attempt is in runs/v0d-soak/attempt1/). The NPU recovered
+   idle after ~17 min (probe PASS 06:47; the earlier recovery took ~3 h). Sequence, 30 s idle between loads:
+   F4-1 PASS (512 345.2/10.16, 8K 343.2/9.71) -> G9-1 load fails (546 MiB host buffer, domain 11) -> F4-2 load fails
+   (domain 3, 640 MiB) -> G9-2 load fails -> F4-3 loads, then HANGS the NPU on its second request (the 512 retry,
+   after 84 tokens; watchdog kill 07:01:13, npu-stalls/2182710-070112.txt). Soak stopped (STOP rule).
+   Findings: (1) strict big-core pinning has now hung the NPU twice in 4 loaded F servers (D57, here), both on the
+   second request, while A (defaults) has 0 hangs in ~25 servers: F's affinity is the leading suspect, not proven.
+   (2) Mapping is fragile right after another session closes: loads 30 s apart fail intermittently; the 9B (which
+   needs the host-buffer mapping in session 2) is the most exposed. (3) The 9B G' relies on the same strict pinning.
+   Next (tools/v0d_affinity.sh): wait for recovery, then the 9B with milder placement, one fresh load each, 3 min
+   idle between loads, one retry after 15 min on a failed mapping: -t 4 alone; -t 4 --cpu-mask 0xF (not strict);
+   strict with --poll 0 (no busy polling). G' stays provisional; its hang rate is the open question for V0e.
+
+D63 2026-10-06 9B placement variants (tools/v0d_affinity.sh, runs/v0d-affinity/). NPU recovered idle in ~16 min after the
+   07:01 hang (probe PASS 07:18). One fresh load each, 3 min idle between loads, no mapping failure this time.
+   16K prefill/decode: -t 4 alone 149.0/5.25 PASS; -t 4 --cpu-mask 0xF (not strict) 154.1/4.55 PASS; -t 4 --cpu-mask
+   0xF --cpu-strict 1 --poll 0: HANG on the second request (512 retry after an off-depth first attempt, 116 tokens;
+   watchdog 07:48:51). Every strict-pinning server that hung did so on its second request: 3 hangs in 5 strict
+   servers (4B F twice, 9B once). No ggml-hexagon server without --cpu-strict 1 at the final settings has hung
+   (A ~25, 9B G 1, 9B t4/t4-mask 2). Conclusion: --cpu-strict 1 is excluded; it is the strongest hang predictor
+   found (mechanism unknown). G' (D60) is withdrawn as the 9B final configuration, though its re-measurement stays as
+   evidence. Replacement H = G' with -t 4 only (no mask, no strict): best decode among non-strict variants, prefill
+   margin 1.03x (thin). tools/v0d_h.sh: wait for recovery, then H warm-up + r1-r3 + both tool gates, then a soak
+   of 6 loads each of A and H (3 min idle between loads).
+
+D64 2026-10-06 9B H re-measurement, part 1 (runs/v0d-final-9b-h/). NPU ready at 08:05 (idle recovery ~16 min after the
+   07:48 hang). H warm-up PASS (16K 149.5/5.11) and r1 PASS (512 158.5/6.01, 8K 160.0/5.76, 16K 153.9/5.27, 32K
+   144.8/4.75). Then r2, r3 and the tool gates failed to load (546 MiB host buffer, domain 11), and the soak's A and
+   H loads failed too (A: domain 3, 640 MiB), all with 3 min idle between loads. Soak stopped by the testing agent at
+   08:55. Load timeline (tools/load_timeline.py -> load-timeline.txt, every ggml-hexagon load since 03:23; the
+   soak-F4-1/G9-1 rows mix the start of attempt 1 with the end of attempt 2 because attempt 2 reused the labels):
+   - 03:23-05:07, ~18 4B loads (2 and 4 sessions, 40960 and 65536) and 8 9B loads that failed on capacity: the NPU
+     never degraded.
+   - Each degraded state followed successful 9B 3-session loads: after 7 (04:32-06:27) and after 2 (08:09-08:34).
+     The 07:22-07:39 pair ended in the strict-pinning hang instead.
+   - Idle recovery: ~3 h (after the 23:44 hang), then ~17, ~16 and ~16 min.
+   Interpretation (inferred, not verified without root): a fully loaded 9B (3 sessions, ~2.25 GiB + the 546 MiB host
+   buffer in session 2) leaves DSP-side mappings that are released slowly after the process exits; reloads inside
+   that window fail. Consequences: the 4B A route reloads freely, while the 9B route must keep one long-lived server
+   per session or allow ~20 min between server restarts. V0e must test this explicitly.
+   Next (tools/v0d_h2.sh): H r2, r3 and the tool gates, each preceded by a base-config readiness probe (every 15
+   min, up to 3 h) and 3 min idle. Medians use r1 + the two completion repeats (labels r2b, r3b).
+
+D65 2026-10-06 Codex review of #45 (reviews of 22:12Z and 06:29Z, not read at the checkpoints where they arrived: a
+   process miss by the testing agent). Responses so far: (1) H r2b paused before it ran. (2) Fail-closed step logic:
+   tools/v0d_lib.sh classify() -> PASS / HANG / LOADFAIL / EVIDENCE from runner rc, RESULT line, health verdict and
+   the watchdog; 10 synthetic cases pass (tools/test_v0d_lib.sh); every later sequence stops on HANG or EVIDENCE and
+   requires a baseline readiness probe after a LOADFAIL. (3) Memory floor computed, not chosen
+   (memfloor/memory-floor.txt): L_min (MemAvailable + prompt cache held) must cover --cache-ram + pi (0.19 GiB
+   measured) + unexplained transients (0.14 GiB measured). With --cache-ram 8192 neither A (short 0.24 GiB) nor the 9B
+   (short 2.85 GiB) is OOM-safe in a long arena. Owner decision: per-configuration --cache-ram = floor(L_min - 0.33
+   GiB): A 7,946 MiB, 9B H 5,365 MiB, 4B 65K 5,724 MiB (RUNBOOK deviation from "one tier value"). Consequence: A and H
+   are re-measured with these values (the earlier A and G' runs used 8192 and stay as evidence); G' withdrawn (D63).
+   Pending: manifests for V0d phases, wording downgrades (bandwidth as hypothesis, hang counts with denominators),
+   README/description to the D63+ state, full execution brief in the PR description.
+
+D66 2026-10-06 First NPU hang in configuration A (runs/v0d-final3/, tools/v0d_final3.sh, stopped by the fail-closed rule).
+   A with --cache-ram 7946: warm-up PASS (L_min 8.61 GiB >= 7.76 + 0.33); r1: 512 PASS (336.0/9.73), the 8K sizing
+   attempt was off-depth (12,265 tokens, 334.9/8.69), then the 8K retry hung after its prefill and 15 decoded tokens
+   (4 threads in fastrpc_wait_for_completion; watchdog 10:43:01, npu-stalls/2441079-104300.txt). It was the
+   server's fourth request; the server had just saved the previous slot's 12,392-token state to the prompt cache
+   (a read of the KV from HTP memory). No strict pinning, no non-default setting except --cache-ram.
+   This contradicts the D63 reading: hangs are not confined to --cpu-strict 1. Exploratory counts now: strict 3 of 5
+   servers; non-strict 1 in ~30 at the final settings (plus the earlier KV q8_0 and 3-session hangs). Every hang
+   struck a server that had already served at least one request; no first request has hung. Mechanism unknown.
+   Per the fail-closed rule, the sequence stopped; nothing was rerun. How a hang in a final re-measurement counts
+   for eligibility is an owner decision (the frozen rule needs passing repeats; rerunning until a pass would
+   select results).
+
+D67 2026-10-06 Codex review of #45 at b71295c (08:38Z), all three findings addressed without new benchmarks:
+   (1) classify(): LOADFAIL now requires a clean load failure (runner rc 1, last RESULT exactly "RESULT FAIL:
+       speed=4", passing health verdict, "SERVER EXITED before ready" and an NPU "mapping failed" line); timeouts,
+       crashes, missing/failed health or kernel evidence take precedence as EVIDENCE. 16 synthetic cases pass
+       (tools/test_v0d_lib.sh, 6 mixed conditions); real runs still classify as before (9b-H-r2 and soak-A-1 LOADFAIL,
+       final3/A-warmup and 9b-Gbig-tools PASS).
+   (2) Memory admission is compared in kB without rounding (tools/memfloor.py --admit). This exposed that D65's caps
+       came from rounded L values: A 7,946 MiB would fail its own basis run (L_min 8,478,829 kB < 8,482,734 kB).
+       Exact caps, rounded down: A 7,942 MiB, 9B H 5,364 MiB, 4B 65K 5,727 MiB (memfloor/memory-floor.txt section 5).
+       The final3 A warm-up ran with 7,946 MiB and is superseded; the next sequence uses phase v0d-final4.
+   (3) Monitoring inputs published (tools/publish_monitor.py: monitor/health-20261006-*.jsonl, kernel-20261006.jsonl,
+       run-windows.jsonl through v0d-final3/A-r1). memfloor.py and memfloor_transient.py reproduce every L_min and
+       the 145,820 kB transient from the committed inputs alone (MONITOR_DIR=monitor).
+   The floor is now worded as an estimated admission policy with explicit limitations (11 s sampling, mock pi), to be
+   confirmed by real pi sessions in V0e. The re-measurement is not restarted: how the D66 hang counts is pending the
+   owner's decision.
+
+D68 2026-10-06 Owner decision on the D66 hang: diagnose first, briefly, then admission under a pre-declared restart rule.
+   Both rules are recorded here before the diagnostic soak's first result (soak started 12:09:57).
+   (a) Diagnostic soak (tools/v0d_diag.sh, runs/v0d-diag/). Hypothesis: hangs follow prompt-state traffic between HTP
+       memory and the host. Arms on the 4B A base: S4C (4 slots, --cache-ram 7942), S1C (-np 1, --cache-ram 7942),
+       S4N (4 slots, --cache-ram 0); 4 fresh loads each, interleaved, 5 requests per load (512/8K/16K/8K/512 plus
+       sizing retries). A hang is the measured outcome: recorded, then a passing baseline probe before continuing.
+       Reading: an arm "reduces hangs" only if it has 0 hangs while S4C has >= 1; anything else is inconclusive at
+       this size, and admission keeps the default slots and cache. If S1C or S4N qualifies, admission uses that
+       setting (S4N only if its known prefill cost still passes the gates).
+   (b) Admission restart rule for A and H: a configuration passes the V0d re-measurement only if one complete set
+       (discarded warm-up, r1-r3, both tool gates, each run admitted by classify() and memfloor --admit) finishes
+       with no NPU hang. After a hang: baseline recovery, then the complete set restarts once from the warm-up;
+       a second hang means not eligible in V0d. Every hang and restart is reported. The D66 A set (final3, 7,946 MiB)
+       is superseded by D67's exact caps and does not count toward this rule.
+
+D69 2026-10-06 Diagnosis attempt 1 (runs/v0d-diag/attempt1/): the soak's first readiness probe (unchanged baseline, 4 slots,
+   --cache-ram 8192) hung at 12:15 (watchdog). Sequence: the 512 sizing request was off-depth (377 tokens, slot 3,
+   128 tokens at 9.56 tok/s); the retry went to slot 2 right after slot 3's state was saved to the prompt cache
+   (66 MiB) and stalled after 125 tokens. Same shape as D57, D62, D63 and D66: a server's second or later request,
+   on a different slot, after a prompt-cache save; several stalls near the end of the 128-token generation.
+   The soak had treated a probe hang as STOP, which suits admission but not a diagnosis. Change (before any arm
+   ran): a probe hang is counted as data (baseline config) and the probe loop waits for recovery; 4 hangs in total
+   stop the diagnosis. Relaunched 12:16:45 with a 15-min idle wait first. Arms, loads and the D68 reading unchanged;
+   the attempt-1 probe hang is reported separately from the arm counts.
+
+D70 2026-10-06 Owner: use speculative decoding / MTP as much as possible and find the best technique per model.
+   Inventory (no board load): this build (836d5717) offers draft-simple, draft-eagle3, draft-mtp, draft-dflash,
+   draft-dspark and five n-gram types; a draft can run on the CPU (--device-draft none) while the target stays on the
+   NPU. For draft-mtp/eagle3/dflash/dspark the target gets n_max recurrent-state snapshots (need_n_rs_seq), which
+   qwen35 supports, so rejected drafts roll back without the state checkpoints that failed on HTP (D43); n-gram and
+   draft-simple roll back through checkpoints (worked once, D59). Extra snapshots add RS buffers on the NPU.
+   Per model:
+   - Ornith-1.0-9B is an MTP build ("Ornith 9b Mtp Kl", finetune mtp-kl, nextn_predict_layers 1); its MTP layer is
+     in the file, ignored today, and kept on the CPU by -ngl 33. In this build draft-mtp for qwen35 uses the loaded
+     target (no second copy, unlike the Jetson).
+   - NeoHorse-1-4B (fine-tune of Qwen3.5-4B) has no MTP head: candidates are the base model's MTP head
+     (unsloth/Qwen3.5-4B-MTP-GGUF; the Jetson saw +27-34 % for a cross-fine-tune head), a DFlash block drafter
+     (z-lab Qwen3.5-4B-DFlash via AtomicChat GGUF, 0.6B), and Qwen3.5-0.8B as a plain draft.
+   - Both: DFlash 9B drafter, 0.8B plain draft, n-gram.
+   Drafts downloaded to ~/v0/models/drafts at idle I/O priority during the diagnosis soak (8 MB/s cap), each
+   checked against the Hub's sha256 (drafts/expected-sha256.txt). Sweep (tools/v0d_spec.sh): starts after the
+   diagnosis; per model a control run, then variants, one fresh load each, 512/8K/16K, acceptance from the server
+   log; --cache-ram 2048 during the sweep (memory for drafts; speed unaffected, D53); every 9B load preceded by a
+   baseline probe. Ranking only; winners then take the D68 admission set with a recomputed memory cap. Speculation
+   gains depend on the text: the probes generate continuations of Markdown prose, so code-heavy agent sessions
+   (V0e) may differ in either direction.
+
+D71 2026-10-06 Diagnosis soak result (runs/v0d-diag/). After a 15-min idle wait the probe passed (12:32); S4C-1 PASS, S1C-1
+   PASS; S4N-1 (4 slots, --cache-ram 0, so no prompt-cache saves) served 512, 8K and 16K (16K 231.1/6.24: the known
+   cache-ram 0 slowdown), then on its fourth request the server aborted: "ggml-hex: dspqueue_read failed:
+   0x0000002e" (ggml-hexagon.cpp:4036), ggml_abort. Not a hang: an NPU runtime error reported to the host.
+   The classifier had no class for it (EVIDENCE) and stopped the soak after 3 of 12 loads.
+   Reading under D68: inconclusive (S4C has no hang in 1 load). New fact: NPU faults also occur with the prompt cache
+   off, so the "prompt-cache save" hypothesis is not supported; the remaining common factor is a server's later
+   request (never the first), on any slot setting tested. Admission keeps the default slots and cache (D68).
+   Classifier: new class DEVFAULT (an NPU runtime abort after the server was ready), counted with hangs as a
+   device fault; a fault at load stays LOADFAIL. 18 synthetic cases pass (tools/test_v0d_lib.sh); S4N-1 reclassifies
+   as DEVFAULT. The speculation sweep (D70) was restarted with this classifier before its first run; it treats a
+   device fault like a hang (recorded, recovery, continue; cap 3). The admission restart rule (D68 b) counts a
+   DEVFAULT the same as a hang.
+
+D72 2026-10-06 Speculation sweep, 4B part (runs/v0d-spec/, single runs, --cache-ram 2048, drafts on the CPU). 512 / 8K / 16K
+   prefill/decode tok/s:
+     control            308.4/9.97   306.7/9.28   284.3/7.67
+     base-model MTP n1  126.1/5.86   104.0/6.43    82.1/4.43   acceptance 282/349 = 0.81 (mean accepted length 1.81)
+     0.8B draft n4       98.2/4.50    67.1/3.64    41.1/2.36   acceptance 360/666 = 0.54
+     ngram-mod          325.2/9.17   342.2/8.86   312.7/8.03   acceptance 4/64 = 0.06 (no repetition in these prompts)
+     DFlash, MTP n2     do not map (twice each): domain 3, 640 MiB KV. The draft types that roll back without
+                        checkpoints give the target n_max recurrent-state snapshots; RS buffers grow (n1: 109 -> 218
+                        MiB in session 0) and session 0's KV no longer maps for n_max >= 2.
+   Diagnosis of the MTP slowdown (server log, spec statistics): dur(g) 38.9 s for 349 drafted tokens = 111 ms per
+   drafted token, about one full target step (~105 ms on the NPU), so a high acceptance buys nothing. The draft
+   runs on the CPU with llama.cpp's default 8 threads (A55 included, D55) and without repacked weights
+   (--no-repack). Prefill falls because MTP marks every prompt token as an output so its hidden state can be
+   mirrored into the draft context, which then runs the MTP layer over the whole prompt on the CPU.
+   The 4B control's 512/8K prefill (308/307) is below A's usual ~340: unexplained in a single run.
+   Round 2 (tools/v0d_spec2.sh, queued after the 9B part): 4B base-MTP n1 with a faster CPU draft (repacked, 4
+   big-core threads, not strict) and with the MTP layer + output head on a third NPU session; 9B own MTP n1 with the
+   MTP layer on the NPU (-ngl 34) and with the faster CPU draft.
+
+D73 2026-10-06 Speculation, 9B part of round 1 and the placement matrix (owner: try draft/target on NPU/CPU combinations).
+   9B round 1: the control (H, --cache-ram 2048) failed to load twice and 9B-mtp-n1 once, each after a passing
+   baseline probe, always on the 546 MiB token_embd host-buffer mapping (domain 11). The H layout loads only
+   intermittently even on a recovered NPU. Sweep stopped by the testing agent (15:25).
+   Load fix to test: H + --no-host (token_embd in plain CPU memory, never mapped). The earlier --no-host test
+   (D59) used -ngl 99, which also put the MTP layer on the NPU; H's layout with --no-host was never tried.
+   Placement matrix:
+     - Target on CPU or GPU: excluded by measurement, prefill 15-19 tok/s (CPU, D55) and 16 tok/s at best (OpenCL,
+       V0c) against the 145 gate; speculation only accelerates decode (and MTP lowers prefill).
+     - Target NPU + draft CPU: round 1 (8 default threads, 111 ms per drafted token); round 2: 4 big-core threads,
+       not strict, repacked weights.
+     - Target NPU + draft NPU: round 2: 9B MTP layer on the NPU (-ngl 34); 4B base-MTP layer and head on a third
+       session.
+     - Split draft: 4B MTP layer on the NPU, output head on the CPU.
+     - More target sessions to make room for n_max 2 (9B 4 sessions, 4B 3 sessions).
+     - Target NPU + draft GPU (Adreno): not possible with these binaries. The Hexagon package links
+       its backends directly (no dynamic backend loading), and the OpenCL build has no Hexagon backend. Needs a
+       build with both backends, cross-compiled on the laptop (owner action).
+   Round 2: tools/v0d_spec2.sh (9 runs, 9B first while the NPU is clean).
+
+D74 2026-10-06 NPU target + GPU draft needs one llama-server with both backends. Board-native route instead of a laptop
+   cross-build: the prebuilt Hexagon package's libggml-hexagon.so exports ggml_backend_hexagon_reg and needs only the
+   shared libggml-base.so.0, so a native build of the same commit (836d5717) with dynamic backends (GGML_BACKEND_DL,
+   CPU + OpenCL with Adreno kernels) can load it through a shim (tools/shim_hexagon.c -> libggml-hexagon-shim.so,
+   exporting ggml_backend_init/score). The Hexagon SDK itself cannot run on the board (x86 IDL compiler and DSP
+   toolchain). Risk: ABI match between the board-built libggml-base and the one the package was built with (same
+   commit; the loader checks the API version). tools/build_dl_npu_gpu.sh is queued to start only after speculation
+   round 2, so the CPU-heavy build does not disturb measurements. Fallback: the laptop cross-build with OpenCL
+   added (owner action).
+
+D75 2026-10-06 Codex review of #45 at 8cc8846 (14:08Z) and speculation round 2 (partial).
+   Round 2 (runs/v0d-spec2/, tools/v0d_spec2.sh): 9B H + --no-host loaded on its first try (512 155.7/6.31, 8K
+   149.9/5.67, 16K 147.0/5.07, single run): with token_embd in plain CPU memory the 546 MiB host-buffer mapping is
+   gone. Both 9B MTP variants (MTP layer on the CPU with 4 big-core draft threads; MTP layer on the NPU with -ngl 34)
+   still failed to load on a 546 MiB mapping (domain 11) despite --no-host, so the MTP draft path maps a buffer of that
+   size (likely the draft context not inheriting --no-op-offload/--no-host; to be checked in the source). A baseline
+   probe hung at 16:17 (npu-stalls/2849354-161634.txt; recovered by the 16:32 probe). Round 2 was stopped by the
+   testing agent during a recovery wait (16:44) to apply the review fixes before any further run.
+   Review findings, all fixed without board runs:
+   (1) memfloor.py --admit exits 2 when the run window has no samples; missing inputs raise (nonzero). Tests:
+       tools/test_memfloor.sh (6 cases: empty monitoring, above, 1 kB below the threshold, at the threshold, samples
+       outside the window, missing server log).
+   (2) The wrappers' skip path is gone. tools/v0d_runner.sh centralises every step: classify() + decide() (one
+       decision table, tools/test_decide.sh, 25 cases); EVIDENCE always stops; only a clean LOADFAIL twice is
+       skipped in exploration. Wrapper decisions are tested with mocked runs (tools/test_runner.sh, 14 scenarios,
+       including timeout + "SERVER EXITED" -> stop).
+   (3) DEVFAULT has an explicit policy everywhere: probes record it in faults.txt and keep probing; exploration
+       records it and continues after recovery; a fault cap (3) stops a sequence. admit_set() implements the D68
+       complete-set restart (one full restart after baseline recovery; a second fault -> not eligible) with the
+       exact memory check after every passing step.
+   (4) Monitoring published through 16:47 (monitor/*-20261006*, run-windows.jsonl to v0d-spec2/9B-mtp-n1-npu);
+       diag/spec/spec2 evidence committed; README and the PR description updated to the D66-D75 state, earlier
+       observations kept under their labels.
+   The board-native NPU+GPU build (D74) first failed at cmake (OpenCL library path); rebuilt with the same
+   -DOpenCL_LIBRARY as the V0c OpenCL builds, during this no-measurement window.
+
+D76 2026-10-06 9B MTP load failure, hypothesis and test. common_base_params_to_speculative copies the base params, so
+   the MTP draft context inherits --no-op-offload and --no-host; the inheritance is not the cause. The failing size
+   (572,133,376 = 572,129,280 + 4 KiB) also matches the 9B's output head (output.weight, 248320 x 4096 Q4_0), a
+   single tensor kept on session 2 outside the 256 MiB chunks. Inferred, not verified in the backend source: the
+   MTP draft context maps it a second time. Test (tools/v0d_spec3.sh, on the tested runner): output head on the CPU
+   (-ot output.weight=CPU), which also frees 546 MiB in session 2 for 2-token drafts; then the remaining 4B
+   placements. The CPU head costs about 22 ms per decode token at the measured CPU read bandwidth (~180 ms steps).
+D77 2026-10-06 Board-native NPU+GPU+CPU build works (D74): ~/v0/llama.cpp/build-dl (836d5717, GGML_BACKEND_DL, CPU and
+   OpenCL modules, Hexagon through libggml-hexagon-shim.so); one llama-server lists GPUOpenCL and HTP0:0
+   (runs/dl-build-devices.txt). The first attempt failed at cmake (no libOpenCL.so dev link); the second passed
+   -DOpenCL_LIBRARY as the V0c OpenCL builds did. Round 4 (tools/v0d_spec4.sh, queued after round 3):
+   - a parity run (4B control on the new binary vs the Hexagon package), which gates the round;
+   - the GPU as draft device: 0.8B, base-model MTP layer + head, DFlash with the 4B head on the CPU;
+   - the GPU as overflow for the 9B: output head on the GPU; MTP layer + head on the GPU.
+   No laptop build is needed unless parity fails.
+
+D78 2026-10-06 Codex: the combined-build parity gate needs a current-run comparison against the reference build. The
+   D77 gate only required the candidate's run to PASS. Replaced before round 4 started (it was still waiting for
+   round 3). Pre-declared gate (tools/parity.py, tools/v0d_spec4.sh):
+   - reference (Hexagon package) and candidate (combined build) runs, interleaved ref, cand, ref, cand, with the
+     same 4B config in the same session;
+   - all four runs must classify PASS;
+   - the candidate mean must be within +-5 % of the reference mean for prefill and decode at 8K and 16K;
+   - any missing value fails.
+   Tolerance basis: A's repeat spread was ~2 % (16K prefill) and ~1.4 % (decode).
+   Checker verified on synthetic inputs (pass; -6.5 % -> FAIL; missing 16K value -> FAIL), and the reference command
+   resolves to the package binary and libraries.
+
+D79 2026-10-06 Round 3, 9B part (runs/v0d-spec3/): the D76 hypothesis holds. With the output head on the CPU
+   (-ot output.weight=CPU) every 9B MTP variant loads (round 2: none did). Single runs, 16K prefill/decode:
+     head on CPU, no speculation       125.2/3.92
+     MTP n1, MTP layer on CPU (4 big)   96.5/4.35   acceptance 289/343 = 0.84
+     MTP n1, MTP layer on NPU (-ngl 34) 114.0/4.61  acceptance 283/350 = 0.81
+     MTP n2, MTP layer on CPU           94.3/4.15   acceptance 359/548 = 0.66
+   Reference H + --no-host (round 2): 147.0/5.07. MTP adds 11-18 % decode over the same layout, but the CPU output
+   head costs more than that (decode -23 %, prefill -15 %), and every MTP variant falls below the 145 prefill gate.
+   The GPU output head (round 4) is the remaining 9B MTP placement. The unchanged baseline probe hung twice more
+   (17:00, 17:22; 2 of round 3's 3-fault cap); load failures on probes at 17:47 and 18:23 (retried, passed).
+
+D80 2026-10-06 Round 3, 4B part, and the round 4 parity gate.
+   4B base-model MTP n1 (single runs), 512 / 8K / 16K prefill/decode:
+     draft on CPU, 4 big-core threads, repacked     156.3/6.91  126.4/6.43   95.1/5.57   acceptance 0.78
+     draft (MTP layer + head) on a 3rd NPU session  187.0/10.10 187.4/9.56  176.1/8.72  acceptance 0.81
+     head on CPU + n2                               does not map (domain 11, 640 MiB, twice)
+   The NPU-drafted MTP is the first speculative configuration to beat the plain 4B on decode. Against the same-session
+   reference (round 4 ref runs, mean): 8K 9.04 -> 9.56 (+6 %), 16K 7.95 -> 8.72 (+10 %). Prefill falls to 176 at 16K
+   (gate 145), because MTP outputs every prompt position. Single run: needs its own admission set.
+   Round 4 parity gate (D78), same session, interleaved: prefill matches (8K -0.0 %, 16K -0.1 %); decode is slower
+   in the combined build (8K -5.1 % FAIL, 16K -4.5 %). PARITY FAIL; round 4 stopped as declared, no GPU run made.
+   Cause found in the logs: the combined build's CPU backend uses OpenMP and llamafile, while the reference package
+   was built (preset arm64-linux-snapdragon) with OpenMP OFF and llamafile OFF, clang 21, -O3 -flto
+   -march=armv8.2a+fp16+dotprod. Decode depends on the CPU-side threadpool every token; prefill barely does.
+   Version 2 (tools/build_dl_npu_gpu_v2.sh): same options except the compiler (gcc 13; clang is not installed and
+   installing needs root). It must pass the same pre-declared gate as a new attempt; version 1 stays failed.
+
+D81 2026-10-06 Combined build v2 done (OpenMP OFF, llamafile OFF, -march=armv8.2-a+fp16+dotprod; gcc 13); lists GPUOpenCL and
+   HTP0:0. Round 4b (tools/v0d_spec4b.sh), recorded before its first result:
+   (a) the D78 parity gate on build v2, as a new attempt (v1 stays failed). On PASS: the GPU section of round 4
+       runs. On FAIL: only the GPU section is skipped.
+   (b) batch-size test: llama-bench (Hexagon package) -p 1,2,3,4,8 -n 0 -r 3 -d 0,8192, 4B A and 9B H + --no-host.
+       It gives the cost of processing n tokens in one call on the NPU. Speculation needs verification of 2 tokens
+       to cost about one step; D80 measured 1.46 (9B) and 2.3 (4B) with speculation's bookkeeping included.
+   (c) 4B NPU-drafted MTP with room for longer drafts: target on 3 sessions, draft on a 4th, n_max 1 and 2.
+   Per-step accounting behind the speculation results (from the server's dur(b,g,a) statistics):
+     speedup ~= (1 + acceptance) / (draft cost + verify cost), both in units of one plain decode step.
+       9B head on CPU, MTP n1:  draft 50 ms (0.20), verify 373 ms (1.46) -> 1.84/1.66 = 1.11 (measured +11 %).
+       4B base MTP n1, CPU draft: draft 111 ms (0.85), verify 297 ms (2.3) -> 1.81/3.15 = 0.57 (measured 0.58).
+     The full-vocabulary output head (248K tokens, 0.35-0.55 GB read per draft token) dominates the draft cost.
+
+D82 2026-10-06 Round 4b (runs/v0d-spec4b/).
+   - Parity, build v2 (same-session, interleaved): 8K prefill -0.7 %, decode -1.7 %; 16K prefill -0.9 %, decode
+     +1.6 %. PARITY PASS (v1 failed, D80); the OpenMP/llamafile mismatch was the cause.
+   - First GPU run (target 4B on the NPU, Qwen3.5-0.8B draft on the Adreno GPU, n4): 512 PASS but slow (prefill 75.8,
+     decode 4.00, acceptance 0.57); during the 8K request the kernel reported "hangcheck detected gpu lockup"
+     (20:43:43, offending task llama-server, recovered; gpu-lockup-kernel.txt). The server returned no tokens and the
+     next request was reset. The runner classified it EVIDENCE (health pass, speed failed) and stopped the round as
+     declared. This is the same failure class as the V0c OpenCL routes (D37: GPU lockup on long submissions).
+   - Decision: the GPU route is closed for this campaign.
+     - Every remaining GPU placement makes the GPU process whole prompts (draft models; MTP's prompt-wide outputs).
+     - The one that would not (the 9B output head on the GPU without MTP) cannot enable MTP, its only purpose.
+     - A GPU lockup risks the board (D39).
+     - The working combined build stays available for later study. No laptop build is needed.
+   - The non-GPU part of round 4b runs as round 4c (tools/v0d_spec4c.sh): the batch-size test (4B, 9B) and the 4B
+     NPU-drafted MTP with the target on 3 sessions (n1, n2).
+
+D83 2026-10-06 Round 4c (runs/v0d-spec4c/): batch-size test and 4-session NPU-drafted MTP.
+   llama-bench (Hexagon package), time per call for n tokens relative to n = 1 (pp1 = 95 ms 4B, 157 ms 9B at d0):
+       n:        1     2     3     4     8
+       4B d0   1.00  1.18  1.63  1.92  2.01      4B d8192  1.00  1.17  1.57  1.84  1.98
+       9B d0   1.00  1.20  1.78  2.00  2.21      9B d8192  1.00  1.18  1.66  1.90  1.98
+   Verifying 2 tokens costs ~1.2 steps on the NPU itself; 8 tokens cost about the same as 4 (tile-like steps).
+   Per-step accounting of the NPU-drafted 4B MTP n1 (16K): draft 32.8 ms (0.26 step; the CPU draft took 111 ms),
+   verification 174.7 ms (1.39 step: 1.17 raw + ~0.22 speculation bookkeeping), 1.81 tokens per step ->
+   predicted 1.10x, measured +10 %. With n1 the ceiling is ~1.27x even with zero bookkeeping.
+   4B, target on 3 sessions + MTP draft on a 4th: n1 512 186.3/9.89, 8K 186.5/9.11, 16K 176.3/8.55, acceptance 0.79
+   (same as the 2-session draft, D80). n2: 512 190.9/9.98, 8K 188.0/8.92 (acceptance 0.68), then an NPU HANG at 16K
+   (fault 1 of the round; npu-stalls copy in the run dir).
+   Implication: block drafting (DFlash) suits this NPU's cost curve best (8 verified tokens for ~2 steps), if it maps.
+   It failed to map on 2 sessions (D72: rollback snapshots for n_max tokens). Next: one exploratory round with the
+   4B target on 4 sessions (smaller per-session share) and the DFlash draft on the CPU, n_max 3 and 7.
+
+D84 2026-10-06 DFlash for the 4B (rounds 5, 5b, 5c, 5d; runs/v0d-spec5*/).
+   4B on 4 sessions without speculation: 512 319.9/8.96, 8K 339.9/8.43, 16K 311.9/7.67.
+   DFlash's draft reuses the target's token_embd, which the 4B ties to its output head, so it sits with the output
+   layer on the last NPU session. A draft on the CPU, or on another NPU session, aborts at load: "pre-allocated tensor
+   (token_embd.weight) in a buffer (HTP0:n) that cannot run the operation". --no-host and -ot output.weight=CPU do not
+   help (no separate output tensor). Only -ot token_embd.weight=CPU (table + head on the CPU) loads: n3, 16K
+   151.2/3.58, acceptance 397/689 = 0.58, 2.70 tokens per step; draft 239 ms per block on the CPU (~1.8 steps) and
+   verification ~515 ms (~4 steps: the head on the CPU plus bookkeeping). DFlash loses on this board with these
+   constraints.
+   Per-model outcome of the speculation exploration (single runs, probes of Markdown continuations):
+   - NeoHorse-1-4B: best is the base Qwen3.5-4B MTP head drafted on its own NPU session (n1): decode +6 % (8K) to
+     +10 % (16K) over same-session plain runs; prefill 315 -> 176 at 16K (still above 145); acceptance ~0.8. The 3-
+     and 4-session variants match; n2 hung the NPU (D83). All other techniques lose or do not load.
+   - Ornith-1.0-9B: no speculative configuration beats H + --no-host (16K 147.0/5.07). Its own MTP head works
+     (acceptance 0.81-0.84) but loads only with the output head on the CPU, which costs more than MTP gains (D79);
+     the GPU route is closed (D82).
+   - Limits found: the 248K-vocabulary head dominates draft cost; speculation bookkeeping adds ~0.22 steps; MTP's
+     prompt-wide outputs cut prefill ~44 %; extra recurrent-state snapshots exhaust per-session mapping; DFlash
+     cannot share the tied embedding across devices. The NPU itself verifies cheaply (1.2 steps for 2 tokens).
+
+D85 2026-10-07 Admission sets, declared before any run (owner: run the three recommended; the 4B at 65K is not run).
+   Scripts: tools/v0d_admit.sh (one set per call, own phase dir and fault counter), tools/v0d_admit_chain.sh (A, AM, H in
+   that order; continues after "admitted" or "not eligible", stops on any other exit). Each set is D68 (b): discarded
+   warm-up, r1-r3 at 512/8K/16K/32K, both tool gates, every run classified and passed through memfloor --admit; one
+   fault restarts the whole set after recovery, a second fault means not eligible in V0d.
+     A    NeoHorse-1-4B plain, 2 sessions, --cache-ram 7,942 MiB (D67).
+     AM   A + base Qwen3.5-4B MTP head drafted on a 3rd NPU session, n1 (D80, the 2-session-target variant: same speed
+          as 3 sessions and 0.29 GiB more headroom), --cache-ram 4,188 MiB.
+     H    Ornith-1.0-9B, 3 sessions, MBUF 256, -ngl 33 --no-op-offload -t 4 --no-host, --cache-ram 5,364 MiB (D67);
+          a passing baseline probe before every step (D64).
+   AM cap (computed, provisional): the MTP draft keeps the draft model's trunk in host memory, so its only run
+   (v0d-spec3/4B-mtpbase-n1-npu) left L_min 5,138,358 kB against A's 8.98-9.02 M kB. AM has no tool gate yet; A's
+   tool gate sits 503,055 kB under A's lowest speed run (8,981,884 - 8,478,829), and that drop is applied:
+   (5,138,358 - 503,055 - 346,030) / 1024 = 4,188 MiB. The set's own runs must pass memfloor --admit at 4,188; a
+   reject stops the set (recorded, then recomputed from the set's own tool gate).
+
+D86 2026-10-07 Codex review of #45 at 7dba8b0 (20:32Z) finding 1 (read today, before the D85 sets): accelerator kernel faults
+   now fail admission on their own. tools/kernel_audit.py audits every kernel line in a run window (START .. END + 30 s;
+   the sampler's ALERT_RE matches plus any fault-pattern match, since a GPU "lockup" line has no ALERT_RE word) and
+   puts each in one class: fault (GPU/display hangcheck, SMMU, DSP/remoteproc crash, any fastrpc/adsprpc/cdsp line
+   other than a mapping failure, hung task, segfault, OOM), npu_map ("fastrpc ... failed to map buffer"), allowed
+   (audited allowlist: USB disconnect only) or unknown. classify() (tools/v0d_lib.sh) now writes kernel-audit.txt and:
+   fault -> DEVFAULT; unknown or missing input -> EVIDENCE; PASS needs a clean audit; npu_map only inside a LOADFAIL.
+   Replay over the 221 committed run directories: the 6 GPU runs (including v0d-spec4b/dl-4B-d08-n4-gpu, 31 lines)
+   are faults; all 55 npu_map runs are load failures (the server exited before ready, or a soak load retry inside
+   the run); 159 pass; v0c/geniex-cpu-ornith9b spans a reboot (boot lines: fault/unknown) and v0c/geniex-gpu-ornith9b
+   has no window. The GPU-lockup run is reclassified: GPU device fault, failed health (it had stopped only on speed).
+   Tests: tools/test_kernel_audit.sh (18, including the published GPU-lockup journal as an offline regression),
+   test_v0d_lib.sh (+6), test_runner.sh (+2: a kernel fault behind a passing probe restarts the set; unknown stops).
+   The NPU stall watchdog had not been restarted after today's boot (no @reboot entry); it was started before any run
+   and tools/v0d_admit.sh now refuses to start without the watchdog and the health sampler.
+   Findings 2 (llama-bench wrapper) and 3 (provenance, manifests, report) do not touch the admission sets; they are
+   handled while the sets run.
+
+D87 2026-10-07 First D85 launch (17:34) stopped fail-closed at its readiness probe (runs/v0d-admit-A/probe-173454): the probe
+   itself passed (speed, kernel audit "pass"), but health failed on package drift. unattended-upgrade at 10:10:18
+   today updated sg3-utils, sg3-utils-udev and libsgutils2-1.46-2 1.46-3ubuntu4 -> 1.46-3ubuntu4.1 (SCSI generic
+   utilities, not part of the accelerator stack). The 12 apt holds (kernel, firmware, Mesa, qcom-adreno-cl1,
+   qcom-fastrpc1, qcom-libdmabufheap) are intact. As in D-libxpm4 (2026-10-05), the dpkg baseline was reset (1,715
+   packages; previous kept as dpkg-baseline-20261007-pre-sg3utils.txt) and the chain relaunched. No admission step
+   had run, so the D68 restart accounting is unaffected.
+
+D88 2026-10-07 Codex review of #45 (20:32Z) findings 2 and 3, and its wording corrections; handled while the D85 sets run.
+   Finding 2 (llama-bench outside the evidence rules): tools/bench_checked.sh now runs llama-bench like run_route.sh
+   (window registered, command, binary/library hashes and model recorded, timeout, exit status, output validated row
+   by row, kernel read after END, health verdict, kernel audit; RESULT PASS only if all pass). Mocked tests:
+   tools/test_bench_checked.sh (10: rc 1, timeout, short and NaN output, health, kernel fault/unknown all fail). The
+   stall watchdog now also selects llama-bench (file replaced, takes effect at its next start; the running instance
+   selects llama-server, which is all the D85 sets use). The bench() wrapper of v0d_spec4b/4c is retired. Its two
+   committed runs were audited offline (runs/v0d-spec4c/bench-audit.txt): rc 0, 10/10 numeric rows, kernel audit
+   pass, no swap, kernel reads ok through END; their windows were registered after the fact (marked) for publication.
+   Finding 3 (provenance): files.txt regenerated by tools/make_manifest.py over 163 runs (was 69), now including the
+   soak, affinity, diagnosis, speculation rounds, combined builds v1/v2 and the D85 sets, with source revision,
+   backend-library and shim hashes, the draft model and its sha256, speculation settings (type, n_max, draft devices,
+   n_rs_seq) from each server log. README updated to D88. Raw monitoring is published at each checkpoint.
+   Wording corrections (these replace the causal readings in D76, D79, D80/D81 and D83):
+   - 9B MTP: moving the output head to the CPU demonstrates a layout that loads; it does not prove that a second
+     546 MiB mapping was the failing mechanism.
+   - Build v2 changed several CPU options at once (compiler, OpenMP, llamafile, -march); its parity pass supports a
+     build-configuration explanation, not OpenMP/llamafile as the isolated cause.
+   - The batch-cost subtraction, the ~0.22-step bookkeeping and the ~1.27x n=1 ceiling are estimates derived from
+     these layouts and depths, not independently measured NPU-only timings or hardware bounds.
+
+D89 2026-10-07 Codex review of #45 at 54b730e (15:58Z), during set A (A-s1-r2 running, no fault so far).
+   (1) [P2] Probe and recovery faults now count toward the admission budget. Before, ready() recorded a fault and kept
+   probing, and admit_set() counted only measured-step faults, so a hang plus a faulting recovery probe could still
+   be admitted, and a fault in a pre-step probe did not restart the set. Rule now (tools/v0d_runner.sh), the literal
+   reading of D68 (b): every fault after the set starts counts, whether in a measured step, a readiness probe before a
+   step or a recovery probe. The first ends that attempt and the whole set restarts once after recovery; a second
+   fault anywhere means not eligible. The exploratory fault cap no longer preempts the set budget. The readiness probe
+   before the set (v0d_admit.sh) stays outside the set and is reported in faults.txt. Tests: test_runner.sh +5
+   (Codex's two cases, a second fault in attempt 2 in a step and in a probe, cap vs budget); 21 pass.
+   Set A was started with the earlier runner (functions loaded at start). Declared now, before any fault in A: A's
+   verdict is recomputed from its faults.txt and status under this rule, and if the earlier code would admit where
+   this rule does not, A is not eligible. AM and H load the corrected runner.
+   (2) Correction to D85's wording: the owner did not choose between three and four sets ("merged, let's continue");
+   the three sets are the testing agent's recommendation, run as declared, and the owner can still add the 4B at 65K.
+   (3) Monitoring published at 54b730e ends at 17:42:07 +02:00, not "through 18:00" as the PR comment said.
+   (4) files.txt now states that binary, library and model hashes are computed when the manifest is generated
+   (retrospective for earlier runs), with each binary's mtime. PR description rewritten to D89.
+
+D90 2026-10-07 D85 admission results (runs/v0d-admit-A, -AM, -H; runs/v0d-admit-chain.txt). No fault (hang or NPU abort)
+   in any set or probe: every faults.txt is empty, so the D89 recomputation of A gives the same verdict.
+   A   ADMITTED in attempt 1 (17:39-18:27). 16K r1-r3 317.5/8.22, 317.4/8.14, 312.5/8.28 -> median 317.4/8.22;
+       8K median 345.4/9.80; 32K 282.3/7.21. Tools 10/10, agentic 3/3. memfloor --admit at 7,942 MiB in every run;
+       lowest margin the tool gate, 28,494 kB (L_min 8,507,132 vs 8,478,638 required).
+   AM  ADMITTED in attempt 1 (18:31-19:36). 16K 178.8/8.56, 175.9/8.64, 178.4/8.81 -> median 178.4/8.64; 8K decode
+       median 9.76; 32K 165.6/7.71 (medians); draft acceptance 0.78-0.80 on the probes, 0.85 on the tool gates.
+       Tools 10/10, agentic 3/3. memfloor --admit at 4,188 MiB in every run; lowest margin the warm-up, 250,516 kB.
+       The provisional cap holds: AM's tool gate left L_min 4,991,496 kB, about its speed runs' level (the A-based
+       projection had assumed ~490 MiB less). Against A (same depths, medians): decode 8K -0.4 %, 16K +5 %, 32K +7 %;
+       prefill -44 %; prompt-cache cap 3,754 MiB smaller.
+   H   STOPPED, not admitted (19:39-21:26): r3 failed to load twice (clean LOADFAIL, "HTP0:2 buffer mapping failed:
+       domain_id 11 size 572133376", the 546 MiB output-layer buffer on the third session), which stops a set under
+       the declared rule. Completed before that: warm-up (after one load failure and recovery) 148.8/5.00 at 16K,
+       r1 150.3/4.96, r2 151.8/4.90; all memory checks passed at 5,364 MiB (margin >= 955,733 kB). H loads: 3 of 6
+       failed to map. After two of H's three completed runs the unchanged 4B baseline probe also failed to load
+       (LOADFAIL, retry_later) and passed about 16 min later; a passing probe did not guarantee the next H load.
+   Reading: A and AM complete V0d admission and meet both median 16K gates (>= 145 prefill, >= 4.4 decode), the tool
+   gates and the memory criterion, so both are provisionally eligible for the 4B. The 9B (H) is not admitted in V0d:
+   it ran and passed speed, health and memory while loaded, but it does not load reliably on this NPU (half of its
+   loads in this set, consistent with D61/D64). No V0e work starts without the owner's go-ahead; whether H gets
+   another declared attempt is the owner's decision.
+
+D91 2026-10-07 Proposal for one more H attempt with a cDSP restart before each 9B load (owner chose "option 3", then
+   "option 2": commit the restart script and its installer for review only). Nothing is installed, nothing has run as
+   root, and no test or admission script calls the restart yet.
+   - tools/cdsp_restart.sh: restarts only the compute DSP (remoteproc named 26300000.remoteproc, found by name;
+     stop -> offline -> start -> running, 60 s timeouts), takes no arguments, refuses while a llama-server or
+     llama-bench runs, logs one line per restart to /var/log/v0-cdsp-restart.log. Run without root it refuses.
+   - tools/install_cdsp_restart.sh: run once by the owner with sudo after review. Installs the script root-owned as
+     /usr/local/sbin/v0-cdsp-restart (0755) and /etc/sudoers.d/v0-cdsp-restart (0440, visudo-checked), which lets the
+     arduino user run that one file, with no arguments, without a password. --uninstall removes both.
+   - Not written yet: the scripts that would call it unattended, which the testing agent's own safety check blocked
+     pending explicit owner authorization. The planned use, to be declared in full before any run: (1) a test of 3
+     cycles of restart -> immediate H load + 512 tokens, then restart -> baseline probe, adopted only if all 3 H loads
+     map and pass; (2) if adopted, an H2 admission set under D68/D89 with a restart right before every measured load.
+     H2 results would be labelled as depending on that restart, which any deployment of the 9B would also need.
+   Until then the 9B stays not admitted in V0d (D90).

@@ -1,5 +1,5 @@
 #!/bin/bash
-# npu_stall_watchdog.sh — runs beside the night batch. A llama-server is declared hung when, for STALL_S seconds,
+# npu_stall_watchdog.sh — runs beside the night batch. A llama-server or llama-bench (Codex 20:32Z finding 2) is declared hung when, for STALL_S seconds,
 # at least one of its threads sits in fastrpc_wait_for_completion (waiting on the cDSP) and the whole process uses
 # < 0.5 core-s per 10 s. Then: diagnosis to ~/bench-runs/v0/night/npu-stalls/<pid>-<time>.txt, SIGKILL, status line.
 # An idle server waits on futexes, not FastRPC, so it never matches.
@@ -7,7 +7,7 @@ STALL_S=${STALL_S:-300}
 D=~/bench-runs/v0/night/npu-stalls; mkdir -p "$D"; ST=~/bench-runs/v0/night/status.txt
 declare -A since last
 while :; do
-  for pid in $(ps -eo pid,args | awk '$2 ~ /\/llama-server$/ {print $1}'); do
+  for pid in $(ps -eo pid,args | awk '$2 ~ /\/llama-(server|bench)$/ {print $1}'); do
     cpu=$(awk '{print $14+$15}' /proc/$pid/stat 2>/dev/null) || continue
     nfrpc=$(cat /proc/$pid/task/*/wchan 2>/dev/null | tr '\0' '\n' | grep -c fastrpc_wait_for_completion)
     prev=${last[$pid]:-$cpu}; last[$pid]=$cpu
