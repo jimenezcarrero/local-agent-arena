@@ -59,4 +59,7 @@ run_case admit-step-probe-fault-restarts 0 15 'admit_set H 100 probe cmd' PASS P
 run_case admit-fault-in-attempt2-not-eligible 3 7 'admit_set H 100 probe cmd' PASS HANG PASS PASS PASS PASS DEVFAULT
 run_case admit-probe-fault-in-attempt2-not-eligible 3 6 'admit_set H 100 probe cmd' PASS HANG PASS PASS PASS HANG
 run_case admit-cap-does-not-preempt-budget 3 2 'FAULT_CAP=1; admit_set A 100 none cmd' HANG DEVFAULT
+# D92: the pre-load command runs before every admission step (probe + load); its failure stops before any load
+run_case admit-preload-runs 0 10 'PRE_LOAD="echo OK restart"; admit_set H 100 probe cmd; [ $(grep -c "OK restart" $O/pre-load.txt) = 5 ]' PASS PASS PASS PASS PASS PASS PASS PASS PASS PASS
+run_case admit-preload-fail-stops 2 0 'PRE_LOAD=false; admit_set H 100 probe cmd' PASS
 echo "failures: $fails"; exit $fails

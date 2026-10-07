@@ -4,6 +4,7 @@
 #   A   NeoHorse-1-4B plain, 2 NPU sessions, --cache-ram 7942 (D67)
 #   AM  A + base Qwen3.5-4B MTP head drafted on a 3rd NPU session, n1 (D80), --cache-ram 4188 (D85, provisional)
 #   H   Ornith-1.0-9B, 3 sessions, MBUF 256, -ngl 33 --no-op-offload -t 4 --no-host, --cache-ram 5364 (D67); probe first
+#   H2  H again (D92, owner-authorized for 2026-10-07/08 only): cDSP restart + settle before every step's probe and load
 set -uo pipefail
 source ~/v0/v0d_lib.sh
 S=$1; PH=v0d-admit-$S; ST=~/bench-runs/v0/v0d/$PH-status.txt; P=~/v0/hexpkg/pkg-linux; M=~/v0/models/q40; DR=~/v0/models/drafts; O=~/bench-runs/v0/$PH
@@ -23,5 +24,7 @@ case $S in
   A)  admit_set A 7942 none $A;;
   AM) admit_set AM 4188 none $AM;;
   H)  admit_set H 5364 probe $H;;
+  H2) sudo -n -l /usr/local/sbin/v0-cdsp-restart > /dev/null 2>&1 || { say "STOP: cDSP restart helper not installed (D92)"; exit 6; }
+      PRE_LOAD="/bin/bash $HOME/v0/cdsp_pre.sh" admit_set H2 5364 probe $H;;
   *) say "unknown set $S"; exit 9;;
 esac; rc=$?; say "admission $S done rc=$rc (faults $(nfaults))"; exit $rc
