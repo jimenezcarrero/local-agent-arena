@@ -3,7 +3,7 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D90).
+[`decisions.txt`](decisions.txt) (D1–D99).
 
 **Status (2026-10-07 22:30): V0b and V0c complete. V0d admission sets done (D90): the 4B is provisionally eligible in
 two configurations; the 9B is not admitted. Nothing is GO; V0e needs the owner's go-ahead.**
@@ -24,7 +24,10 @@ Per-depth medians (min–max) of the measured repeats, prefill / decode tok/s (D
 | 32K | 282.3 (279.2–282.9) / 7.21 (7.12–7.23) | 165.6 (163.7–166.1) / 7.71 (7.02–7.81) | 142.4 (142.0–142.9) / 4.52 (4.47–4.57) |
 
 A and AM ran as consecutive sets (17:39–18:27, then 18:31–19:36), not interleaved, so their differences mix
-configuration with time; at 32K AM's decode range overlaps A's. An interleaved comparison is running (D97).
+configuration with time; at 32K AM's decode range overlaps A's. The interleaved comparison (D97, D99) is
+incomplete under its declared rule: A hung on the first request of its second run, so one pair has no A result. In the
+two complete pairs AM decoded faster at 8K, 16K and 32K (+3 % to +14 %). That A hang is the first fault on a server's
+first request; A's admission set stands, but the hang is on record for V0e.
 
 Gates at 16K: 145/4.4. AM trades 44 % of prefill and 3.7 GiB of prompt cache for +5 % median decode at 16K (ranges
 do not overlap); at 8K it is level with A, and at 32K the +7 % median is within run-to-run spread (ranges overlap).
