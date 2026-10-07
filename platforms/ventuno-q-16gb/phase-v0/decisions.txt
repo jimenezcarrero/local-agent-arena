@@ -1142,3 +1142,13 @@ D95 2026-10-08 First installation (00:26) left the helper installed (sha256 2ba2
    installer's post-check now verifies only what it installed: visudo -cf on its rule file, and that sudo -l -U arduino
    lists the helper as NOPASSWD; otherwise it removes the rule. The rule's exact text (no arguments, "") is unchanged
    and still visudo-checked before installation. Helper unchanged.
+
+D96 2026-10-08 Second installation (00:33) verified before use: helper sha256 2ba2c68c... (as reviewed), sudo grants exactly
+   "(root) NOPASSWD: /usr/local/sbin/v0-cdsp-restart \"\"", rule root:root 0440, expiry 09:00; with an argument sudo
+   asks for a password. The screen started at 00:33:38 and stopped at its first restart (runs/v0d-cdsp-test/): the
+   helper REFUSED, "cDSP clients open: 1700(cdsprpcd)". cdsprpcd is Qualcomm's cDSP RPC service (cdsprpcd.service,
+   user fastrpc, up since boot), which keeps /dev/fastrpc-cdsp open permanently; the arduino user cannot read its fd
+   table, so this was not visible before the root helper ran. No restart happened, nothing was loaded, the board is
+   unchanged. With the quiescence rule as written, a restart can never run while that system service is up.
+   Owner: "Stop for now, we will try tomorrow." The 9B stays not admitted in V0d (D90). The helper stays installed but
+   unused and expires at 09:00; tomorrow's attempt needs a reviewed design for cdsprpcd and a fresh installation.
