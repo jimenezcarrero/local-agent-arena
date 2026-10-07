@@ -14,8 +14,21 @@ two configurations; the 9B is not admitted. Nothing is GO; V0e needs the owner's
 | AM: A + base-model MTP head drafted on a 3rd NPU session, n=1, `--cache-ram 4188` | 178.4/8.64 | 9.76 / 7.71 | 10/10, 3/3 | all runs admitted (245 MiB) | **admitted, 0 faults: provisionally eligible** |
 | H: Ornith-1.0-9B, 3 sessions, `--no-host`, `--cache-ram 5364` | r1, r2: 150.3/4.96, 151.8/4.90 | — | not reached | runs admitted (933 MiB) | **stopped: r3 failed to load twice**; 3 of 6 H loads failed to map (D90) |
 
-Gates at 16K: 145/4.4. AM trades 44 % of prefill and 3.7 GiB of prompt cache for +5 % (16K) to +7 % (32K) decode;
-at 8K it is level with A. No NPU hang or abort occurred in any set. Earlier faults (D66, D69, D71, D83) remain on
+Per-depth medians (min–max) of the measured repeats, prefill / decode tok/s (D90; H: r1–r2 only):
+
+| Depth | A (r1–r3) | AM (r1–r3) | H (r1–r2) |
+|---|---|---|---|
+| 512 | 343.9 (336.6–348.7) / 10.19 (10.05–10.42) | 189.1 (184.9–189.8) / 10.17 (10.03–10.29) | 157.5 (157.1–157.9) / 5.84 (5.74–5.94) |
+| 8K | 345.4 (341.1–347.0) / 9.80 (9.32–9.86) | 189.6 (186.7–189.8) / 9.76 (9.66–11.09) | 155.3 (155.1–155.6) / 5.76 (5.63–5.89) |
+| 16K | 317.4 (312.5–317.5) / 8.22 (8.14–8.28) | 178.4 (175.9–178.8) / 8.64 (8.56–8.81) | 151.1 (150.3–151.8) / 4.93 (4.90–4.96) |
+| 32K | 282.3 (279.2–282.9) / 7.21 (7.12–7.23) | 165.6 (163.7–166.1) / 7.71 (7.02–7.81) | 142.4 (142.0–142.9) / 4.52 (4.47–4.57) |
+
+A and AM ran as consecutive sets (17:39–18:27, then 18:31–19:36), not interleaved, so their differences mix
+configuration with time; at 32K AM's decode range overlaps A's. An interleaved comparison is running (D97).
+
+Gates at 16K: 145/4.4. AM trades 44 % of prefill and 3.7 GiB of prompt cache for +5 % median decode at 16K (ranges
+do not overlap); at 8K it is level with A, and at 32K the +7 % median is within run-to-run spread (ranges overlap).
+Under the runbook ranking (prefill first) A ranks first; AM is a separately eligible alternative (Codex, 20:24Z). No NPU hang or abort occurred in any set. Earlier faults (D66, D69, D71, D83) remain on
 record: V0e's sustained runs must show whether the admitted configurations stay fault-free.
 
 ## What was measured, and how
@@ -139,9 +152,9 @@ ggml-hexagon 836d5717, pure Q4_0, `--ctx-checkpoints 0 -c 40960`, otherwise llam
 
 | Configuration | 512 | 8K | **16K** | 32K | Tools | min MemAvailable (32K runs / tools) | Status |
 |---|---|---|---|---|---|---|---|
-| ~4B A: NeoHorse-1-4B, 2 sessions, `-ngl 99` (D58) | 326.4/9.54 | 342.6/9.31 | **312.9/8.06** | 279.3/6.71 | 10/10; 3 passed, 1 inconclusive | 7.10 / 6.10 GiB | re-measuring with `--cache-ram 7946` |
+| ~4B A: NeoHorse-1-4B, 2 sessions, `-ngl 99` (D58) | 326.4/9.54 | 342.6/9.31 | **312.9/8.06** | 279.3/6.71 | 10/10; 3 passed, 1 inconclusive | 7.10 / 6.10 GiB | historical (2026-10-06); superseded by the D90 admission set |
 | 9B G′: Ornith-1.0-9B, 3 sessions, `GGML_HEXAGON_MBUF=256 -ngl 33 --no-op-offload -t 4 --cpu-mask 0xF --cpu-strict 1` (D60) | 163.5/6.29 | 166.7/6.02 | **159.4/5.49** | 150.1/4.95 | 10/10; 3/3 | 5.10 / 4.05 GiB | **withdrawn** (strict pinning, D63) |
-| 9B H: G′ with `-t 4` only (D64) | warm-up + r1 only: r1 158.5/6.01 | 160.0/5.76 | 153.9/5.27 | 144.8/4.75 | not run | — | re-measuring with `--cache-ram 5365` |
+| 9B H: G′ with `-t 4` only (D64) | warm-up + r1 only: r1 158.5/6.01 | 160.0/5.76 | 153.9/5.27 | 144.8/4.75 | not run | — | historical (2026-10-06); superseded by D90 (H not admitted) |
 
 Prefill/decode in tok/s; gates at 16K: 145/4.4.
 
@@ -203,14 +216,14 @@ rate):
 | Model | Variant | 16K prefill/decode | Acceptance | Note |
 |---|---|---|---|---|
 | 4B | control (same-session reference, round 4 mean) | ~315/7.95 | — | 8K decode 9.04 |
-| 4B | **base-model MTP head, n=1, drafted on a 3rd NPU session** | 176.1/8.72 | 0.81 | +10 % decode at 16K, +6 % at 8K; prefill falls (MTP outputs every prompt position) but stays above 145. **In admission (AM).** |
+| 4B | **base-model MTP head, n=1, drafted on a 3rd NPU session** | 176.1/8.72 | 0.81 | +10 % decode at 16K, +6 % at 8K; prefill falls (MTP outputs every prompt position) but stays above 145. Single exploratory run; admitted as AM in D90 (see the status table). |
 | 4B | same, target on 3 sessions + draft on a 4th | 176.3/8.55 | 0.79 | equal; n=2 hung the NPU at 16K (D83) |
 | 4B | base-model MTP, n=1, drafted on the CPU | 95.1/5.57 (4 big cores) | 0.78 | CPU drafting costs about one target step |
 | 4B | 0.8B draft, n=4 | 41.1/2.36 | 0.54 | |
 | 4B | n-gram (`ngram-mod`) | 312.7/8.03 | 0.06 | no gain |
 | 4B | DFlash, n=3 (head on the CPU, the only layout that loads) | 151.2/3.58 | 0.58 | below the decode gate (D84) |
 | 4B | GPU draft (combined NPU+GPU+CPU build v2) | — | — | Adreno lockup on the 8K prompt: GPU device fault, route closed (D82, D86) |
-| 9B | **plain H with `--no-host`** | 147.0/5.07 | — | best 9B; **in admission** |
+| 9B | **plain H with `--no-host`** | 147.0/5.07 | — | best 9B; single exploratory run; not admitted in D90 (load failures) |
 | 9B | own MTP, n=1, output head on the CPU | below H | 0.81–0.84 | loads only in this layout; the head on the CPU costs more than MTP gains (D79) |
 
 The combined build v1 failed the parity gate on decode (−5.1 % at 8K, D80); v2 (gcc 13, OpenMP and llamafile off,
