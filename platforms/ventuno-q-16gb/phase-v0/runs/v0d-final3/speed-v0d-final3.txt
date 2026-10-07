@@ -1,0 +1,23 @@
+## probe-102244  url=http://127.0.0.1:8080 model=none gen=128 nctx_sent=40960 server_n_ctx=40960
+RETRY probe-102244: depth=512 prompt_tokens=385 ttft=1.1s prefill_tps=336.6 gen_tokens=128 decode_tps=9.31 method=usage OFF_DEPTH(prompt outside ±20% of the requested depth) server_prompt_tps=338.6 server_decode_tps=9.31
+RESULT probe-102244: depth=512 prompt_tokens=485 ttft=1.5s prefill_tps=328.2 gen_tokens=128 decode_tps=9.22 method=usage server_prompt_tps=359.7 server_decode_tps=9.22
+SUMMARY probe-102244: all depths measured
+
+## A-warmup  url=http://127.0.0.1:8080 model=none gen=128 nctx_sent=40960 server_n_ctx=40960
+RETRY A-warmup: depth=512 prompt_tokens=380 ttft=1.1s prefill_tps=349.1 gen_tokens=128 decode_tps=9.47 method=usage OFF_DEPTH(prompt outside ±20% of the requested depth) server_prompt_tps=358.4 server_decode_tps=9.47
+RESULT A-warmup: depth=512 prompt_tokens=486 ttft=1.5s prefill_tps=329.9 gen_tokens=128 decode_tps=9.57 method=usage server_prompt_tps=360.2 server_decode_tps=9.57
+RETRY A-warmup: depth=8192 prompt_tokens=12321 ttft=36.8s prefill_tps=334.6 gen_tokens=128 decode_tps=8.45 method=usage OFF_DEPTH(prompt outside ±20% of the requested depth) server_prompt_tps=336.1 server_decode_tps=8.45
+RESULT A-warmup: depth=8192 prompt_tokens=7576 ttft=21.8s prefill_tps=348.0 gen_tokens=128 decode_tps=9.28 method=usage server_prompt_tps=352.8 server_decode_tps=9.28
+RESULT A-warmup: depth=16384 prompt_tokens=18038 ttft=56.7s prefill_tps=318.1 gen_tokens=128 decode_tps=7.99 method=usage server_prompt_tps=319.6 server_decode_tps=7.99
+RESULT A-warmup: depth=32768 prompt_tokens=31718 ttft=111.9s prefill_tps=283.4 gen_tokens=128 decode_tps=6.71 method=usage server_prompt_tps=284.8 server_decode_tps=6.71
+SUMMARY A-warmup: all depths measured
+
+## A-r1  url=http://127.0.0.1:8080 model=none gen=128 nctx_sent=40960 server_n_ctx=40960
+RETRY A-r1: depth=512 prompt_tokens=385 ttft=1.2s prefill_tps=330.8 gen_tokens=128 decode_tps=9.36 method=usage OFF_DEPTH(prompt outside ±20% of the requested depth) server_prompt_tps=338.6 server_decode_tps=9.36
+RESULT A-r1: depth=512 prompt_tokens=482 ttft=1.4s prefill_tps=336.0 gen_tokens=128 decode_tps=9.73 method=usage server_prompt_tps=356.6 server_decode_tps=9.73
+RETRY A-r1: depth=8192 prompt_tokens=12265 ttft=36.6s prefill_tps=334.9 gen_tokens=128 decode_tps=8.69 method=usage OFF_DEPTH(prompt outside ±20% of the requested depth) server_prompt_tps=336.3 server_decode_tps=8.69
+RESULT A-r1: depth=8192 prompt_tokens=None ttft=21.9s prefill_tps=n/a gen_tokens=15 decode_tps=9.14 method=chunks LOW_SAMPLE(<32 generated) ERROR(after one retry)
+RESULT A-r1: depth=16384 ERROR ConnectionResetError: [Errno 104] Connection reset by peer
+RESULT A-r1: depth=32768 ERROR URLError: <urlopen error [Errno 111] Connection refused>
+SUMMARY A-r1: 3 depth(s) FAILED
+

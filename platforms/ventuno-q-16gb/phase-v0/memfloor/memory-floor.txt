@@ -1,0 +1,65 @@
+Memory headroom floor, computed (2026-10-06; Codex review of #45 finding 2; owner: "calculate what is the minimum to avoid OOM")
+
+Goal: an estimated admission policy (not a guarantee) for the memory that must be left during the measured
+final-settings runs so that an arena run (same server, plus the prompt cache filling up, plus pi and its test
+processes) is not expected to run out of memory. There is no swap device, so
+running out means the OOM killer.
+
+1. What V0d measurements do not include, and arena runs do
+   a) llama-server prompt cache (--cache-ram, host RAM). Source 836d5717 tools/server/server-task.cpp:1742-1763, 1894:
+      the cache evicts the oldest states so that size + new state <= limit_size (MiB); the token limit is raised to
+      limit_size / bytes-per-token, so the MiB limit is what binds. Worst case: the cache grows to the full --cache-ram.
+      Observed state size (server logs): ~32 KiB per token + ~50 MiB per prompt (4B and 9B alike; 18,152 tokens =
+      617.9 MiB). V0d runs held at most 2.73 GiB.
+   b) pi 0.80.10 and its children (bash, pytest). Measured against a mock OpenAI server (memfloor/mock_server.py,
+      scripted tool calls: pytest, full reads of arena4's orders_engine.py, ls) with the process-tree sampler
+      memfloor/tree_rss.sh (0.2 s): peak tree RSS 196 MiB (request 54 KB), 185 MiB (243 KB, ~60K tokens), 198 MiB
+      (479 KB, ~120K tokens). pi's memory does not grow with context. pytest alone on the arena fixtures: 26-28 MiB
+      max RSS (/usr/bin/time -v), included in the tree peak. P = 198 MiB = 0.19 GiB.
+   c) Non-cache transients between health samples (sampling ~11 s): the largest MemAvailable drop between consecutive
+      samples after model load, not explained by a prompt-cache event (+-3 s tolerance), over all final runs:
+      0.14 GiB (9b-H-r1). M = 0.14 GiB.
+   MemAvailable already excludes the kernel's reserve (high watermarks, 75 MiB here), so no further kernel term.
+
+2. What each run leaves for (a)+(b)+(c): L = min over the run of (MemAvailable + prompt-cache size held at that
+   moment), tools/memfloor.py, memfloor/memfloor-runs.txt. The tool-gate runs are the lowest:
+     4B A          speed 8.57-8.60 GiB, tools 8.09 GiB
+     9B G'/H       speed 6.42-6.53 GiB, tools (G') 5.57 GiB
+     4B 4s 65K     5.92 GiB (single speed run, no tool gate yet)
+
+3. Estimated condition for no OOM:  L >= cache_ram + P + M = cache_ram + 0.33 GiB.
+   Largest --cache-ram meeting it per configuration (L - 0.33 GiB, superseded by section 5's exact values):
+     4B A          7.76 GiB (7,946 MiB): the current 8,192 MiB is NOT safe (short by 0.24 GiB)
+     9B G'/H       5.24 GiB (5,365 MiB): 8,192 MiB is NOT safe (short by 2.85 GiB)
+     4B 65K        5.59 GiB (5,724 MiB, provisional: no tool gate yet)
+   Equivalent floor on the measured runs: min MemAvailable >= (cache_ram - cache held at that moment) + 0.33 GiB, with
+   swap growth 0. For a tier value of 4,096 MiB: L >= 4.33 GiB.
+
+Caveats: pi measured with a mock model (real responses add no pi-side memory beyond the message text, which is
+covered by the 479 KB case). The 9B tool-gate L comes from G' (H's tool gate is not measured yet). A real arena may
+run more concurrent slots than the probes (pi uses one); a fresh server load needs the model's page-cache transient,
+already inside the measured runs.
+
+4. Decision (owner, 2026-10-06): compute the cache size per configuration instead of one tier value (RUNBOOK
+   deviation: "one tier value"). --cache-ram = floor(L_min - 0.33 GiB), L_min from the configuration's lowest
+   (tool-gate) run before the admission re-measurement:
+     4B A        7,946 MiB   (L 8.09 GiB, from its own V0d runs)
+     9B H        5,365 MiB   (L 5.57 GiB, from G' tool gate; H's own tool gate must confirm, else recompute lower)
+     4B 4s 65K   5,724 MiB   (L 5.92 GiB, speed run only; provisional until it has a tool gate)
+   Admission criterion, fixed before the re-measurement: in every final-settings speed and tool run,
+   L_min >= --cache-ram + 0.33 GiB and swap growth 0. Observed min MemAvailable is reported separately.
+
+5. Corrections after the Codex review of 2026-10-06 08:38Z
+   - Exact arithmetic: section 4's caps were derived from L rounded to 0.01 GiB. Recomputed in kB, rounded down:
+     cache-ram = floor((L_min_kB - 0.33 * 2^20) / 1024) MiB:
+       4B A        L_min 8,478,829 kB -> 7,942 MiB  (not 7,946: 7,946 would fail its own basis run)
+       9B H        L_min 5,839,351 kB -> 5,364 MiB  (G' tool gate; H's own tool gate must confirm)
+       4B 4s 65K   L_min 6,210,612 kB -> 5,727 MiB  (provisional, speed run only)
+     Admission compares in kB without rounding: tools/memfloor.py --admit <cache MiB> <run dir> (exit 0 = admit).
+   - Reproducible from committed inputs: MONITOR_DIR=monitor tools/memfloor.py and tools/memfloor_transient.py over
+     the committed run directories give the same L_min values and the same 145,820 kB transient
+     (monitor/health-*-runs.jsonl holds every raw sample inside each registered run window +-120 s).
+   - Limitations: (a) samples are ~11 s apart; the transient allowance does not bound excursions shorter than that.
+     (b) pi was measured with a mock model and scripted tool calls, which does not bound every real arena workload.
+     (c) The policy is therefore an estimate, to be confirmed by real pi sessions in V0e (min MemAvailable, swap
+     and OOM events recorded there), not a proof that a configuration cannot run out of memory.
