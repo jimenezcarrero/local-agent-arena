@@ -1064,3 +1064,19 @@ D90 2026-10-07 D85 admission results (runs/v0d-admit-A, -AM, -H; runs/v0d-admit-
    it ran and passed speed, health and memory while loaded, but it does not load reliably on this NPU (half of its
    loads in this set, consistent with D61/D64). No V0e work starts without the owner's go-ahead; whether H gets
    another declared attempt is the owner's decision.
+
+D91 2026-10-07 Proposal for one more H attempt with a cDSP restart before each 9B load (owner chose "option 3", then
+   "option 2": commit the restart script and its installer for review only). Nothing is installed, nothing has run as
+   root, and no test or admission script calls the restart yet.
+   - tools/cdsp_restart.sh: restarts only the compute DSP (remoteproc named 26300000.remoteproc, found by name;
+     stop -> offline -> start -> running, 60 s timeouts), takes no arguments, refuses while a llama-server or
+     llama-bench runs, logs one line per restart to /var/log/v0-cdsp-restart.log. Run without root it refuses.
+   - tools/install_cdsp_restart.sh: run once by the owner with sudo after review. Installs the script root-owned as
+     /usr/local/sbin/v0-cdsp-restart (0755) and /etc/sudoers.d/v0-cdsp-restart (0440, visudo-checked), which lets the
+     arduino user run that one file, with no arguments, without a password. --uninstall removes both.
+   - Not written yet: the scripts that would call it unattended, which the testing agent's own safety check blocked
+     pending explicit owner authorization. The planned use, to be declared in full before any run: (1) a test of 3
+     cycles of restart -> immediate H load + 512 tokens, then restart -> baseline probe, adopted only if all 3 H loads
+     map and pass; (2) if adopted, an H2 admission set under D68/D89 with a restart right before every measured load.
+     H2 results would be labelled as depending on that restart, which any deployment of the 9B would also need.
+   Until then the 9B stays not admitted in V0d (D90).
