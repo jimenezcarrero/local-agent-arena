@@ -51,7 +51,14 @@ for p in "$PROC"/[0-9]*; do
   fds=$(ls "$p/fd" 2>/dev/null) || { [ -d "$p" ] && fin "REFUSED cannot inspect $p/fd: quiescence not established" 4; continue; }
   for f in $fds; do
     # an fd that cannot be read is skipped only if it is gone (process exited or fd closed); still present -> refuse
-    t=$(readlink "$p/fd/$f" 2>/dev/null) || { ls "$p/fd" 2>/dev/null | grep -qx "$f" && fin "REFUSED cannot inspect $p/fd/$f: quiescence not established" 4; continue; }
+    # skip only when it is established that the fd is gone: the process vanished, or a successful re-listing lacks it
+    # (Codex review of #47, 22:16Z: a failed re-listing proves nothing)
+    if ! t=$(readlink "$p/fd/$f" 2>/dev/null); then
+      [ -d "$p" ] || continue
+      lst=$(ls "$p/fd" 2>/dev/null) || { [ -d "$p" ] && fin "REFUSED cannot re-list $p/fd after a failed readlink: quiescence not established" 4; continue; }
+      grep -qx "$f" <<< "$lst" && fin "REFUSED cannot inspect $p/fd/$f: quiescence not established" 4
+      continue
+    fi
     for dev in $DEVS; do [ "$t" = "$dev" ] && holders="$holders ${p##*/}($(rd "$p/comm"))"; done
   done
 done
