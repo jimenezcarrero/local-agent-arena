@@ -3,20 +3,20 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D89).
+[`decisions.txt`](decisions.txt) (D1–D90).
 
-**Status (2026-10-07 18:00): V0b and V0c complete. V0d admission is not complete for any configuration; the
-admission sets are running.**
-- The D65/D67 re-measurement of A stopped at its first repeat on an NPU hang (D66), with no strict pinning.
-- Since then, unchanged baseline probes hung (D69, and in the speculation sweep), one server aborted with an NPU
-  runtime error with the prompt cache off (D71), and a 4B MTP n=2 server hung at 16K (D83).
-- Hangs and aborts strike a server's later requests in every slot and cache setting tested; the cause is unknown
-  (D71).
-- Speculation exploration is finished (D84): only the 4B's base-model MTP head, drafted on its own NPU session, beats
-  its control; nothing beats the 9B's plain H.
-- Three configurations are in admission (D85): A, A + NPU-drafted MTP (AM) and 9B H with `--no-host`.
-- Kernel faults now fail a run on their own (D86).
-- Nothing is provisionally eligible and nothing is GO. Earlier results remain evidence under their own labels.
+**Status (2026-10-07 22:30): V0b and V0c complete. V0d admission sets done (D90): the 4B is provisionally eligible in
+two configurations; the 9B is not admitted. Nothing is GO; V0e needs the owner's go-ahead.**
+
+| Set (D85) | 16K median prefill/decode | 8K / 32K median decode | Tools | Memory (lowest margin) | Outcome |
+|---|---|---|---|---|---|
+| A: NeoHorse-1-4B, 2 NPU sessions, `--cache-ram 7942` | 317.4/8.22 | 9.80 / 7.21 | 10/10, 3/3 | all runs admitted (28 MB, tool gate) | **admitted, 0 faults: provisionally eligible** |
+| AM: A + base-model MTP head drafted on a 3rd NPU session, n=1, `--cache-ram 4188` | 178.4/8.64 | 9.76 / 7.71 | 10/10, 3/3 | all runs admitted (245 MiB) | **admitted, 0 faults: provisionally eligible** |
+| H: Ornith-1.0-9B, 3 sessions, `--no-host`, `--cache-ram 5364` | r1, r2: 150.3/4.96, 151.8/4.90 | — | not reached | runs admitted (933 MiB) | **stopped: r3 failed to load twice**; 3 of 6 H loads failed to map (D90) |
+
+Gates at 16K: 145/4.4. AM trades 44 % of prefill and 3.7 GiB of prompt cache for +5 % (16K) to +7 % (32K) decode;
+at 8K it is level with A. No NPU hang or abort occurred in any set. Earlier faults (D66, D69, D71, D83) remain on
+record: V0e's sustained runs must show whether the admitted configurations stay fault-free.
 
 ## What was measured, and how
 
@@ -266,7 +266,8 @@ setting stays at 40960.
 - **V0c coverage:** every runbook route now has a status (the table above). The three cells deferred overnight were
   run with the owner present (D49). Vulkan failed V0b and is not carried into V0c. The 2026-10-04 board stop (D39)
   did not reproduce when GenieX GPU × Ornith-9B was re-run; its cause stays unexplained.
-- **V0d:** the D85 admission sets (A, AM, H), their manifests (`files.txt`), then eligibility. **V0e** comes next for each exact configuration:
+- **V0d:** done for the 4B (A and AM provisionally eligible, D90). The 9B is not admitted (load reliability); another
+  declared attempt is the owner's decision. **V0e** comes next for each exact configuration:
   - pi's streaming path and a real-pi smoke session;
   - each intended window at its real size (40960 is not 65K);
   - cached multi-turn reuse;
