@@ -1080,3 +1080,32 @@ D91 2026-10-07 Proposal for one more H attempt with a cDSP restart before each 9
      map and pass; (2) if adopted, an H2 admission set under D68/D89 with a restart right before every measured load.
      H2 results would be labelled as depending on that restart, which any deployment of the 9B would also need.
    Until then the 9B stays not admitted in V0d (D90).
+
+D92 2026-10-07 Owner authorization: "activate the one root step only for tonight but you have to be careful to don't use
+   with wrong intention". Scope: automated calls of sudo -n /usr/local/sbin/v0-cdsp-restart by the two scripts below,
+   during the night of 2026-10-07/08 only; nothing else runs as root. Declared before installation and before any run.
+   Helper hardened per the Codex review of 4ac762f (21:06Z):
+   - expiry written in by the installer (at most 24 h ahead; owner installs with --expires 2026-10-08T09:00); after it
+     the helper refuses. The owner removes it in the morning with --uninstall.
+   - quiescence fails closed: refuses if any process holds /dev/fastrpc-cdsp or /dev/fastrpc-cdsp-secure (GenieX and
+     any other client, not only llama processes) or if any /proc fd table cannot be read; non-blocking lock in /run
+     (no overlapping restarts); starting state must be "running".
+   - BEGIN logged (write must succeed) before the first state change; each write runs with its own 90 s deadline and
+     all sysfs reads are bounded, so a blocked write ends with UNKNOWN (exit 7) and the campaign stops; one terminal
+     line per call (OK / FAIL / REFUSED / UNKNOWN) in /var/log/v0-cdsp-restart.log.
+   - installer: exact argument set (--expires DATE or --uninstall), stages and checks the helper and the rule
+     (visudo) before installing either, rechecks all sudoers after.
+   Offline tests (tools/test_cdsp_restart.sh, 19, fake sysfs and /proc under a temp dir, never root): OK path touches
+   only the named remoteproc; arguments, non-root, unconfigured, expired, concurrent, GenieX-like and secure-device
+   clients, unreadable /proc, missing remoteproc, wrong starting state, unwritable log (nothing changed), stuck
+   driver, write error, blocked write (BEGIN + UNKNOWN logged) all refuse or fail with distinct codes.
+   Protocol (Codex: keep D64's baseline before every 9B load; "running" is not recovery evidence):
+   (1) Screen, tools/v0d_cdsp_test.sh, runs/v0d-cdsp-test: 3 cycles of restart + 30 s settle -> unchanged 4B baseline
+       probe (must pass) -> H load + 512 tokens, each right after the previous H run. Adopted only if 3/3 H loads pass.
+       Any HANG/DEVFAULT/EVIDENCE or a failed probe stops it.
+   (2) Only if adopted: H2 admission set (v0d_admit.sh H2, runs/v0d-admit-H2) = the D68/D89 rule with
+       tools/cdsp_pre.sh (restart + 30 s settle) before every step's probe and load; recovery waits after a fault or
+       load failure stay plain idle probes (no restart). H2 is labelled "requires a cDSP restart before each load"; D90's
+       3/6 failed H loads stay on record; a restart can never count inside a sustained V0e session.
+   Restart lifecycle kernel lines are not allowlisted: the settle keeps them before the run window; if one still
+   falls inside a window the kernel audit fails that run and the sequence stops for inspection.
