@@ -3,7 +3,7 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D99).
+[`decisions.txt`](decisions.txt) (D1–D100).
 
 **Status (2026-10-07 22:30): V0b and V0c complete. V0d admission sets done (D90): the 4B is provisionally eligible in
 two configurations; the 9B is not admitted. Nothing is GO; V0e needs the owner's go-ahead.**
@@ -199,9 +199,11 @@ rate):
 - **Since then, without strict pinning:**
   - A hung in its final r1 (D66);
   - the unchanged 4B baseline probe hung twice (D69, spec round 2 at 16:17);
-  - a 4B server with the prompt cache off aborted with `dspqueue_read failed` (D71).
-- **Common factor:** every fault hit a later request on a server that had already answered, never a first request.
-  The cause is unknown.
+  - a 4B server with the prompt cache off aborted with `dspqueue_read failed` (D71);
+  - A hung on the **first request** of a freshly loaded server in the interleaved comparison (A-2, D99), after
+    passing its D90 admission.
+- **Pattern:** through D90 every fault hit a later request on a server that had already answered. D99 breaks that:
+  a fresh server is not a safeguard. The cause is unknown.
 
 **Admission policy (D68, D71, D75; tools/v0d_runner.sh `admit_set`):**
 - A complete set (warm-up, r1–r3, both tool gates, each with the memory check) must finish with no hang or NPU

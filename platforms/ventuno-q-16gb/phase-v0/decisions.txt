@@ -1197,3 +1197,18 @@ D99 2026-10-08 Interleaved A vs AM comparison (D97), runs/v0d-interleave/, 00:39
    pairs) cannot be established at any depth: INCOMPLETE. In the two complete pairs AM decodes faster at 8K, 16K and
    32K (+4 %, +4 %, +8 % in pair 1; +14 %, +3 %, +11 % in pair 3) and is mixed at 512. Every run passed memfloor
    --admit. Draft acceptance 0.79-0.81. Exploratory: D90 is unchanged.
+D100 2026-10-08 Codex review of #47 (05:13Z, through abc6363), two P2 findings, both addressed; no hardware run.
+   1. tools/v0d_interleave.sh ignored memfloor --admit's exit status: with memory samples missing (exit 2) or a
+      headroom REJECT (exit 1) it still advanced and ended "interleave done". Now, as in admit_set, any non-zero exit
+      stops the comparison with exit 3 ("STOP: MEM <run>"). BR and CHECK_PROC are overridable for tests;
+      tools/test_interleave.sh (mocked, 3 cases: admit completes 6 runs; REJECT and no-samples each stop after the
+      first run with rc 3). The committed D99 runs are unaffected: all five PASS runs logged ADMIT, and Codex
+      reproduced their memory decisions.
+   2. The D71 "never a first request" statement in the README is replaced: D99 is a first-request hang on a fresh,
+      admitted A server, so a fresh server is no longer a safeguard. The V0e plan's sustained-run rationale now cites
+      D99 and A's record (admitted D90, one hang D99). The PR description is brought through D95-D100.
+   Also from the review: a sanitized installation receipt for the restart helper (no root needed: stat, sha256, diff
+   against the reviewed source showing only the EXPIRES line, the sudo -l line, the full root log) is committed as
+   runs/v0d-cdsp-test/install-receipt.txt. Unchanged: D90's provisional A/AM eligibility (historical), A's
+   post-admission hang (D99), H's failed-load denominator (3 of 6); H2 and GO stay blocked; another restart attempt
+   needs the owner's choice of service handling (D98) and a new declared authorization window.
