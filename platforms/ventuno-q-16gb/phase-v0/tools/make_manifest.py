@@ -8,7 +8,7 @@ import glob, hashlib, os, re, sys
 H = os.path.expanduser("~")
 PHASES = ["v0b-7badb21", "v0c", "v0-explore", "v0c-repeats", "v0d-final", "v0d-final-9b", "v0d-final-9b-h", "v0d-final3",
           "v0d-soak", "v0d-affinity", "v0d-diag", "v0d-spec", "v0d-spec2", "v0d-spec3", "v0d-spec4", "v0d-spec4b", "v0d-spec4c",
-          "v0d-spec5", "v0d-spec5b", "v0d-spec5c", "v0d-spec5d", "v0d-admit-A", "v0d-admit-AM", "v0d-admit-H", "v0d-interleave"]
+          "v0d-spec5", "v0d-spec5b", "v0d-spec5c", "v0d-spec5d", "v0d-admit-A", "v0d-admit-AM", "v0d-admit-H", "v0d-interleave", "v0d-cdsp-test2", "v0d-cdsp-test3", "v0d-admit-H2"]
 # V0d status per phase/label prefix (D58, D60, D63, D64, D65)
 STATUS = [("v0d-final/", "V0d A with --cache-ram 8192 (D58): evidence only, superseded by the D65 re-measurement"),
           ("v0d-final-9b/9b-Gbig", "V0d 9B G' (D60): WITHDRAWN (--cpu-strict 1 linked to NPU hangs, D63)"),

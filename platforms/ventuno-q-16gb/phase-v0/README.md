@@ -3,25 +3,30 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D100).
+[`decisions.txt`](decisions.txt) (D1–D109).
 
-**Status (2026-10-07 22:30): V0b and V0c complete. V0d admission sets done (D90): the 4B is provisionally eligible in
-two configurations; the 9B is not admitted. Nothing is GO; V0e needs the owner's go-ahead.**
+**Status (2026-10-08 22:10): V0b and V0c complete. V0d admission sets done: the 4B is provisionally eligible in two
+configurations (D90); the 9B is provisionally eligible as H2, which requires a cDSP restart before every load (D109).
+Nothing is GO; V0e needs the owner's go-ahead.**
 
 | Set (D85) | 16K median prefill/decode | 8K / 32K median decode | Tools | Memory (lowest margin) | Outcome |
 |---|---|---|---|---|---|
 | A: NeoHorse-1-4B, 2 NPU sessions, `--cache-ram 7942` | 317.4/8.22 | 9.80 / 7.21 | 10/10, 3/3 | all runs admitted (28 MB, tool gate) | **admitted, 0 faults: provisionally eligible** |
 | AM: A + base-model MTP head drafted on a 3rd NPU session, n=1, `--cache-ram 4188` | 178.4/8.64 | 9.76 / 7.71 | 10/10, 3/3 | all runs admitted (245 MiB) | **admitted, 0 faults: provisionally eligible** |
 | H: Ornith-1.0-9B, 3 sessions, `--no-host`, `--cache-ram 5364` | r1, r2: 150.3/4.96, 151.8/4.90 | — | not reached | runs admitted (933 MiB) | **stopped: r3 failed to load twice**; 3 of 6 H loads failed to map (D90) |
+| H2: H with a cDSP restart + 30 s settle before every probe and load (root helper, D92–D104) | 151.1/4.95 | 5.55 / 4.31 | 10/10, 3/3 | all runs admitted (884 MiB) | **admitted in attempt 2, 1 fault (r1 hung at 32K in attempt 1): provisionally eligible, restart required** (D109) |
 
-Per-depth medians (min–max) of the measured repeats, prefill / decode tok/s (D90; H: r1–r2 only):
+Per-depth medians (min–max) of the measured repeats, prefill / decode tok/s (D90; H: r1–r2 only; H2: attempt-2
+r1–r3, D109):
 
-| Depth | A (r1–r3) | AM (r1–r3) | H (r1–r2) |
-|---|---|---|---|
-| 512 | 343.9 (336.6–348.7) / 10.19 (10.05–10.42) | 189.1 (184.9–189.8) / 10.17 (10.03–10.29) | 157.5 (157.1–157.9) / 5.84 (5.74–5.94) |
-| 8K | 345.4 (341.1–347.0) / 9.80 (9.32–9.86) | 189.6 (186.7–189.8) / 9.76 (9.66–11.09) | 155.3 (155.1–155.6) / 5.76 (5.63–5.89) |
-| 16K | 317.4 (312.5–317.5) / 8.22 (8.14–8.28) | 178.4 (175.9–178.8) / 8.64 (8.56–8.81) | 151.1 (150.3–151.8) / 4.93 (4.90–4.96) |
-| 32K | 282.3 (279.2–282.9) / 7.21 (7.12–7.23) | 165.6 (163.7–166.1) / 7.71 (7.02–7.81) | 142.4 (142.0–142.9) / 4.52 (4.47–4.57) |
+| Depth | A (r1–r3) | AM (r1–r3) | H (r1–r2) | H2 (r1–r3) |
+|---|---|---|---|---|
+| 512 | 343.9 (336.6–348.7) / 10.19 (10.05–10.42) | 189.1 (184.9–189.8) / 10.17 (10.03–10.29) | 157.5 (157.1–157.9) / 5.84 (5.74–5.94) | 157.6 (143.6–158.3) / 5.92 (5.77–5.93) |
+| 8K | 345.4 (341.1–347.0) / 9.80 (9.32–9.86) | 189.6 (186.7–189.8) / 9.76 (9.66–11.09) | 155.3 (155.1–155.6) / 5.76 (5.63–5.89) | 158.9 (155.1–159.1) / 5.55 (5.53–5.62) |
+| 16K | 317.4 (312.5–317.5) / 8.22 (8.14–8.28) | 178.4 (175.9–178.8) / 8.64 (8.56–8.81) | 151.1 (150.3–151.8) / 4.93 (4.90–4.96) | 151.1 (149.8–152.1) / 4.95 (4.81–5.11) |
+| 32K | 282.3 (279.2–282.9) / 7.21 (7.12–7.23) | 165.6 (163.7–166.1) / 7.71 (7.02–7.81) | 142.4 (142.0–142.9) / 4.52 (4.47–4.57) | 143.3 (142.3–144.1) / 4.31 (4.24–4.55) |
+
+H2 ran on 2026-10-08 after a reboot and package updates (D101 environment cohort), a day after A, AM and H.
 
 A and AM ran as consecutive sets (17:39–18:27, then 18:31–19:36), not interleaved, so their differences mix
 configuration with time; at 32K AM's decode range overlaps A's. The interleaved comparison (D97, D99) is
