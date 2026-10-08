@@ -1361,3 +1361,18 @@ D109 2026-10-08 H2 admission set (D92/D93; runs/v0d-admit-H2), 19:47-22:03: ADMI
    - status-line summaries in this phase sometimes list decode values out of place (summary() greps both decode_tps
      and server_decode_tps); the raw probe.txt files are authoritative and were used above.
    Nothing is GO; V0e for any configuration needs the owner's go-ahead.
+D110 2026-10-08 Monitoring export for test2, test3 and H2; corrections (Codex review of ddf4d74, 21:37Z). No hardware run.
+   - tools/publish_monitor.py re-run at 23:39: monitor/health-20261008-{minutes,runs}.jsonl, kernel-20261008.jsonl,
+     run-windows.jsonl (26 windows for v0d-cdsp-test2, v0d-cdsp-test3, v0d-admit-H2) and health-checks.txt, plus the
+     tail of 2026-10-07 (through the shutdown). No machine-id or serial in any published file (checked).
+   - Recomputed from the committed monitor directory only (MONITOR_DIR=monitor):
+     - memfloor --admit 5364 on H2 attempt 2: all five steps ADMIT; lowest L_min 6,743,932 kB in r1 against 5,838,766
+       required, margin 884 MiB, as reported in D109. Swap used 0 kB in every exported run-window sample.
+     - kernel_audit.py on all 26 run directories of the three phases: pass, except probe-203435 (npu_map, the
+       recovery LOADFAIL of D109). Same verdicts as the local audits; H2-s1-r1 matches its retrospective audit.
+   - Correction to D109: the H2-s1-r1 hang was on the fourth requested depth but the sixth server request (the 512
+     and 8K off-depth attempts were retried): task 661, 31,722 prompt tokens, prompt processing complete, stalled in
+     decode after n_gen 114 in the server log. "118 tokens" in D109 is streamed chunks from the incomplete response,
+     not a usage-reported count. Still a later-request hang.
+   - README: "No NPU hang or abort occurred in any set" scoped to A's and AM's D90 sets; H2's fault and two attempts,
+     and the D105 and D109 faults, added to the fault history.

@@ -3,7 +3,7 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D109).
+[`decisions.txt`](decisions.txt) (D1–D110).
 
 **Status (2026-10-08 22:10): V0b and V0c complete. V0d admission sets done: the 4B is provisionally eligible in two
 configurations (D90); the 9B is provisionally eligible as H2, which requires a cDSP restart before every load (D109).
@@ -36,8 +36,9 @@ first request; A's admission set stands, but the hang is on record for V0e.
 
 Gates at 16K: 145/4.4. AM trades 44 % of prefill and 3.7 GiB of prompt cache for +5 % median decode at 16K (ranges
 do not overlap); at 8K it is level with A, and at 32K the +7 % median is within run-to-run spread (ranges overlap).
-Under the runbook ranking (prefill first) A ranks first; AM is a separately eligible alternative (Codex, 20:24Z). No NPU hang or abort occurred in any set. Earlier faults (D66, D69, D71, D83) remain on
-record: V0e's sustained runs must show whether the admitted configurations stay fault-free.
+Under the runbook ranking (prefill first) A ranks first; AM is a separately eligible alternative (Codex, 20:24Z). No NPU hang or abort occurred in A's or AM's D90 sets. H2's set had one fault (attempt 1 r1 hung at
+32K) and passed on its second attempt (D109). Earlier faults (D66, D69, D71, D83, D99, D105, D109) remain on record: V0e's
+sustained runs must show whether the admitted configurations stay fault-free.
 
 ## What was measured, and how
 
@@ -207,8 +208,13 @@ rate):
   - a 4B server with the prompt cache off aborted with `dspqueue_read failed` (D71);
   - A hung on the **first request** of a freshly loaded server in the interleaved comparison (A-2, D99), after
     passing its D90 admission.
-- **Pattern:** through D90 every fault hit a later request on a server that had already answered. D99 breaks that:
-  a fresh server is not a safeguard. The cause is unknown.
+  - in cDSP-restart screen 2 the unchanged 4B baseline hung on its **first request** after the second restart
+    (task 0, 384 prompt tokens; D105); the recovery probe passed 16 min later without a restart (D106);
+  - H2 attempt 1: r1 hung at 32K on its sixth request (task 661, 31,722 prompt tokens, after the off-depth 512 and
+    8K retries), during decode; the first recovery probe failed to load (degraded mapping, as D61/D64), the second
+    passed (D109, D110). Attempt 2 passed with no fault.
+- **Pattern:** through D90 every fault hit a later request on a server that had already answered. D99 and D105
+  break that: a fresh server is not a safeguard, with or without a cDSP restart. The cause is unknown.
 
 **Admission policy (D68, D71, D75; tools/v0d_runner.sh `admit_set`):**
 - A complete set (warm-up, r1–r3, both tool gates, each with the memory check) must finish with no hang or NPU
