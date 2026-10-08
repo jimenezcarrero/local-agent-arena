@@ -9,7 +9,9 @@
 #     baseline PASS, no restart); STOP: H2 NOT QUALIFIED in this V0e attempt.
 #   - S1 with failed items but a clean server session (health, kernel, no fault) -> recorded as S1 FAIL; S2 still runs
 #     (more evidence); H2 is not qualified.
-#   - any other non-PASS (load failure, missing evidence, memory reject) -> STOP.
+#   - a clean load failure (D114): recovery without a restart, then that session again from its restart; twice -> STOP:
+#     NOT QUALIFIED (load). A fault during that recovery -> NOT QUALIFIED.
+#   - any other non-PASS (missing evidence, memory reject) -> STOP.
 #   - no restart is started after the helper's expiry minus 10 min (a session that cannot start stops the attempt).
 # Overridable for tests: BR, CHECK_PROC, HELPER_CHECK, PRE_CMD, RUN_V0E, EXPIRES, SESS_PAUSE + the runner's variables.
 set -uo pipefail
@@ -30,17 +32,31 @@ $CHECK_PROC '^/bin/bash /home/arduino/v0/npu_stall_watchdog.sh' > /dev/null || {
 $CHECK_PROC '^/bin/bash /home/arduino/v0/monitor/health_sampler.sh' > /dev/null || { say "STOP: health sampler not running"; exit 6; }
 $HELPER_CHECK > /dev/null 2>&1 || { say "STOP: cDSP restart helper not installed"; exit 6; }
 [[ "$EXPIRES" =~ ^[0-9]+$ ]] || { say "STOP: helper expiry unknown"; exit 6; }
-# session <label> <workload> <timeout>: restart -> baseline -> H2 session; sets C to the class. Runs in this shell (not
-# in a command substitution) so that every STOP exits the driver.
-session() { local lab=$1 wl=$2 to=$3 wd0 rc f0
-  [ $(( $(date +%s) + 600 )) -lt "$EXPIRES" ] || { say "STOP: helper expires at $(date -d @$EXPIRES -Is); no restart for $lab"; exit 4; }
-  $PRE_CMD >> "$O/pre-load.txt" 2>&1 || { say "STOP: restart failed before $lab: $(tail -1 "$O/pre-load.txt")"; exit 2; }
-  say "PRE-LOAD $lab: $(tail -1 "$O/pre-load.txt")"
-  f0=$(nfaults); ready now   # a baseline fault is recorded by ready(), which keeps probing until a PASS (recovery)
-  [ "$(nfaults)" = "$f0" ] || { say "V0e H2: NOT QUALIFIED (fault in the baseline before $lab; recovered)"; exit 3; }
-  say "START $lab"; wd0=$(wdcount)
-  PHASE=$PH timeout -k 60 $to bash $RUN_V0E $lab $wl -- $H2W > /dev/null 2>&1; rc=$?; killall_srv
-  C=$(classify $O/$lab $rc $wd0); say "END $lab: $C | $(grep -h 'RESULT' $O/$lab/run.txt 2>/dev/null | tail -1)"; }
+# loadfail <dir>: a clean load failure (D114, the admission rule's LOADFAIL): the server exited before ready on an NPU
+# mapping failure, with passing health and a kernel audit of pass or npu_map only.
+loadfail() { grep -q 'SERVER EXITED before ready' $1/run.txt 2>/dev/null && grep -q 'RESULT FAIL: load=4$' $1/run.txt \
+  && grep -q 'mapping failed' $1/server.log 2>/dev/null && grep -q '^pass' $1/health-verdict.txt 2>/dev/null \
+  && { read -r k _ < $1/kernel-audit.txt; [ "$k" = pass ] || [ "$k" = npu_map ]; } 2>/dev/null; }
+# session <label> <workload> <timeout>: restart -> baseline -> H2 session; sets C (class) and LAB (the run's label). Runs in
+# this shell (not in a command substitution) so that every STOP exits the driver. A clean load failure (D114): recovery
+# without a restart (ready wait), then the session once more from its restart as <label>-retry; a second one stops.
+session() { local lab=$1 wl=$2 to=$3 wd0 rc f0 try
+  for try in 1 2; do LAB=$lab; [ $try = 2 ] && LAB=$lab-retry
+    [ $(( $(date +%s) + 600 )) -lt "$EXPIRES" ] || { say "STOP: helper expires at $(date -d @$EXPIRES -Is); no restart for $LAB"; exit 4; }
+    $PRE_CMD >> "$O/pre-load.txt" 2>&1 || { say "STOP: restart failed before $LAB: $(tail -1 "$O/pre-load.txt")"; exit 2; }
+    say "PRE-LOAD $LAB: $(tail -1 "$O/pre-load.txt")"
+    f0=$(nfaults); ready now   # a baseline fault is recorded by ready(), which keeps probing until a PASS (recovery)
+    [ "$(nfaults)" = "$f0" ] || { say "V0e H2: NOT QUALIFIED (fault in the baseline before $LAB; recovered)"; exit 3; }
+    say "START $LAB"; wd0=$(wdcount)
+    PHASE=$PH timeout -k 60 $to bash $RUN_V0E $LAB $wl -- $H2W > /dev/null 2>&1; rc=$?; killall_srv
+    C=$(classify $O/$LAB $rc $wd0); [ "$C" = EVIDENCE ] && loadfail $O/$LAB && C=LOADFAIL
+    say "END $LAB: $C | $(grep -h 'RESULT' $O/$LAB/run.txt 2>/dev/null | tail -1)"
+    [ "$C" = LOADFAIL ] || return 0
+    [ $try = 2 ] && { say "STOP: $lab failed to load twice: V0e H2: NOT QUALIFIED (load)"; exit 3; }
+    say "LOADFAIL $LAB: recovery without a restart, then $lab again from its restart (D114)"
+    f0=$(nfaults); ready wait
+    [ "$(nfaults)" = "$f0" ] || { say "V0e H2: NOT QUALIFIED (fault in the recovery after $LAB)"; exit 3; }
+  done; }
 memcheck() { if python3 $MEMFLOOR --admit 5364 $O/$1 > $O/$1/memfloor-admit.txt 2>&1; then say "MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"
   else say "STOP: MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"; say "V0e H2: NOT QUALIFIED (memory)"; exit 3; fi; }
 onfault() { fault $1 $2; ready wait; say "V0e H2: NOT QUALIFIED (fault $2 in $1)"; exit 3; }
@@ -48,19 +64,19 @@ say "V0e H2 start (pid $$), helper expires $(date -d @$EXPIRES -Is)"
 s1ok=1
 session v0e-H2-S1 $HOME/v0/v0e_s1.sh 7200
 case $C in
-  PASS) memcheck v0e-H2-S1;;
-  HANG|DEVFAULT) onfault v0e-H2-S1 $C;;
-  *) if grep -q 'RESULT FAIL: workload=[0-9]*$' $O/v0e-H2-S1/run.txt && [ "$(head -1 $O/v0e-H2-S1/kernel-audit.txt | cut -d' ' -f1)" = pass ]; then
-       s1ok=0; say "S1 FAIL (items: $(grep -c 'rc=[1-9]' $O/v0e-H2-S1/items.txt) failed; clean session): H2 not qualified; S2 runs for evidence"
-       memcheck v0e-H2-S1
-     else say "STOP: v0e-H2-S1 $C"; exit 2; fi;;
+  PASS) memcheck $LAB;;
+  HANG|DEVFAULT) onfault $LAB $C;;
+  *) if grep -q 'RESULT FAIL: workload=[0-9]*$' $O/$LAB/run.txt && [ "$(head -1 $O/$LAB/kernel-audit.txt | cut -d' ' -f1)" = pass ]; then
+       s1ok=0; say "S1 FAIL (items: $(grep -c 'rc=[1-9]' $O/$LAB/items.txt) failed; clean session): H2 not qualified; S2 runs for evidence"
+       memcheck $LAB
+     else say "STOP: $LAB $C"; exit 2; fi;;
 esac
 sleep $SESS_PAUSE
 session v0e-H2-S2 $HOME/v0/v0e_sustained.sh 9000
 case $C in
-  PASS) memcheck v0e-H2-S2;;
-  HANG|DEVFAULT) onfault v0e-H2-S2 $C;;
-  *) say "STOP: v0e-H2-S2 $C"; say "V0e H2: NOT QUALIFIED (S2 $C)"; exit 2;;
+  PASS) memcheck $LAB;;
+  HANG|DEVFAULT) onfault $LAB $C;;
+  *) say "STOP: $LAB $C"; say "V0e H2: NOT QUALIFIED (S2 $C)"; exit 2;;
 esac
 if [ $s1ok = 1 ]; then say "V0e H2: QUALIFIED at window 32768 (S1 and S2 PASS, faults $(nfaults))"; exit 0
 else say "V0e H2: NOT QUALIFIED (S1 items failed; S2 PASS)"; exit 1; fi

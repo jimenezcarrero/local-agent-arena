@@ -1399,3 +1399,17 @@ D113 2026-10-09 V0e H2 first launch (00:40) stopped at S1 before any H2 load: ru
    declared). What ran: one cDSP restart (OK) and one 4B baseline probe (PASS, 00:42). No 9B server, no fault. The mocked
    test passed because its fakes were executable. Fix: the driver calls `bash $RUN_V0E`, and the scripts carry the
    execute bit. Evidence kept as ~/bench-runs/v0/v0e-H2-abort1. Relaunched unchanged otherwise, as the D112 attempt.
+D114 2026-10-09 V0e H2 attempt 1 (D112/D113, 00:45-00:49): STOPPED, H2 load failure in S1, no fault.
+   - Restart OK (00:45:57, cdsprpcd new PID), settle, 4B baseline PASS (00:47:51).
+   - H2 at -c 32768: SERVER EXITED before ready after 25 s: "ggml-hex: HTP0:2 buffer mapping failed ... size 572133376",
+     fastrpc_mmap abort. Kernel audit npu_map only (fastrpc compute-cb@2 failed to map buffer); health pass. A clean load
+     failure, the signature of D61/D64's degraded mapping state. The window is not the likely cause: every KV and compute
+     buffer is smaller than in the admitted 40960 loads (KV 384/256/384 MiB vs 480/320/480), the weights identical.
+   - Declared policy (D112) stopped on any load failure, and it did. H load record after a restart: 11 of 12 mapped.
+   Attempt 2, declared now, before it runs (owner: work autonomously on H2 while the helper is valid): identical except
+   the load-failure rule now follows the admission sets (D68, decide() LOADFAIL): a clean load failure (server exited
+   before ready, NPU "mapping failed", health pass, kernel audit pass or npu_map) -> recovery without restart (ready
+   wait: 900 s idle, baseline until PASS) -> the same session once more from its restart (<label>-retry); a second
+   load failure of that session -> STOP, NOT QUALIFIED (load). A fault during that recovery -> NOT QUALIFIED. Faults
+   and every other rule unchanged. Mocked test test_v0e_H2.sh 12/12 (4 new load-failure cases).
+   Attempt 1 evidence: ~/bench-runs/v0/v0e-H2-a1 (published with the results).
