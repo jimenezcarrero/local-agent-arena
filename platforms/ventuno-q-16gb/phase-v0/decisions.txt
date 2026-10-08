@@ -1279,3 +1279,27 @@ D104 2026-10-08 Owner installed the D103 revision at 14:47 with --expires 2026-1
    - sudo lists exactly "(root) NOPASSWD: /usr/local/sbin/v0-cdsp-restart \"\"", and an argument requires a password.
    The authorization window for D102 is therefore until 2026-10-09T09:00. Next: the test2 screen as declared
    (D92, D102), in the D101 environment cohort.
+D105 2026-10-08 Test2 screen (runs/v0d-cdsp-test2), 14:47-14:58:
+   Cycle 1:
+   - restart OK in 19 s: cDSP running -> offline -> running; cdsprpcd came back by itself as a new PID,
+     1702 -> 300602;
+   - 4B baseline probe PASS;
+   - H-1: the 9B loaded and passed 512 tokens; kernel audits clean.
+   Cycle 2:
+   - restart OK in 20 s (cdsprpcd 300602 -> 309120), then 30 s settle;
+   - the 4B baseline probe-2 (unchanged BASE command) loaded, was ready after 13 s, and on its FIRST request (task 0,
+     384 prompt tokens) generated 77 tokens, then stalled;
+   - the watchdog killed it at 14:58:13 after 300 s with 4 threads in fastrpc_wait_for_completion (diagnosis:
+     night/npu-stalls/309719-145812.txt);
+   - no kernel lines in the window (retrospective kernel audit "pass", probe-2/kernel-audit-retro.txt; classify()
+     stops at HANG before auditing).
+   The screen stopped as declared (HANG on a baseline probe stops it). Method not adopted (1 of 3 H loads); H2 does
+   not run.
+   Reading: the signature matches D99's A-2 (fresh 4B server, first request, ~77-79 tokens, then a FastRPC stall,
+   no kernel lines), which happened with no restart. That makes 2 first-request hangs in the last 14 h, one of them
+   2.5 min after a restart. Causation by the restart is neither shown nor excluded.
+   Positive findings: two restarts completed cleanly, the vendor daemon recovered both times without help, and
+   functional NPU recovery after a restart was observed once (probe-1 and H-1).
+   Next, declared now: the runner's standard fault recovery on its own (tools/v0d_recover.sh: idle 900 s, then the
+   baseline probe, up to 13 times, NO restart) so that the NPU state is known. Nothing else runs until the owner
+   decides; the helper stays installed until the owner removes it or it expires (2026-10-09T09:00).
