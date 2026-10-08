@@ -1220,3 +1220,26 @@ D101 2026-10-08 Board power-cycled by the owner (~10:54) after the helper was un
    Mesa, qcom-adreno-cl1, qcom-fastrpc1, qcom-libdmabufheap) are intact. As in D87, the dpkg baseline was reset
    (1,715 packages; previous kept as dpkg-baseline-20261008-pre-unattended.txt). Boot-time kernel errors (Bluetooth
    HCI timeout, qcom-apm CMD timeout, PDR servreg lookup) occur before any run window, as on earlier boots.
+D102 2026-10-08 Owner decision: retry the 9B (H) with a cDSP restart, choosing option (a) of D98 (exempt exactly the
+   cdsprpcd daemon). Helper change in tools/cdsp_restart.sh, for review before any installation:
+   - Before the restart, the daemon must be identified. That means all of: cdsprpcd.service ActiveState=active; its
+     MainPID's /proc exe is /usr/sbin/cdsprpcd; that /proc entry belongs to uid fastrpc (125). Checked on this boot:
+     MainPID 1702, User=fastrpc, Restart=always, NRestarts=0. If the daemon is not identified: REFUSED (exit 4).
+   - Only that PID is skipped by the quiescence check. Every other holder of /dev/fastrpc-cdsp(-secure) still
+     refuses, including a process named or running like cdsprpcd that is not the unit's MainPID. The daemon is
+     re-identified after the scan; if it changed: REFUSED.
+   - After stop -> offline -> start -> running, within STEP_S (90 s): the unit must be active again with a verified
+     daemon (same or new PID), and both device nodes must exist. Otherwise FAIL, exit 9 (new), and the campaign
+     stops. BEGIN and OK record the daemon PID before and after.
+   - The only service command is read-only (systemctl show). Root still writes only the cDSP state file, with no
+     arguments, no environment and no user input. Expiry, lock, logging and audit are unchanged.
+   tools/test_cdsp_restart.sh: 39 offline checks pass, 13 new. They use a fake daemon and a fake systemctl:
+     exempt OK; wrong exe; wrong user; unit inactive; no MainPID; systemctl failing; impostor (cdsprpcd that is not
+     MainPID); daemon plus another client; daemon restarted with a new PID (OK); unit not back (FAIL 9); device node
+     not back (FAIL 9).
+   Untested on the board: whether the vendor daemon and driver survive a cDSP restart. The post-check exists for
+   that case, and the screen's baseline probe after each restart must pass.
+   Protocol unchanged from D92: screen (3 cycles; adopt only on 3/3 H loads), then the H2 set. New screen directory
+   runs/v0d-cdsp-test2 (the D96 refusal stays in v0d-cdsp-test). Authorization: the window the owner installs with
+   install_cdsp_restart.sh --expires (at most 24 h); it is recorded at installation. Nothing runs before the
+   review and the installation.

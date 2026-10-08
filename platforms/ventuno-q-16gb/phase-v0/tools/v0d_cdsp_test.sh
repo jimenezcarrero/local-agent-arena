@@ -1,11 +1,12 @@
 #!/bin/bash
-# V0d cDSP-restart screen (D92), declared before it runs. 3 cycles of: cDSP restart + 30 s settle -> unchanged 4B
+# V0d cDSP-restart screen (D92), declared before it runs. Second attempt (D102) writes to v0d-cdsp-test2; the D96
+# refusal stays in v0d-cdsp-test. 3 cycles of: cDSP restart + 30 s settle -> unchanged 4B
 # baseline probe (D64: a passing baseline before every 9B load) -> H load + 512-token speed run. Each cycle starts
 # right after the previous H run, the situation in which H failed to map in D90. The method is adopted for H2 only if
 # all 3 H loads pass. HANG/DEVFAULT/EVIDENCE anywhere stops (recorded); a failed probe stops (not a pass).
 set -uo pipefail
 source ~/v0/v0d_lib.sh
-PH=v0d-cdsp-test; ST=~/bench-runs/v0/v0d/$PH-status.txt; P=~/v0/hexpkg/pkg-linux; M=~/v0/models/q40; O=~/bench-runs/v0/$PH
+PH=v0d-cdsp-test2; ST=~/bench-runs/v0/v0d/$PH-status.txt; P=~/v0/hexpkg/pkg-linux; M=~/v0/models/q40; O=~/bench-runs/v0/$PH
 mkdir -p $O; say() { echo "$(date -Is) $*" | tee -a $ST; sync; }
 killall_srv() { for pid in $(ps -eo pid,args | awk '$2 ~ /\/llama-server$/ {print $1}'); do kill -KILL $pid; done; sleep 5; }
 E="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$P/lib"
