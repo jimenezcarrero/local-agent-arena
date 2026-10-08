@@ -3,7 +3,7 @@
 # defining: PH (phase), O (~/bench-runs/v0/$PH), BASE (baseline probe command), say(), killall_srv().
 # Every outcome goes through classify() + decide(); EVIDENCE always stops. Faults (HANG, DEVFAULT) from any step, probes
 # included, are appended to $O/faults.txt (the fault history reported with the results).
-# Overridable for tests: RUN_ROUTE, RUN_V0C, PROBE_WAIT (s between probes), SET_PAUSE (s between admission steps).
+# PRE_LOAD (optional, D92): command run before every admission step's probe and load. Overridable for tests: RUN_ROUTE, RUN_V0C, PROBE_WAIT (s between probes), SET_PAUSE (s between admission steps).
 RUN_ROUTE=${RUN_ROUTE:-$HOME/v0/run_route.sh}; RUN_V0C=${RUN_V0C:-$HOME/v0/run_v0c.sh}
 MEMFLOOR=${MEMFLOOR:-$HOME/v0/memfloor.py}; PROBE_WAIT=${PROBE_WAIT:-900}; SET_PAUSE=${SET_PAUSE:-180}; FAULT_CAP=${FAULT_CAP:-3}
 nfaults() { local n; n=$(grep -c . "$O/faults.txt" 2>/dev/null); echo "${n:-0}"; }
@@ -49,6 +49,9 @@ admit_set() { local name=$1 cap=$2 pre=$3; shift 3; local set step lab c a attem
   for set in 1 2; do say "SET $name attempt $set"; f0=$(setfaults)
     for step in warmup r1 r2 r3 tools; do
       for attempt in 1 2; do
+        if [ -n "${PRE_LOAD:-}" ]; then   # D92: e.g. cDSP restart + settle, then the readiness probe, then the load
+          $PRE_LOAD >> "$O/pre-load.txt" 2>&1 || { say "STOP: pre-load command failed before $name $step: $(tail -1 "$O/pre-load.txt")"; exit 2; }
+          say "PRE-LOAD $name $step: $(tail -1 "$O/pre-load.txt")"; fi
         [ $pre = probe ] && ready now
         [ "$(setfaults)" -gt "$f0" ] && break
         lab=$name-s$set-$step; [ $attempt = 2 ] && lab=$lab-retry
