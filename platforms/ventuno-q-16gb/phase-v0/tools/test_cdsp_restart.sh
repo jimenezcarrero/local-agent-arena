@@ -8,9 +8,16 @@ setup() { T=$(mktemp -d); mkdir -p $T/sys/remoteproc0 $T/sys/remoteproc1 $T/proc
   echo 3000000.remoteproc > $T/sys/remoteproc0/name; echo running > $T/sys/remoteproc0/state
   echo 26300000.remoteproc > $T/sys/remoteproc1/name; echo running > $T/sys/remoteproc1/state
   echo init > $T/proc/1/comm; ln -s /dev/null $T/proc/1/fd/0
+  # D102: a fake cdsprpcd (pid 1700, exe /usr/sbin/cdsprpcd, owned by the current user standing in for fastrpc) holding
+  # the device, a fake systemctl that reads $T/unit/{ActiveState,MainPID}, device nodes under $T/dev
+  mkdir -p $T/proc/1700/fd $T/unit $T/dev; echo cdsprpcd > $T/proc/1700/comm; ln -s /usr/sbin/cdsprpcd $T/proc/1700/exe
+  ln -s /dev/fastrpc-cdsp $T/proc/1700/fd/3; echo active > $T/unit/ActiveState; echo 1700 > $T/unit/MainPID
+  touch $T/dev/fastrpc-cdsp $T/dev/fastrpc-cdsp-secure
+  printf '#!/bin/bash\n[ "$1 $2 $4 $5" = "show -p --value cdsprpcd.service" ] || exit 9\ncat %s/unit/$3\n' $T > $T/systemctl; chmod +x $T/systemctl
   sed -e "s#^EXPIRES=0\$#EXPIRES=$(( $(date +%s) + 3600 ))#" -e "s#^SYS=.*#SYS=$T/sys#" -e "s#^PROC=.*#PROC=$T/proc#" \
       -e "s#^LOG=.*#LOG=$T/log.txt#" -e "s#^LOCK=.*#LOCK=$T/run/lock#" -e "s#^NEED_UID=.*#NEED_UID=$(id -u)#" \
-      -e "s#^STEP_S=.*#STEP_S=3#" "$SRC" > $T/helper
+      -e "s#^STEP_S=.*#STEP_S=3#" -e "s#^SYSTEMCTL=.*#SYSTEMCTL=$T/systemctl#" -e "s#^DEVROOT=.*#DEVROOT=$T#" \
+      -e "s#^DAEMON_USER=.*#DAEMON_USER=$(id -un)#" "$SRC" > $T/helper
   SIM=""; }
 sim() { ( f=$T/sys/remoteproc1/state; while :; do case "$(cat $f 2>/dev/null)" in stop) echo offline > $f;; start) echo running > $f;; esac; sleep 0.2; done ) & SIM=$!; }
 chk() { local name=$1 want=$2 pat=$3; shift 3; local out rc
@@ -53,4 +60,28 @@ setup; mkdir -p $T/proc/4246/fd; echo z > $T/proc/4246/comm; ln -s /dev/fastrpc-
   chk relist-fails 4 "REFUSED cannot re-list .*/4246/fd"; [ "$(cat $T/sys/remoteproc1/state)" = running ] && ! grep -q BEGIN $T/log.txt 2>/dev/null && echo "ok   relist-fails changed nothing" || { echo "FAIL relist-fails mutated"; fails=$((fails+1)); }; chmod 755 $T/proc/4246/fd; end
 setup; mkdir -p $T/proc/4246/fd; echo z > $T/proc/4246/comm; ln -s /dev/null $T/proc/4246/fd/5; inject "rm -f $T/proc/4246/fd/5"; sim
   chk fd-vanished 0 "OK .*running -> offline -> running"; end
+# D102 (owner choice (a) of D98): exactly the cdsprpcd daemon is exempt; it must be identified before and back after
+setup; sim; chk daemon-exempt-ok 0 "OK .*running -> offline -> running; cdsprpcd.service pid 1700 -> 1700"
+  grep -q "BEGIN .*cdsprpcd.service pid 1700" $T/log.txt && echo "ok   daemon-exempt-ok: BEGIN names the daemon" || { echo "FAIL BEGIN daemon"; fails=$((fails+1)); }; end
+setup; rm $T/proc/1700/exe; ln -s /usr/bin/python3 $T/proc/1700/exe; chk daemon-wrong-exe 4 "REFUSED cdsprpcd.service daemon not identified"; end
+setup; sed -i "s#^DAEMON_USER=.*#DAEMON_USER=root#" $T/helper; [ "$(id -u)" = 0 ] && sed -i "s#^DAEMON_USER=.*#DAEMON_USER=nobody#" $T/helper
+  chk daemon-wrong-user 4 "REFUSED cdsprpcd.service daemon not identified"; end
+setup; echo inactive > $T/unit/ActiveState; chk unit-inactive 4 "REFUSED cdsprpcd.service daemon not identified"
+  [ "$(cat $T/sys/remoteproc1/state)" = running ] || { echo "FAIL unit-inactive state"; fails=$((fails+1)); }; end
+setup; echo 0 > $T/unit/MainPID; chk unit-no-pid 4 "REFUSED cdsprpcd.service daemon not identified"; end
+setup; sed -i "s#^SYSTEMCTL=.*#SYSTEMCTL=/bin/false#" $T/helper; chk unit-query-fails 4 "REFUSED cdsprpcd.service daemon not identified"; end
+# a process that looks like the daemon but is not the unit's MainPID is an ordinary client
+setup; mkdir -p $T/proc/4250/fd; echo cdsprpcd > $T/proc/4250/comm; ln -s /usr/sbin/cdsprpcd $T/proc/4250/exe; ln -s /dev/fastrpc-cdsp $T/proc/4250/fd/4
+  chk daemon-impostor 4 "REFUSED cDSP clients open: 4250\(cdsprpcd\) \([0-9]+ s\)"; end
+setup; mkdir -p $T/proc/4251/fd; echo llama-server > $T/proc/4251/comm; ln -s /dev/fastrpc-cdsp $T/proc/4251/fd/9
+  chk daemon-plus-client 4 "REFUSED cDSP clients open: 4251\(llama-server\)"; end
+# after the restart: daemon restarted by systemd with a new PID -> OK; unit failed or device node missing -> FAIL 9
+simd() { ( f=$T/sys/remoteproc1/state; while :; do case "$(cat $f 2>/dev/null)" in
+    stop) echo offline > $f; eval "$1";; start) echo running > $f; eval "$2";; esac; sleep 0.2; done ) & SIM=$!; }
+setup; mkdir -p $T/proc/1800/fd; ln -s /usr/sbin/cdsprpcd $T/proc/1800/exe
+  simd "rm -f $T/dev/fastrpc-cdsp*; echo activating > $T/unit/ActiveState" "touch $T/dev/fastrpc-cdsp $T/dev/fastrpc-cdsp-secure; echo 1800 > $T/unit/MainPID; echo active > $T/unit/ActiveState"
+  chk daemon-new-pid 0 "OK .*cdsprpcd.service pid 1700 -> 1800"; end
+setup; simd "echo failed > $T/unit/ActiveState" ":"; chk daemon-not-back 9 "FAIL cdsprpcd.service not active"
+  grep -q BEGIN $T/log.txt && grep -q "FAIL cdsprpcd" $T/log.txt && echo "ok   daemon-not-back: BEGIN and FAIL logged" || { echo "FAIL daemon-not-back log"; fails=$((fails+1)); }; end
+setup; simd "rm -f $T/dev/fastrpc-cdsp-secure" ":"; chk device-not-back 9 "FAIL cdsprpcd.service not active with a verified daemon and device nodes"; end
 echo "failures: $fails"; exit $fails

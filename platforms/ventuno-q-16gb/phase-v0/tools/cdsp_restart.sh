@@ -3,7 +3,7 @@
 # Restarts the compute DSP (the NPU: remoteproc named 26300000.remoteproc) and nothing else. The arduino user may run it
 # through sudo without a password and WITHOUT arguments (the sudoers rule allows none). It reads no arguments, no
 # environment and no file the arduino user can write. Hardened after the Codex review of #45 (2026-10-07 21:06Z):
-#   - expiry: the installer writes EXPIRES below; after it the helper refuses (owner: "only for tonight")
+#   - expiry: the installer writes EXPIRES below; after it the helper refuses (D92 "only for tonight"; D102 a new owner-installed window)
 #   - one restart at a time: non-blocking flock on a root-only lock in /run
 #   - fail closed on quiescence: refuses if any process holds /dev/fastrpc-cdsp or /dev/fastrpc-cdsp-secure open
 #     (every NPU client, whatever its name), or if that cannot be established (any /proc read error)
@@ -14,6 +14,12 @@
 #   - one terminal line per call: OK, FAIL, REFUSED or UNKNOWN, with states and duration; if that line cannot be
 #     written the helper never returns 0 (exit 8: unaudited) (Codex review of #47, 22:08Z)
 #   - an fd entry that is still present but cannot be read is a refusal, not "no client" (same review)
+#   - owner choice (a) of D98 (2026-10-08, D102): Qualcomm's cdsprpcd service holds /dev/fastrpc-cdsp permanently, so
+#     exactly that daemon is exempt from the quiescence rule: the process that is the unit's MainPID AND runs
+#     /usr/sbin/cdsprpcd AND belongs to user fastrpc. Before the restart that daemon must be identified (unit active,
+#     all three match), else REFUSED; any other holder still refuses. After the restart the unit must be active again
+#     with a verified daemon (same or new PID) and both device nodes present within STEP_S, else FAIL (exit 9).
+#     The only service command used is read-only: systemctl show. Root still writes only the cDSP state file.
 # Exit 0 only after stop -> offline -> start -> running.
 set -u
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
@@ -27,6 +33,11 @@ LOG=/var/log/v0-cdsp-restart.log
 LOCK=/run/v0-cdsp-restart.lock
 NEED_UID=0
 STEP_S=90
+UNIT=cdsprpcd.service
+DAEMON_EXE=/usr/sbin/cdsprpcd
+DAEMON_USER=fastrpc
+SYSTEMCTL=/usr/bin/systemctl
+DEVROOT=
 # --- end of constants ---
 now() { date +%s; }
 t0=$(now)
@@ -44,10 +55,19 @@ flock -n 9 || fin "REFUSED another restart is in progress" 4
 rp=""
 for d in "$SYS"/remoteproc*; do [ "$(rd "$d/name")" = "$NAME" ] && rp=$d && break; done
 [ -n "$rp" ] || fin "FAIL no remoteproc named $NAME" 3
-# quiescence: no process may hold a cDSP FastRPC device; any unreadable /proc entry other than a vanished pid fails
+# the exempt daemon (D102): unit active, MainPID's executable and owner match; prints the PID, or nothing
+daemon() { local st pid u
+  st=$("$SYSTEMCTL" show -p ActiveState --value "$UNIT" 2>/dev/null) && [ "$st" = active ] || return 1
+  pid=$("$SYSTEMCTL" show -p MainPID --value "$UNIT" 2>/dev/null) && [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  [ "$(readlink "$PROC/$pid/exe" 2>/dev/null)" = "$DAEMON_EXE" ] || return 1
+  u=$(stat -c %u "$PROC/$pid" 2>/dev/null) && [ "$u" = "$(id -u "$DAEMON_USER" 2>/dev/null)" ] || return 1
+  echo "$pid"; }
+dpid=$(daemon) || fin "REFUSED $UNIT daemon not identified (unit active, MainPID running $DAEMON_EXE as $DAEMON_USER)" 4
+# quiescence: no process other than the exempt daemon may hold a cDSP FastRPC device; any unreadable /proc entry other than a vanished pid fails
 holders=""
 for p in "$PROC"/[0-9]*; do
   [ -d "$p/fd" ] || continue
+  [ "${p##*/}" = "$dpid" ] && continue
   fds=$(ls "$p/fd" 2>/dev/null) || { [ -d "$p" ] && fin "REFUSED cannot inspect $p/fd: quiescence not established" 4; continue; }
   for f in $fds; do
     # an fd that cannot be read is skipped only if it is gone (process exited or fd closed); still present -> refuse
@@ -63,9 +83,10 @@ for p in "$PROC"/[0-9]*; do
   done
 done
 [ -z "$holders" ] || fin "REFUSED cDSP clients open:$holders" 4
+[ "$(daemon)" = "$dpid" ] || fin "REFUSED $UNIT daemon changed during the client check" 4
 s0=$(rd "$rp/state") || fin "FAIL cannot read $rp/state" 3
 [ "$s0" = running ] || fin "REFUSED unexpected starting state '$s0' (expected running)" 4
-log "BEGIN $rp ($NAME) state $s0" > /dev/null || { echo "cannot write $LOG; nothing changed" >&2; exit 3; }
+log "BEGIN $rp ($NAME) state $s0, $UNIT pid $dpid" > /dev/null || { echo "cannot write $LOG; nothing changed" >&2; exit 3; }
 # write $1 to the state file in the background; wait up to STEP_S for the write to return and the state to become $2
 step() { local cmd=$1 want=$2 w i st
   ( echo "$cmd" > "$rp/state" ) 2>/dev/null & w=$!
@@ -80,4 +101,11 @@ step() { local cmd=$1 want=$2 w i st
   fin "FAIL state '$(rd "$rp/state")' after '$cmd' (expected $want)" 6; }
 step stop offline
 step start running
-fin "OK $rp ($NAME) running -> offline -> running" 0
+# the daemon must come back (same or new PID) and the device nodes must exist again (D102)
+back=""
+for i in $(seq 1 "$STEP_S"); do
+  np=$(daemon) && { ok=1; for dev in $DEVS; do [ -e "$DEVROOT$dev" ] || ok=0; done; [ $ok = 1 ] && back=$np && break; }
+  sleep 1
+done
+[ -n "$back" ] || fin "FAIL $UNIT not active with a verified daemon and device nodes after the restart (state $(rd "$rp/state")); stop the campaign" 9
+fin "OK $rp ($NAME) running -> offline -> running; $UNIT pid $dpid -> $back" 0

@@ -4,7 +4,7 @@
 #   A   NeoHorse-1-4B plain, 2 NPU sessions, --cache-ram 7942 (D67)
 #   AM  A + base Qwen3.5-4B MTP head drafted on a 3rd NPU session, n1 (D80), --cache-ram 4188 (D85, provisional)
 #   H   Ornith-1.0-9B, 3 sessions, MBUF 256, -ngl 33 --no-op-offload -t 4 --no-host, --cache-ram 5364 (D67); probe first
-#   H2  H again (D92, owner-authorized for 2026-10-07/08 only): cDSP restart + settle before every step's probe and load
+#   H2  H again (D92, D102: owner-authorized within the installed helper's expiry window): cDSP restart + settle before every step's probe and load
 # Overridable for tests (tools/test_admit_entry.sh): BR, CHECK_PROC, HELPER_CHECK, PRE_CMD, plus the runner's RUN_ROUTE etc.
 set -uo pipefail
 source ~/v0/v0d_lib.sh
