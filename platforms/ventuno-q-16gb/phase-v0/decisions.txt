@@ -1336,3 +1336,28 @@ D108 2026-10-08 Third screen (D107, runs/v0d-cdsp-test3), 19:36-19:47: ADOPTED, 
    - baseline probes: 4 of 5 PASS, 1 first-request HANG (D105).
    As declared (D92/D93), the H2 admission set runs next: the D68/D89 rule, with a restart + settle before every
    step's probe and load. H2 would be labelled "requires a cDSP restart before each load".
+D109 2026-10-08 H2 admission set (D92/D93; runs/v0d-admit-H2), 19:47-22:03: ADMITTED in attempt 2, 1 set fault.
+   Every step's probe and load followed a cDSP restart + 30 s settle.
+   - Restarts: 7 of 7 OK, about 19-20 s each; cdsprpcd came back by itself every time.
+   - Attempt 1: warm-up PASS. r1 passed 512, 8K and 16K, then HUNG at 32K on its 4th request: 118 tokens generated,
+     6 threads in fastrpc_wait_for_completion. The watchdog killed it at 20:18:46 (diagnosis npu-stalls/685318-201846,
+     copied). No kernel lines; retrospective kernel audit "pass". This is fault 1, a later-request hang (as D66/D69),
+     not a first-request one.
+   - Recovery (no restart, as declared): the first probe after 900 s idle failed to LOAD (4B KV mapping, 640 MiB,
+     fastrpc_mmap; the degraded state of D61/D64; kernel audit npu_map, allowed in a LOADFAIL). The second probe 900 s
+     later passed (20:51).
+   - Attempt 2: warm-up, r1, r2, r3 and tools all PASS (one-shot 10/10, agentic 3/3), with clean kernel audits. Every
+     memfloor --admit is ADMIT; the lowest margin is 884 MiB (r1). Swap was 0 throughout.
+   Medians of attempt 2, r1-r3, prefill / decode tok/s:
+     512 157.6/5.92, 8K 158.9/5.55, 16K 151.1/4.95, 32K 143.3/4.31.
+   These are consistent with H's D90 r1-r2 (16K 151.1/4.93).
+   Outcome: H2 is provisionally eligible in V0d, labelled "requires a cDSP restart (root helper) before each load". Its
+   reliability record: 11 of 11 9B loads mapped after a restart (screens 4, H2 7), against 3 of 6 failures without one.
+   But 1 hang in 7 H2 servers, plus 1 baseline first-request hang in the screens (D105). Caveats:
+   - environment cohort D101 (after the reboot and package changes), so it is not directly comparable in time with
+     D90's A/AM;
+   - the restart needs root; any V0e/V1 use needs a standing owner authorization (the current one expires
+     2026-10-09T09:00) or a different mechanism;
+   - status-line summaries in this phase sometimes list decode values out of place (summary() greps both decode_tps
+     and server_decode_tps); the raw probe.txt files are authoritative and were used above.
+   Nothing is GO; V0e for any configuration needs the owner's go-ahead.
