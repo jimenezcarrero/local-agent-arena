@@ -1413,3 +1413,13 @@ D114 2026-10-09 V0e H2 attempt 1 (D112/D113, 00:45-00:49): STOPPED, H2 load fail
    load failure of that session -> STOP, NOT QUALIFIED (load). A fault during that recovery -> NOT QUALIFIED. Faults
    and every other rule unchanged. Mocked test test_v0e_H2.sh 12/12 (4 new load-failure cases).
    Attempt 1 evidence: ~/bench-runs/v0/v0e-H2-a1 (published with the results).
+D115 2026-10-09 V0e H2 attempt 2 (D114, 00:58-01:19): NOT QUALIFIED (load), no fault.
+   - S1: restart OK, baseline PASS, H2 at -c 32768 LOADFAIL; recovery (900 s, baseline PASS 01:17); S1-retry: restart OK,
+     baseline PASS, H2 LOADFAIL. Every failure (attempts 1 and 2, 3 of 3 loads at -c 32768) is identical: the warm-up
+     run maps a 572,133,376-byte buffer on HTP0:2 (domain 11) and fastrpc_mmap fails; kernel npu_map only, health pass.
+     The 11 earlier H2-workflow loads at -c 40960 all passed that point. The identical size and point point to the
+     window setting rather than the random degraded state, although every buffer the log lists is smaller at 32768.
+   - Diagnostic declared now, before it runs (not a qualification run): tools/v0e_diag.sh, one cycle of restart ->
+     settle -> baseline -> the admitted H2 command at -c 40960 with a 512 probe. PASS = the 32768 failures are
+     window-specific; LOADFAIL = the board's current state, not the window. Any fault: recorded, recovery, stop.
+     Nothing else runs on the board afterwards without the owner.
