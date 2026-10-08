@@ -1080,3 +1080,310 @@ D91 2026-10-07 Proposal for one more H attempt with a cDSP restart before each 9
      map and pass; (2) if adopted, an H2 admission set under D68/D89 with a restart right before every measured load.
      H2 results would be labelled as depending on that restart, which any deployment of the 9B would also need.
    Until then the 9B stays not admitted in V0d (D90).
+
+D92 2026-10-07 Owner authorization: "activate the one root step only for tonight but you have to be careful to don't use
+   with wrong intention". Scope: automated calls of sudo -n /usr/local/sbin/v0-cdsp-restart by the two scripts below,
+   during the night of 2026-10-07/08 only; nothing else runs as root. Declared before installation and before any run.
+   Helper hardened per the Codex review of 4ac762f (21:06Z):
+   - expiry written in by the installer (at most 24 h ahead; owner installs with --expires 2026-10-08T09:00); after it
+     the helper refuses. The owner removes it in the morning with --uninstall.
+   - quiescence fails closed: refuses if any process holds /dev/fastrpc-cdsp or /dev/fastrpc-cdsp-secure (GenieX and
+     any other client, not only llama processes) or if any /proc fd table cannot be read; non-blocking lock in /run
+     (no overlapping restarts); starting state must be "running".
+   - BEGIN logged (write must succeed) before the first state change; each write runs with its own 90 s deadline and
+     all sysfs reads are bounded, so a blocked write ends with UNKNOWN (exit 7) and the campaign stops; one terminal
+     line per call (OK / FAIL / REFUSED / UNKNOWN) in /var/log/v0-cdsp-restart.log.
+   - installer: exact argument set (--expires DATE or --uninstall), stages and checks the helper and the rule
+     (visudo) before installing either, rechecks all sudoers after.
+   Offline tests (tools/test_cdsp_restart.sh, 19, fake sysfs and /proc under a temp dir, never root): OK path touches
+   only the named remoteproc; arguments, non-root, unconfigured, expired, concurrent, GenieX-like and secure-device
+   clients, unreadable /proc, missing remoteproc, wrong starting state, unwritable log (nothing changed), stuck
+   driver, write error, blocked write (BEGIN + UNKNOWN logged) all refuse or fail with distinct codes.
+   Protocol (Codex: keep D64's baseline before every 9B load; "running" is not recovery evidence):
+   (1) Screen, tools/v0d_cdsp_test.sh, runs/v0d-cdsp-test: 3 cycles of restart + 30 s settle -> unchanged 4B baseline
+       probe (must pass) -> H load + 512 tokens, each right after the previous H run. Adopted only if 3/3 H loads pass.
+       Any HANG/DEVFAULT/EVIDENCE or a failed probe stops it.
+   (2) Only if adopted: H2 admission set (v0d_admit.sh H2, runs/v0d-admit-H2) = the D68/D89 rule with
+       tools/cdsp_pre.sh (restart + 30 s settle) before every step's probe and load; recovery waits after a fault or
+       load failure stay plain idle probes (no restart). H2 is labelled "requires a cDSP restart before each load"; D90's
+       3/6 failed H loads stay on record; a restart can never count inside a sustained V0e session.
+   Restart lifecycle kernel lines are not allowlisted: the settle keeps them before the run window; if one still
+   falls inside a window the kernel audit fails that run and the sequence stops for inspection.
+
+D93 2026-10-08 Codex review of #47 at ee7042a (2026-10-07 22:08Z), before installation; nothing has run as root.
+   (1) [P2] An fd entry that is still listed but cannot be read (readlink fails) now refuses (exit 4, before BEGIN);
+       only an entry that has disappeared (process exited or fd closed) is skipped. Regression: fd-uninspectable.
+   (2) [P2] If the terminal audit line cannot be written, the helper never returns 0: exit 8 ("AUDIT FAIL ... stop the
+       campaign") on an otherwise successful restart, the failure's own code otherwise. cdsp_pre.sh passes that code
+       through, so the screen and H2 stop. Regression: log-fails-after-begin (BEGIN only, rc 8).
+       tools/test_cdsp_restart.sh: 23 checks pass.
+   (3) Entry point: v0d_admit.sh H2 now checks the helper before anything loads and has no plain initial probe; its
+       first step is restart + settle -> baseline probe -> warm-up, so every NPU load in H2 follows a restart. The
+       other sets keep the initial probe. tools/test_admit_entry.sh (mocked): helper missing -> exit 6 with no load; H2's
+       first action is the restart; A's first action is the probe. The screen (v0d_cdsp_test.sh) already checks its
+       preconditions first and restarts before its first probe.
+   Exclusive use: the board runs one sequence at a time (each starts only after the previous server is killed);
+   no other agent or job launches inference on it; the helper itself refuses while any cDSP client is open.
+
+D94 2026-10-08 Codex review of #47 at b091504 (2026-10-07 22:16Z), before installation; nothing has run as root.
+   [P2] Remaining branch of the descriptor finding: after a failed readlink, a failed re-listing of the fd table no
+   longer counts as "fd gone". The helper skips an entry only if the process directory has vanished or a successful
+   re-listing lacks the fd; a failed re-listing while the process exists refuses (exit 4) before BEGIN. Regressions
+   (fault injected only in the temp copy): relist-fails (refused, state unchanged, no BEGIN) and fd-vanished
+   (skipped, restart OK). tools/test_cdsp_restart.sh: 26 checks pass.
+   Wording correction to D93 (3): each H2 admission step's probe/load pair follows a restart; recovery probes after a
+   fault or load failure stay plain idle probes and do not restart (D92). Not "every NPU load".
+
+D95 2026-10-08 First installation (00:26) left the helper installed (sha256 2ba2c68c..., expiry 2026-10-08T09:00, as
+   expected) but no sudoers rule: the installer's final whole-configuration "visudo -c" failed on the board image's own
+   files (owner's output: 10-arduino-passwd, 20-arduino-ssh, 30-arduino-keyboard, 90-arduino-sysupgrade "bad
+   permissions, should be mode 0440"; /etc/sudoers and the README parse OK), so it removed its rule as designed.
+   No restart ran. The vendor files are not changed (outside the authorized scope; reported to the owner). The
+   installer's post-check now verifies only what it installed: visudo -cf on its rule file, and that sudo -l -U arduino
+   lists the helper as NOPASSWD; otherwise it removes the rule. The rule's exact text (no arguments, "") is unchanged
+   and still visudo-checked before installation. Helper unchanged.
+
+D96 2026-10-08 Second installation (00:33) verified before use: helper sha256 2ba2c68c... (as reviewed), sudo grants exactly
+   "(root) NOPASSWD: /usr/local/sbin/v0-cdsp-restart \"\"", rule root:root 0440, expiry 09:00; with an argument sudo
+   asks for a password. The screen started at 00:33:38 and stopped at its first restart (runs/v0d-cdsp-test/): the
+   helper REFUSED, "cDSP clients open: 1700(cdsprpcd)". cdsprpcd is Qualcomm's cDSP RPC service (cdsprpcd.service,
+   user fastrpc, up since boot), which keeps /dev/fastrpc-cdsp open permanently; the arduino user cannot read its fd
+   table, so this was not visible before the root helper ran. No restart happened, nothing was loaded, the board is
+   unchanged. With the quiescence rule as written, a restart can never run while that system service is up.
+   Owner: "Stop for now, we will try tomorrow." The 9B stays not admitted in V0d (D90). The helper stays installed but
+   unused and expires at 09:00; tomorrow's attempt needs a reviewed design for cdsprpcd and a fresh installation.
+
+D97 2026-10-08 Overnight work while the owner is away (owner: "Stop for now, we will try tomorrow. Now you will have to
+   work the night unattended"). No root, no 9B, no V0e run. Declared before it runs: an interleaved A vs AM
+   comparison (tools/v0d_interleave.sh, runs/v0d-interleave), because the D90 sets ran one after the other (Codex
+   20:24Z). Order A AM AM A A AM, each 512/8K/16K/32K, the exact admitted commands and caps, readiness probe first,
+   explore-mode fail-closed handling (fault recorded and recovery, EVIDENCE stops, cap 3), memfloor --admit recorded.
+   Reading, fixed now: per depth, the median of each configuration and the three adjacent-pair differences
+   (A-1/AM-1, AM-2/A-2, A-3/AM-3). AM's decode advantage "holds" at a depth only if AM decodes faster in all three
+   pairs; otherwise it is "not separable from run-to-run variation" at that depth. Exploratory: D90 is unchanged.
+
+D98 2026-10-08 Research for tomorrow's 9B attempt (read-only; no code change to the restart helper, which stays as
+   installed and inert). The testing agent's own safety check blocked an unattended edit that would exempt cdsprpcd
+   from the helper's quiescence rule (weakening a root-side control without the owner present); the decision is left
+   to the owner.
+   Findings:
+   - cdsprpcd.service (qcom-fastrpc1 1.0.15+repack2, held package): User=fastrpc, Restart=always, started from the
+     /dev/fastrpc-cdsp(-secure) device units; MainPID 1700 on this boot.
+   - Upstream daemon (quic/fastrpc src/dsprpcd.c, main): on a listener failure it retries every 100 ms; it exits only
+     if the device is inaccessible (AEE_ECONNREFUSED) or on out-of-memory; systemd's Restart=always then restarts it.
+   - Mainline kernel (Linux v6.8 drivers/misc/fastrpc.c, fastrpc_rpmsg_remove): when the remoteproc stops, pending
+     invocations of every open client get -EPIPE, new invocations fail with -EPIPE, and both device nodes are
+     deregistered; they are re-created when the channel probes again.
+   - Caveats: the board runs vendor builds (kernel 6.8.0-1084-qcom, qcom-fastrpc 1.0.15+repack2) that may differ from
+     upstream; none of this was tested on the board.
+   Options for the owner: (a) exempt exactly that daemon (unit MainPID, executable /usr/sbin/cdsprpcd, owner fastrpc;
+   every other holder still refuses) and require the unit to be active again after the restart, else stop;
+   (b) stop the unit, restart the cDSP, start the unit (wider root scope: control of a vendor service); (c) no restart
+   route; the 9B stays not admitted. Either (a) or (b) needs a reviewed helper change and a fresh installation.
+
+D99 2026-10-08 Interleaved A vs AM comparison (D97), runs/v0d-interleave/, 00:39-01:57: A-1 AM-1 AM-2 A-2 A-3 AM-3.
+   NPU HANG in A-2 (fault 1 of the sequence): the FIRST request of a freshly loaded A server (512 tokens; 79 tokens
+   generated, then the NPU stalled ~15 s after "ready"); the stall watchdog killed it at 01:19:27 (diagnosis copied
+   as npu-stall-1199045-011927.txt: 4 threads in fastrpc_wait_for_completion, no kernel journal entries). The recovery
+   probe passed at 01:36 (~16 min idle). It came right after two consecutive AM servers (3 NPU sessions). This is the
+   first fault on a server's first request: D71's "every fault hit a later request" no longer holds. A's D90 admission
+   (a complete fault-free set) stands as declared, but A now has a post-admission hang on record.
+   Results, medians (min-max), prefill / decode tok/s; A n=2 (A-1, A-3), AM n=3:
+     512   A 331.7 (321.6-341.8) / 9.72 (9.63-9.81)    AM 192.0 (185.4-192.3) / 9.98 (9.53-10.62)
+     8K    A 342.0 (340.3-343.7) / 9.17 (8.98-9.36)    AM 189.5 (186.8-190.5) / 9.77 (9.37-10.26)
+     16K   A 312.9 (311.6-314.1) / 8.07 (8.06-8.08)    AM 178.6 (176.8-179.9) / 8.38 (8.34-9.11)
+     32K   A 279.7 (278.6-280.8) / 6.96 (6.91-7.01)    AM 165.7 (163.7-166.1) / 7.79 (7.46-7.96)
+   Reading under the declared rule: pair 2 (AM-2/A-2) has no A result, so "AM's decode advantage holds" (all three
+   pairs) cannot be established at any depth: INCOMPLETE. In the two complete pairs AM decodes faster at 8K, 16K and
+   32K (+4 %, +4 %, +8 % in pair 1; +14 %, +3 %, +11 % in pair 3) and is mixed at 512. Every run passed memfloor
+   --admit. Draft acceptance 0.79-0.81. Exploratory: D90 is unchanged.
+D100 2026-10-08 Codex review of #47 (05:13Z, through abc6363), two P2 findings, both addressed; no hardware run.
+   1. tools/v0d_interleave.sh ignored memfloor --admit's exit status: with memory samples missing (exit 2) or a
+      headroom REJECT (exit 1) it still advanced and ended "interleave done". Now, as in admit_set, any non-zero exit
+      stops the comparison with exit 3 ("STOP: MEM <run>"). BR and CHECK_PROC are overridable for tests;
+      tools/test_interleave.sh (mocked, 3 cases: admit completes 6 runs; REJECT and no-samples each stop after the
+      first run with rc 3). The committed D99 runs are unaffected: all five PASS runs logged ADMIT, and Codex
+      reproduced their memory decisions.
+   2. The D71 "never a first request" statement in the README is replaced: D99 is a first-request hang on a fresh,
+      admitted A server, so a fresh server is no longer a safeguard. The V0e plan's sustained-run rationale now cites
+      D99 and A's record (admitted D90, one hang D99). The PR description is brought through D95-D100.
+   Also from the review: a sanitized installation receipt for the restart helper (no root needed: stat, sha256, diff
+   against the reviewed source showing only the EXPIRES line, the sudo -l line, the full root log) is committed as
+   runs/v0d-cdsp-test/install-receipt.txt. Unchanged: D90's provisional A/AM eligibility (historical), A's
+   post-admission hang (D99), H's failed-load denominator (3 of 6); H2 and GO stay blocked; another restart attempt
+   needs the owner's choice of service handling (D98) and a new declared authorization window.
+D101 2026-10-08 Board power-cycled by the owner (~10:54) after the helper was uninstalled (/usr/local/sbin/v0-cdsp-restart and
+   its sudoers rule confirmed absent) and the evidence backed up (07:57, ~/v0-backups/20261008). After boot: health
+   sampler up via its @reboot cron entry; NPU stall watchdog restarted by hand (it has no boot entry). Package drift
+   from unattended-upgrade at 06:16 today: freerdp3/winpr3 3.32.0 -> 3.32.1, libfreetype6, librsvg2, libsoup 2.4/3.0
+   and their gir/common packages (desktop libraries, not the accelerator stack). The 12 apt holds (kernel, firmware,
+   Mesa, qcom-adreno-cl1, qcom-fastrpc1, qcom-libdmabufheap) are intact. As in D87, the dpkg baseline was reset
+   (1,715 packages; previous kept as dpkg-baseline-20261008-pre-unattended.txt). Boot-time kernel errors (Bluetooth
+   HCI timeout, qcom-apm CMD timeout, PDR servreg lookup) occur before any run window, as on earlier boots.
+D102 2026-10-08 Owner decision: retry the 9B (H) with a cDSP restart, choosing option (a) of D98 (exempt exactly the
+   cdsprpcd daemon). Helper change in tools/cdsp_restart.sh, for review before any installation:
+   - Before the restart, the daemon must be identified. That means all of: cdsprpcd.service ActiveState=active; its
+     MainPID's /proc exe is /usr/sbin/cdsprpcd; that /proc entry belongs to uid fastrpc (125). Checked on this boot:
+     MainPID 1702, User=fastrpc, Restart=always, NRestarts=0. If the daemon is not identified: REFUSED (exit 4).
+   - Only that PID is skipped by the quiescence check. Every other holder of /dev/fastrpc-cdsp(-secure) still
+     refuses, including a process named or running like cdsprpcd that is not the unit's MainPID. The daemon is
+     re-identified after the scan; if it changed: REFUSED.
+   - After stop -> offline -> start -> running, within STEP_S (90 s): the unit must be active again with a verified
+     daemon (same or new PID), and both device nodes must exist. Otherwise FAIL, exit 9 (new), and the campaign
+     stops. BEGIN and OK record the daemon PID before and after.
+   - The only service command is read-only (systemctl show). Root still writes only the cDSP state file, with no
+     arguments, no environment and no user input. Expiry, lock, logging and audit are unchanged.
+   tools/test_cdsp_restart.sh: 39 offline checks pass, 13 new. They use a fake daemon and a fake systemctl:
+     exempt OK; wrong exe; wrong user; unit inactive; no MainPID; systemctl failing; impostor (cdsprpcd that is not
+     MainPID); daemon plus another client; daemon restarted with a new PID (OK); unit not back (FAIL 9); device node
+     not back (FAIL 9).
+   Untested on the board: whether the vendor daemon and driver survive a cDSP restart. The post-check exists for
+   that case, and the screen's baseline probe after each restart must pass.
+   Protocol unchanged from D92: screen (3 cycles; adopt only on 3/3 H loads), then the H2 set. New screen directory
+   runs/v0d-cdsp-test2 (the D96 refusal stays in v0d-cdsp-test). Authorization: the window the owner installs with
+   install_cdsp_restart.sh --expires (at most 24 h); it is recorded at installation. Nothing runs before the
+   review and the installation.
+D103 2026-10-08 Codex review of #47 (12:15Z, through e045b61), two P2 findings on the root path, both fixed before any
+   installation; no hardware run, nothing installed.
+   1. Installer reinstallation: the helper was replaced before the rule, so a failure installing the rule could leave
+      the new helper under the previous grant. install_cdsp_restart.sh now:
+      - takes the helper's own lock (a running restart finishes first; waits at most 150 s, then changes nothing);
+      - removes any existing rule before touching the helper;
+      - publishes the helper, then the rule, each as a staged copy plus an atomic rename (the staged rule's name
+        contains "." so sudo ignores it);
+      - on any failure from rule removal through the post-check, removes rule, helper and staged copies, and exits 3
+        with the grant absent.
+      Paths and commands sit in a constants block. tools/test_install_cdsp_restart.sh (offline, never root, fake
+      visudo/sudo, injected failures) has 13 checks: fresh install; reinstall; each publication stage failing over an
+      existing install (stage helper, publish helper, stage rule, publish rule, post-check sudo, post-check visudo)
+      each leaves no grant; the old rule is gone before the new helper is published; held lock; bad expiry and a
+      rejected staged rule leave the old installation untouched; uninstall.
+   2. Unbounded service queries: systemctl show ran without a timeout, and the post-restart loop counted iterations,
+      so a stuck query could hang the helper after BEGIN with no terminal record. Now:
+      - every query runs under timeout (Q_S = 5 s, killed 1 s later), and every sysfs read under 5 s (killed 1 s
+        later);
+      - the write steps and the post-check use elapsed-time deadlines; post-check queries get at most half the
+        remaining time;
+      - a timed-out query counts as "daemon not identified": REFUSED before any change, FAIL exit 9 after.
+      tools/test_cdsp_restart.sh passes 47/47, 8 new: a query blocking before the change (REFUSED in 1 s, nothing
+      changed); a query blocking after the change (FAIL 9 in 6 s, BEGIN and FAIL logged); slow repeated queries
+      after the change (FAIL 9 in 6 s); STEP_S 3, Q_S 1.
+   Also from the review: post-boot environment and package provenance committed as env-20261008-boot.txt (holds,
+   apt history for 10-07/08, package diff against the previous baseline, accelerator-stack versions, cdsprpcd state,
+   this boot's kernel error lines; kernel timestamps before NTP sync show the RTC's 2026-07-28 date). The PR
+   description is brought through D103.
+D104 2026-10-08 Owner installed the D103 revision at 14:47 with --expires 2026-10-09T09:00. Receipt
+   runs/v0d-cdsp-test2/install-receipt.txt, collected without root:
+   - helper root:root 0755, sha256 98b1ca30..., identical to the f4dd7d4 source except EXPIRES=1791529200;
+   - rule root:root 0440; no staged leftovers;
+   - sudo lists exactly "(root) NOPASSWD: /usr/local/sbin/v0-cdsp-restart \"\"", and an argument requires a password.
+   The authorization window for D102 is therefore until 2026-10-09T09:00. Next: the test2 screen as declared
+   (D92, D102), in the D101 environment cohort.
+D105 2026-10-08 Test2 screen (runs/v0d-cdsp-test2), 14:47-14:58:
+   Cycle 1:
+   - restart OK in 19 s: cDSP running -> offline -> running; cdsprpcd came back by itself as a new PID,
+     1702 -> 300602;
+   - 4B baseline probe PASS;
+   - H-1: the 9B loaded and passed 512 tokens; kernel audits clean.
+   Cycle 2:
+   - restart OK in 20 s (cdsprpcd 300602 -> 309120), then 30 s settle;
+   - the 4B baseline probe-2 (unchanged BASE command) loaded, was ready after 13 s, and on its FIRST request (task 0,
+     384 prompt tokens) generated 77 tokens, then stalled;
+   - the watchdog killed it at 14:58:13 after 300 s with 4 threads in fastrpc_wait_for_completion (diagnosis:
+     night/npu-stalls/309719-145812.txt);
+   - no kernel lines in the window (retrospective kernel audit "pass", probe-2/kernel-audit-retro.txt; classify()
+     stops at HANG before auditing).
+   The screen stopped as declared (HANG on a baseline probe stops it). Method not adopted (1 of 3 H loads); H2 does
+   not run.
+   Reading: the signature matches D99's A-2 (fresh 4B server, first request, ~77-79 tokens, then a FastRPC stall,
+   no kernel lines), which happened with no restart. That makes 2 first-request hangs in the last 14 h, one of them
+   2.5 min after a restart. Causation by the restart is neither shown nor excluded.
+   Positive findings: two restarts completed cleanly, the vendor daemon recovered both times without help, and
+   functional NPU recovery after a restart was observed once (probe-1 and H-1).
+   Next, declared now: the runner's standard fault recovery on its own (tools/v0d_recover.sh: idle 900 s, then the
+   baseline probe, up to 13 times, NO restart) so that the NPU state is known. Nothing else runs until the owner
+   decides; the helper stays installed until the owner removes it or it expires (2026-10-09T09:00).
+D106 2026-10-08 Recovery after D105, as declared (tools/v0d_recover.sh, no restart): idle 900 s from 14:59:39, then
+   baseline probe-151439 PASS at 15:15:51 with a clean kernel audit; the NPU is usable again without a reboot or a
+   restart, as after D99 (one more recovery observation, still not a recovery SLA). State now: board idle; restart
+   helper installed until 2026-10-09T09:00 but not called by anything; H not admitted; method not adopted (D105).
+   Owner decision needed for anything further on the 9B: e.g. repeat the screen as a new declared attempt (the
+   first-request hang would then count as it did here), or stop the 9B and move to V0e for A or AM (both now carry
+   first-request-hang risk: D99 on A, D105 on the baseline 4B).
+D107 2026-10-08 Third cDSP-restart screen, declared before it runs (owner: "I want the answer"). The question is
+   unchanged from D92: does a restart before each 9B load make H load reliably? D105 left it unanswered: one H load,
+   which passed; the screen stopped on a 4B baseline hang that also occurs without a restart (D99).
+   Same protocol as D92: 3 cycles of restart + 30 s settle -> 4B baseline probe -> H load + 512 tokens. Adopted only
+   if all 3 cycles end with an H PASS. An H LOADFAIL is the measured outcome: recorded, cycle not repeated.
+   Changed, and only this: the fault budget of the admission sets (D68/D89) replaces "any hang stops".
+   - A HANG/DEVFAULT in a cycle's probe or H run is fault 1. The board recovers without a restart (idle 900 s +
+     baseline probe, ready wait), and the SAME cycle is repeated from its restart.
+   - A second fault anywhere (cycle, repeat or recovery probe) stops: not adopted.
+   - EVIDENCE or any other non-PASS probe stops, as before.
+   The D105 hang stays on record. This attempt starts from zero faults, as a separate screen in a new directory
+   (runs/v0d-cdsp-test3).
+   Mocked test tools/test_cdsp_screen.sh: 8/8 (all pass -> adopted; H LOADFAIL -> 2/3 not adopted; probe hang and
+   H hang each repeat the cycle and can still adopt; a second fault in the repeat, in the recovery probe or in a
+   later cycle stops; a probe without a verdict stops). Same helper (D104, expiry 2026-10-09T09:00). If adopted,
+   H2 runs next as declared in D92/D93.
+D108 2026-10-08 Third screen (D107, runs/v0d-cdsp-test3), 19:36-19:47: ADOPTED, 3/3 H loads, 0 faults.
+   Restarts: 3 of 3 OK, each in 20 s; cdsprpcd came back by itself each time (309120 -> 638599 -> 647060 -> 655090).
+   4B baseline probes: 3 of 3 PASS.
+   H at 512 (prefill / decode tok/s): 158.5/6.04, 155.5/6.02, 159.4/6.07. Every kernel audit is clean.
+   Combined screen record after the restart route was enabled (D105 + D108):
+   - restarts: 5 of 5 OK;
+   - H loads: 4 of 4 PASS (D90 without restarts: 3 of 6 failed to map);
+   - baseline probes: 4 of 5 PASS, 1 first-request HANG (D105).
+   As declared (D92/D93), the H2 admission set runs next: the D68/D89 rule, with a restart + settle before every
+   step's probe and load. H2 would be labelled "requires a cDSP restart before each load".
+D109 2026-10-08 H2 admission set (D92/D93; runs/v0d-admit-H2), 19:47-22:03: ADMITTED in attempt 2, 1 set fault.
+   Every step's probe and load followed a cDSP restart + 30 s settle.
+   - Restarts: 7 of 7 OK, about 19-20 s each; cdsprpcd came back by itself every time.
+   - Attempt 1: warm-up PASS. r1 passed 512, 8K and 16K, then HUNG at 32K on its 4th request: 118 tokens generated,
+     6 threads in fastrpc_wait_for_completion. The watchdog killed it at 20:18:46 (diagnosis npu-stalls/685318-201846,
+     copied). No kernel lines; retrospective kernel audit "pass". This is fault 1, a later-request hang (as D66/D69),
+     not a first-request one.
+   - Recovery (no restart, as declared): the first probe after 900 s idle failed to LOAD (4B KV mapping, 640 MiB,
+     fastrpc_mmap; the degraded state of D61/D64; kernel audit npu_map, allowed in a LOADFAIL). The second probe 900 s
+     later passed (20:51).
+   - Attempt 2: warm-up, r1, r2, r3 and tools all PASS (one-shot 10/10, agentic 3/3), with clean kernel audits. Every
+     memfloor --admit is ADMIT; the lowest margin is 884 MiB (r1). Swap was 0 throughout.
+   Medians of attempt 2, r1-r3, prefill / decode tok/s:
+     512 157.6/5.92, 8K 158.9/5.55, 16K 151.1/4.95, 32K 143.3/4.31.
+   These are consistent with H's D90 r1-r2 (16K 151.1/4.93).
+   Outcome: H2 is provisionally eligible in V0d, labelled "requires a cDSP restart (root helper) before each load". Its
+   reliability record: 11 of 11 9B loads mapped after a restart (screens 4, H2 7), against 3 of 6 failures without one.
+   But 1 hang in 7 H2 servers, plus 1 baseline first-request hang in the screens (D105). Caveats:
+   - environment cohort D101 (after the reboot and package changes), so it is not directly comparable in time with
+     D90's A/AM;
+   - the restart needs root; any V0e/V1 use needs a standing owner authorization (the current one expires
+     2026-10-09T09:00) or a different mechanism;
+   - status-line summaries in this phase sometimes list decode values out of place (summary() greps both decode_tps
+     and server_decode_tps); the raw probe.txt files are authoritative and were used above.
+   Nothing is GO; V0e for any configuration needs the owner's go-ahead.
+D110 2026-10-08 Monitoring export for test2, test3 and H2; corrections (Codex review of ddf4d74, 21:37Z). No hardware run.
+   - tools/publish_monitor.py re-run at 23:39: monitor/health-20261008-{minutes,runs}.jsonl, kernel-20261008.jsonl,
+     run-windows.jsonl (26 windows for v0d-cdsp-test2, v0d-cdsp-test3, v0d-admit-H2) and health-checks.txt, plus the
+     tail of 2026-10-07 (through the shutdown). No machine-id or SoC serial in any published file (checked); a USB
+     device serial was still present (corrected in D111).
+   - Recomputed from the committed monitor directory only (MONITOR_DIR=monitor):
+     - memfloor --admit 5364 on H2 attempt 2: all five steps ADMIT; lowest L_min 6,743,932 kB in r1 against 5,838,766
+       required, margin 884 MiB, as reported in D109. Swap used 0 kB in every exported run-window sample.
+     - kernel_audit.py on all 26 run directories of the three phases: pass, except probe-203435 (npu_map, the
+       recovery LOADFAIL of D109). Same verdicts as the local audits; H2-s1-r1 matches its retrospective audit.
+   - Correction to D109: the H2-s1-r1 hang was on the fourth requested depth but the sixth server request (the 512
+     and 8K off-depth attempts were retried): task 661, 31,722 prompt tokens, prompt processing complete, stalled in
+     decode after n_gen 114 in the server log. "118 tokens" in D109 is streamed chunks from the incomplete response,
+     not a usage-reported count. Still a later-request hang.
+   - README: "No NPU hang or abort occurred in any set" scoped to A's and AM's D90 sets; H2's fault and two attempts,
+     and the D105 and D109 faults, added to the fault history.
+D111 2026-10-08 USB serial redacted from the monitoring export (Codex review of 40eaf0f). No hardware run.
+   - The kernel exports kernel-20261004/-20261007/-20261008.jsonl each held one "usb 3-1: SerialNumber: <value>"
+     line (one USB device, the same value in all three). tools/publish_monitor.py now replaces that value with
+     <usb-serial> in every published line; the descriptor index ("SerialNumber=3") is kept. Re-published at 23:48:
+     only those three lines changed; timestamps, boot IDs and messages are otherwise intact. The value appears nowhere
+     else in the working tree (checked).
+   - The value remains in earlier commits (and on main via #45). Removing it from history would mean rewriting
+     published branches; that is the owner's call, not done here.
+   - Helper use to date (log /var/log/v0-cdsp-restart.log): 12 calls between 14:48 and 21:45, all OK, about
+     19-20 s each, plus the D96 REFUSED at 00:33. Not called since 21:45; expiry 2026-10-09T09:00.
