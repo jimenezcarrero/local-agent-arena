@@ -1310,3 +1310,19 @@ D106 2026-10-08 Recovery after D105, as declared (tools/v0d_recover.sh, no resta
    Owner decision needed for anything further on the 9B: e.g. repeat the screen as a new declared attempt (the
    first-request hang would then count as it did here), or stop the 9B and move to V0e for A or AM (both now carry
    first-request-hang risk: D99 on A, D105 on the baseline 4B).
+D107 2026-10-08 Third cDSP-restart screen, declared before it runs (owner: "I want the answer"). The question is
+   unchanged from D92: does a restart before each 9B load make H load reliably? D105 left it unanswered: one H load,
+   which passed; the screen stopped on a 4B baseline hang that also occurs without a restart (D99).
+   Same protocol as D92: 3 cycles of restart + 30 s settle -> 4B baseline probe -> H load + 512 tokens. Adopted only
+   if all 3 cycles end with an H PASS. An H LOADFAIL is the measured outcome: recorded, cycle not repeated.
+   Changed, and only this: the fault budget of the admission sets (D68/D89) replaces "any hang stops".
+   - A HANG/DEVFAULT in a cycle's probe or H run is fault 1. The board recovers without a restart (idle 900 s +
+     baseline probe, ready wait), and the SAME cycle is repeated from its restart.
+   - A second fault anywhere (cycle, repeat or recovery probe) stops: not adopted.
+   - EVIDENCE or any other non-PASS probe stops, as before.
+   The D105 hang stays on record. This attempt starts from zero faults, as a separate screen in a new directory
+   (runs/v0d-cdsp-test3).
+   Mocked test tools/test_cdsp_screen.sh: 8/8 (all pass -> adopted; H LOADFAIL -> 2/3 not adopted; probe hang and
+   H hang each repeat the cycle and can still adopt; a second fault in the repeat, in the recovery probe or in a
+   later cycle stops; a probe without a verdict stops). Same helper (D104, expiry 2026-10-09T09:00). If adopted,
+   H2 runs next as declared in D92/D93.
