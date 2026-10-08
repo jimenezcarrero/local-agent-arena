@@ -1423,3 +1423,19 @@ D115 2026-10-09 V0e H2 attempt 2 (D114, 00:58-01:19): NOT QUALIFIED (load), no f
      settle -> baseline -> the admitted H2 command at -c 40960 with a 512 probe. PASS = the 32768 failures are
      window-specific; LOADFAIL = the board's current state, not the window. Any fault: recorded, recovery, stop.
      Nothing else runs on the board afterwards without the owner.
+D116 2026-10-09 D115 diagnostic, 01:20-01:24: PASS. Restart OK, baseline PASS, the admitted H2 command at -c 40960 loaded
+   and answered the 512 probe (162.4/5.81 tok/s; kernel audit pass), three minutes after the third -c 32768 failure.
+   Conclusion: the -c 32768 load failure is specific to that window setting on this build, not the board's state at
+   the time. Record: H2 workflow loads 12/12 at -c 40960, 0/3 at -c 32768 (all at the warm-up's 572,133,376-byte
+   mapping on HTP0:2). Cause unknown (every KV/compute buffer the log lists is smaller at 32768).
+   V0e H2 result: NOT QUALIFIED at 32768 (load). Steps 1-4 were not reached; nothing about tool streaming, pi, windows,
+   reuse or sustained behaviour was measured for H2.
+   Retrospective audit note: runs/v0e-H2/attempt2/probe-011757 audits npu_map from the committed monitor because its
+   window tail (to 01:19:03) holds the S1-retry server's mapping-failure line (01:18:59; that server started 01:18:51,
+   the probe ended 01:18:33). Its live audit at 01:18:50 was pass; the line belongs to the next run.
+   Restarts on 2026-10-09: 5, all OK (00:40 launch D113, 00:45 attempt 1, 00:59 attempt 2 S1, 01:17 S1-retry, 01:20
+   diagnostic; runs/v0e-H2/v0-cdsp-restart.log.txt). Not called again; expiry 09:00.
+   Owner decisions (none taken here): (a) run H2's arenas with a 40960 server and pi told local32k (pi compacts below
+   the server's limit; V0e's agreement check would have to accept server > pi window), which needs a shared-suite
+   change since run_model.sh sets -c to the pi window; (b) investigate the 32768 mapping failure (e.g. other -c
+   values); (c) V0e for A or AM instead; (d) stop the 9B here.
