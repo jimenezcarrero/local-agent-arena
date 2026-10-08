@@ -1364,7 +1364,8 @@ D109 2026-10-08 H2 admission set (D92/D93; runs/v0d-admit-H2), 19:47-22:03: ADMI
 D110 2026-10-08 Monitoring export for test2, test3 and H2; corrections (Codex review of ddf4d74, 21:37Z). No hardware run.
    - tools/publish_monitor.py re-run at 23:39: monitor/health-20261008-{minutes,runs}.jsonl, kernel-20261008.jsonl,
      run-windows.jsonl (26 windows for v0d-cdsp-test2, v0d-cdsp-test3, v0d-admit-H2) and health-checks.txt, plus the
-     tail of 2026-10-07 (through the shutdown). No machine-id or serial in any published file (checked).
+     tail of 2026-10-07 (through the shutdown). No machine-id or SoC serial in any published file (checked); a USB
+     device serial was still present (corrected in D111).
    - Recomputed from the committed monitor directory only (MONITOR_DIR=monitor):
      - memfloor --admit 5364 on H2 attempt 2: all five steps ADMIT; lowest L_min 6,743,932 kB in r1 against 5,838,766
        required, margin 884 MiB, as reported in D109. Swap used 0 kB in every exported run-window sample.
@@ -1376,3 +1377,13 @@ D110 2026-10-08 Monitoring export for test2, test3 and H2; corrections (Codex re
      not a usage-reported count. Still a later-request hang.
    - README: "No NPU hang or abort occurred in any set" scoped to A's and AM's D90 sets; H2's fault and two attempts,
      and the D105 and D109 faults, added to the fault history.
+D111 2026-10-08 USB serial redacted from the monitoring export (Codex review of 40eaf0f). No hardware run.
+   - The kernel exports kernel-20261004/-20261007/-20261008.jsonl each held one "usb 3-1: SerialNumber: <value>"
+     line (one USB device, the same value in all three). tools/publish_monitor.py now replaces that value with
+     <usb-serial> in every published line; the descriptor index ("SerialNumber=3") is kept. Re-published at 23:48:
+     only those three lines changed; timestamps, boot IDs and messages are otherwise intact. The value appears nowhere
+     else in the working tree (checked).
+   - The value remains in earlier commits (and on main via #45). Removing it from history would mean rewriting
+     published branches; that is the owner's call, not done here.
+   - Helper use to date (log /var/log/v0-cdsp-restart.log): 12 calls between 14:48 and 21:45, all OK, about
+     19-20 s each, plus the D96 REFUSED at 00:33. Not called since 21:45; expiry 2026-10-09T09:00.

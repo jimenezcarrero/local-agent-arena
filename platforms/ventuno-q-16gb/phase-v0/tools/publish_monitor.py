@@ -11,11 +11,11 @@ health-<date>.jsonl -> monitor/health-<date>-runs.jsonl: every raw 10 s sample i
     window (run-windows.jsonl lines: {"label", "start_epoch", "end_epoch"}), tagged with its label,
     plus 120 s before and after each window.
 kernel-<date>.jsonl -> monitor/kernel-<date>.jsonl: every kernel line, with _MACHINE_ID and _HOSTNAME
-    removed; _BOOT_ID and timestamps kept.
+    removed and USB serial values replaced by <usb-serial>; _BOOT_ID and timestamps kept.
 health-checks.txt, trip-points.txt, run-windows.jsonl: copied as they are.
 Raw files stay in ~/bench-runs/monitor and the daily backup.
 """
-import glob, json, os, shutil, sys
+import glob, json, os, re, shutil, sys
 
 DROP = ("_MACHINE_ID", "_HOSTNAME")
 
@@ -33,10 +33,15 @@ SCRUB = [(v, tag) for v, tag in ((_read("/etc/machine-id"), "<machine-id>"),
                                   (_read("/sys/devices/soc0/serial_number"), "<serial>")) if v]
 
 
+# USB devices print their serial at enumeration ("usb 3-1: SerialNumber: <value>"; Codex review of 40eaf0f). The
+# descriptor index ("SerialNumber=3") is not an identifier and is kept.
+USB_SERIAL = re.compile(r"(SerialNumber: )[^\s\"\\]+")
+
+
 def scrub(text):
     for v, tag in SCRUB:
         text = text.replace(v, tag)
-    return text
+    return USB_SERIAL.sub(r"\1<usb-serial>", text)
 PAD = 120
 src = os.environ.get("MONITOR_DIR", os.path.expanduser("~/bench-runs/monitor"))
 dst = os.path.join(sys.argv[1], "monitor")
