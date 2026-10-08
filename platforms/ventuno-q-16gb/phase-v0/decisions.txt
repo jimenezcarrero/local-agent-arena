@@ -1243,3 +1243,32 @@ D102 2026-10-08 Owner decision: retry the 9B (H) with a cDSP restart, choosing o
    runs/v0d-cdsp-test2 (the D96 refusal stays in v0d-cdsp-test). Authorization: the window the owner installs with
    install_cdsp_restart.sh --expires (at most 24 h); it is recorded at installation. Nothing runs before the
    review and the installation.
+D103 2026-10-08 Codex review of #47 (12:15Z, through e045b61), two P2 findings on the root path, both fixed before any
+   installation; no hardware run, nothing installed.
+   1. Installer reinstallation: the helper was replaced before the rule, so a failure installing the rule could leave
+      the new helper under the previous grant. install_cdsp_restart.sh now:
+      - takes the helper's own lock (a running restart finishes first; waits at most 150 s, then changes nothing);
+      - removes any existing rule before touching the helper;
+      - publishes the helper, then the rule, each as a staged copy plus an atomic rename (the staged rule's name
+        contains "." so sudo ignores it);
+      - on any failure from rule removal through the post-check, removes rule, helper and staged copies, and exits 3
+        with the grant absent.
+      Paths and commands sit in a constants block. tools/test_install_cdsp_restart.sh (offline, never root, fake
+      visudo/sudo, injected failures) has 13 checks: fresh install; reinstall; each publication stage failing over an
+      existing install (stage helper, publish helper, stage rule, publish rule, post-check sudo, post-check visudo)
+      each leaves no grant; the old rule is gone before the new helper is published; held lock; bad expiry and a
+      rejected staged rule leave the old installation untouched; uninstall.
+   2. Unbounded service queries: systemctl show ran without a timeout, and the post-restart loop counted iterations,
+      so a stuck query could hang the helper after BEGIN with no terminal record. Now:
+      - every query runs under timeout (Q_S = 5 s, killed 1 s later), and every sysfs read under 5 s (killed 1 s
+        later);
+      - the write steps and the post-check use elapsed-time deadlines; post-check queries get at most half the
+        remaining time;
+      - a timed-out query counts as "daemon not identified": REFUSED before any change, FAIL exit 9 after.
+      tools/test_cdsp_restart.sh passes 47/47, 8 new: a query blocking before the change (REFUSED in 1 s, nothing
+      changed); a query blocking after the change (FAIL 9 in 6 s, BEGIN and FAIL logged); slow repeated queries
+      after the change (FAIL 9 in 6 s); STEP_S 3, Q_S 1.
+   Also from the review: post-boot environment and package provenance committed as env-20261008-boot.txt (holds,
+   apt history for 10-07/08, package diff against the previous baseline, accelerator-stack versions, cdsprpcd state,
+   this boot's kernel error lines; kernel timestamps before NTP sync show the RTC's 2026-07-28 date). The PR
+   description is brought through D103.

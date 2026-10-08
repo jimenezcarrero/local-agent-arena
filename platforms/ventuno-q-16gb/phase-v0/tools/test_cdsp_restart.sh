@@ -13,11 +13,11 @@ setup() { T=$(mktemp -d); mkdir -p $T/sys/remoteproc0 $T/sys/remoteproc1 $T/proc
   mkdir -p $T/proc/1700/fd $T/unit $T/dev; echo cdsprpcd > $T/proc/1700/comm; ln -s /usr/sbin/cdsprpcd $T/proc/1700/exe
   ln -s /dev/fastrpc-cdsp $T/proc/1700/fd/3; echo active > $T/unit/ActiveState; echo 1700 > $T/unit/MainPID
   touch $T/dev/fastrpc-cdsp $T/dev/fastrpc-cdsp-secure
-  printf '#!/bin/bash\n[ "$1 $2 $4 $5" = "show -p --value cdsprpcd.service" ] || exit 9\ncat %s/unit/$3\n' $T > $T/systemctl; chmod +x $T/systemctl
+  printf '#!/bin/bash\n[ "$1 $2 $4 $5" = "show -p --value cdsprpcd.service" ] || exit 9\n[ -e %s/unit/slow ] && sleep "$(cat %s/unit/slow)"\n[ -e %s/unit/block ] && exec sleep 1000\ncat %s/unit/$3\n' $T $T $T $T > $T/systemctl; chmod +x $T/systemctl
   sed -e "s#^EXPIRES=0\$#EXPIRES=$(( $(date +%s) + 3600 ))#" -e "s#^SYS=.*#SYS=$T/sys#" -e "s#^PROC=.*#PROC=$T/proc#" \
       -e "s#^LOG=.*#LOG=$T/log.txt#" -e "s#^LOCK=.*#LOCK=$T/run/lock#" -e "s#^NEED_UID=.*#NEED_UID=$(id -u)#" \
       -e "s#^STEP_S=.*#STEP_S=3#" -e "s#^SYSTEMCTL=.*#SYSTEMCTL=$T/systemctl#" -e "s#^DEVROOT=.*#DEVROOT=$T#" \
-      -e "s#^DAEMON_USER=.*#DAEMON_USER=$(id -un)#" "$SRC" > $T/helper
+      -e "s#^DAEMON_USER=.*#DAEMON_USER=$(id -un)#" -e "s#^Q_S=.*#Q_S=1#" "$SRC" > $T/helper
   SIM=""; }
 sim() { ( f=$T/sys/remoteproc1/state; while :; do case "$(cat $f 2>/dev/null)" in stop) echo offline > $f;; start) echo running > $f;; esac; sleep 0.2; done ) & SIM=$!; }
 chk() { local name=$1 want=$2 pat=$3; shift 3; local out rc
@@ -84,4 +84,12 @@ setup; mkdir -p $T/proc/1800/fd; ln -s /usr/sbin/cdsprpcd $T/proc/1800/exe
 setup; simd "echo failed > $T/unit/ActiveState" ":"; chk daemon-not-back 9 "FAIL cdsprpcd.service not active"
   grep -q BEGIN $T/log.txt && grep -q "FAIL cdsprpcd" $T/log.txt && echo "ok   daemon-not-back: BEGIN and FAIL logged" || { echo "FAIL daemon-not-back log"; fails=$((fails+1)); }; end
 setup; simd "rm -f $T/dev/fastrpc-cdsp-secure" ":"; chk device-not-back 9 "FAIL cdsprpcd.service not active with a verified daemon and device nodes"; end
+# Codex review of #47 (12:15Z): stuck or slow systemctl queries must end in an audited outcome within the deadline
+# (STEP_S=3, Q_S=1 here: the post-check must end within STEP_S + 10 s, the whole call well under the 30 s chk limit)
+elapsed() { local a=$(date +%s); chk "$@"; local e=$(( $(date +%s) - a )); [ $e -le $LIM ] && echo "ok   ${1}: ${e} s <= ${LIM} s" || { echo "FAIL ${1}: ${e} s > ${LIM} s"; fails=$((fails+1)); }; }
+setup; touch $T/unit/block; LIM=5 elapsed query-blocks-before 4 "REFUSED cdsprpcd.service daemon not identified"
+  [ "$(cat $T/sys/remoteproc1/state)" = running ] && ! grep -q BEGIN $T/log.txt && echo "ok   query-blocks-before changed nothing" || { echo "FAIL query-blocks-before mutated"; fails=$((fails+1)); }; end
+setup; simd ":" "touch $T/unit/block"; LIM=16 elapsed query-blocks-after 9 "FAIL cdsprpcd.service not active"
+  grep -q BEGIN $T/log.txt && grep -q "FAIL cdsprpcd" $T/log.txt && echo "ok   query-blocks-after: BEGIN and FAIL logged" || { echo "FAIL query-blocks-after log"; fails=$((fails+1)); }; end
+setup; simd ":" "echo 0.9 > $T/unit/slow; echo failed > $T/unit/ActiveState"; LIM=16 elapsed query-slow-after 9 "FAIL cdsprpcd.service not active"; end
 echo "failures: $fails"; exit $fails
