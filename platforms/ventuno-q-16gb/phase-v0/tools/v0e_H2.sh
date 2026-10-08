@@ -39,7 +39,7 @@ session() { local lab=$1 wl=$2 to=$3 wd0 rc f0
   f0=$(nfaults); ready now   # a baseline fault is recorded by ready(), which keeps probing until a PASS (recovery)
   [ "$(nfaults)" = "$f0" ] || { say "V0e H2: NOT QUALIFIED (fault in the baseline before $lab; recovered)"; exit 3; }
   say "START $lab"; wd0=$(wdcount)
-  PHASE=$PH timeout -k 60 $to $RUN_V0E $lab $wl -- $H2W > /dev/null 2>&1; rc=$?; killall_srv
+  PHASE=$PH timeout -k 60 $to bash $RUN_V0E $lab $wl -- $H2W > /dev/null 2>&1; rc=$?; killall_srv
   C=$(classify $O/$lab $rc $wd0); say "END $lab: $C | $(grep -h 'RESULT' $O/$lab/run.txt 2>/dev/null | tail -1)"; }
 memcheck() { if python3 $MEMFLOOR --admit 5364 $O/$1 > $O/$1/memfloor-admit.txt 2>&1; then say "MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"
   else say "STOP: MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"; say "V0e H2: NOT QUALIFIED (memory)"; exit 3; fi; }
