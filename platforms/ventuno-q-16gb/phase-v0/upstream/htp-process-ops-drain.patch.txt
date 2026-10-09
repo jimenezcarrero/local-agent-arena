@@ -1,0 +1,89 @@
+--- a/ggml/src/ggml-hexagon/htp/main.c
++++ b/ggml/src/ggml-hexagon/htp/main.c
+@@ -1295,44 +1295,58 @@
+     dspqueue_t queue = ctx->dsp_queue;
+     int err;
+ 
+-    uint32_t poll_count = DSPQUEUE_POLL_COUNT;
++    // dspqueue invokes the packet callback only when new packets were written since its previous call. If we return
++    // with unread packets (after yielding the VTCM to another session through vtcm_release_callback), nothing calls
++    // us again until the host writes more, and the host is blocked waiting for the responses to those packets:
++    // a deadlock. So after yielding, re-acquire the VTCM (this waits for the other session) and keep draining; return
++    // only once the queue has stayed empty for the poll period, on a queue error, or when killed.
++    for (;;) {
++        uint32_t poll_count = DSPQUEUE_POLL_COUNT;
++        bool     done       = false;
++
++        vtcm_acquire(ctx);
++
++        while (!ctx->vtcm_needs_release && !atomic_load(&ctx->killed)) {
++            struct htp_opbatch_req req;
++            uint32_t r_size = sizeof(req);
++
++            struct dspqueue_buffer dbuf;
++            uint32_t n_dbufs = 1;
++            uint32_t flags   = 0;
++
++            err = dspqueue_read_noblock(queue, &flags, n_dbufs, &n_dbufs, &dbuf, r_size, &r_size, (uint8_t *) &req);
++            if (err == AEE_EWOULDBLOCK) {
++                if (--poll_count) {
++                    qurt_sleep(DSPQUEUE_POLL_TIMEOUT_USEC);
++                    continue;
++                }
++                done = true;
++                break;
++            }
+ 
+-    vtcm_acquire(ctx);
++            if (err != 0) {
++                FARF(ERROR, "dspqueue_read_noblock failed: 0x%08x", (unsigned) err);
++                done = true;
++                break;
++            }
+ 
+-    while (!ctx->vtcm_needs_release && !atomic_load(&ctx->killed)) {
+-        struct htp_opbatch_req req;
+-        uint32_t r_size = sizeof(req);
+-
+-        struct dspqueue_buffer dbuf;
+-        uint32_t n_dbufs = 1;
+-        uint32_t flags   = 0;
+-
+-        err = dspqueue_read_noblock(queue, &flags, n_dbufs, &n_dbufs, &dbuf, r_size, &r_size, (uint8_t *) &req);
+-        if (err == AEE_EWOULDBLOCK) {
+-            if (--poll_count) {
+-                qurt_sleep(DSPQUEUE_POLL_TIMEOUT_USEC);
++            if (r_size < sizeof(req) || n_dbufs != 1) {
++                FARF(ERROR, "invalid request : size %u n-dbufs %u", r_size, n_dbufs);
+                 continue;
+             }
+-            break;
+-        }
+ 
+-        if (err != 0) {
+-            FARF(ERROR, "dspqueue_read_noblock failed: 0x%08x", (unsigned) err);
+-            break;
+-        }
++            // Reset poll count for valid requests
++            poll_count = DSPQUEUE_POLL_COUNT;
+ 
+-        if (r_size < sizeof(req) || n_dbufs != 1) {
+-            FARF(ERROR, "invalid request : size %u n-dbufs %u", r_size, n_dbufs);
+-            continue;
++            process_opbatch(ctx, &req, &dbuf);
+         }
+ 
+-        // Reset poll count for valid requests
+-        poll_count = DSPQUEUE_POLL_COUNT;
++        vtcm_release(ctx);
+ 
+-        process_opbatch(ctx, &req, &dbuf);
++        if (done || atomic_load(&ctx->killed)) {
++            break;
++        }
+     }
+-
+-    vtcm_release(ctx);
+ }
+ 
+ static void htp_packet_callback(dspqueue_t queue, int error, void * context) {

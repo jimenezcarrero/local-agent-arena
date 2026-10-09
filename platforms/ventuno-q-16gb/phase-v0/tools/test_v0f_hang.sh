@@ -6,7 +6,7 @@ fails=0
 # fake run_route (baseline probes) and run_v0e (sessions); behaviour per label from $T/mode-<S1|S2|probe>:
 #   pass (S2 also writes a VALID sustained summary) | nosummary (S2 PASS without it) | fail (workload failed, clean) | hang (watchdog line) | evidence (health failed) | loadfail (clean, D114)
 FAKE='#!/bin/bash
-lab=$1; ph=${PHASE:-$2}; o=$BR/v0/$ph/$lab; mkdir -p $o; k=probe; case $lab in v0f-W-*) k=W;; v0f-B-*) k=B;; esac
+lab=$1; ph=${PHASE:-$2}; o=$BR/v0/$ph/$lab; mkdir -p $o; k=probe; case $lab in v0f-W-*) k=W;; v0f-B-*) k=B;; v0f-P-*) k=P;; esac
 echo "$k" >> $T/calls; m=$(head -1 $T/mode-$k 2>/dev/null); m=${m:-pass}; sed -i 1d $T/mode-$k 2>/dev/null
 echo pass > $o/health-verdict.txt; : > $o/server.log; echo "pass" > $o/kernel-audit.txt
 case $m in
@@ -22,8 +22,8 @@ case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
   echo "$FAKE" > $T/run.sh; printf '#!/bin/bash\necho pass; exit 0\n' > $T/ka.sh; printf 'import os, sys\nsys.exit(2 if os.path.exists(os.environ["T"] + "/mem-reject") else 0)\n' > $T/mem.py
   printf '#!/bin/bash\necho R >> $T/calls; echo OK restart\n' > $T/pre.sh; chmod +x $T/run.sh $T/ka.sh $T/pre.sh
   local kv; for kv in "$@"; do case $kv in mem=reject) : > $T/mem-reject;; mode-*) echo "${kv#*=}" | tr , '\n' > $T/${kv%%=*};; esac; done
-  local fc=8; for kv in "$@"; do case $kv in FAULT_CAP=*) fc=${kv#*=};; esac; done
-  env RUN_ROUTE=$T/run.sh RUN_V0E=$T/run.sh MEMFLOOR=$T/mem.py KAUDIT=$T/ka.sh PROBE_WAIT=0 SESS_PAUSE=0 N_SESS=2 N_REQ=1 CHECK_PROC=true FAULT_CAP=$fc \
+  local fc=8 arms="W B"; for kv in "$@"; do case $kv in FAULT_CAP=*) fc=${kv#*=};; ARMS=*) arms=${kv#*=};; esac; done
+  env RUN_ROUTE=$T/run.sh RUN_V0E=$T/run.sh MEMFLOOR=$T/mem.py KAUDIT=$T/ka.sh PROBE_WAIT=0 SESS_PAUSE=0 N_SESS=2 N_REQ=1 CHECK_PROC=true FAULT_CAP=$fc ARMS="$arms" \
       bash ~/v0/v0f_hang.sh > $T/out.txt 2>&1; local rc=$?
   local seq=$(paste -sd' ' $T/calls 2>/dev/null)
   if [ $rc = $want_rc ] && [ "$seq" = "$want_seq" ]; then echo "ok   $name (rc $rc: $seq)"
@@ -37,4 +37,6 @@ case1 loadfail-then-pass 0 "probe W probe probe B probe W probe B" mode-W=loadfa
 case1 evidence-stops 2 "probe W" mode-W=evidence
 case1 fault-cap 5 "probe W probe probe B" mode-W=hang mode-B=hang FAULT_CAP=2
 case1 baseline-hang-recovers 0 "probe probe W probe B probe W probe B" mode-probe=hang,pass
+case1 arm-p-only 0 "probe P probe P" ARMS=P
+case1 arm-p-hang-cap 5 "probe P probe probe P" ARMS=P mode-P=hang,hang FAULT_CAP=2
 echo "failures: $fails"; exit $fails
