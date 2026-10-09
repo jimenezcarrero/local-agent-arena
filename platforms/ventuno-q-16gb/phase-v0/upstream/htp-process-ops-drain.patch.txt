@@ -1,3 +1,7 @@
+Note (D124): written for D122's lost-wakeup hypothesis. The kick test showed the DSP consumer ignores new packets at a
+hang, so this change is NOT a fix for the hang; it only stops process_ops() from returning with unread packets (the
+dspqueue callback contract). Applies to 836d5717 and to master (offset 7). Not compiled (needs the Hexagon SDK).
+
 --- a/ggml/src/ggml-hexagon/htp/main.c
 +++ b/ggml/src/ggml-hexagon/htp/main.c
 @@ -1295,44 +1295,58 @@

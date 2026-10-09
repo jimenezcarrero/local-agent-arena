@@ -1,0 +1,49 @@
+Proposed upstream issue for ggml-org/llama.cpp (NOT filed; the owner decides). Evidence: D122-D124, runs/v0f-hang.
+
+Title: Hexagon: with 2+ virtual sessions on one NPU, a session's DSP queue consumer stops permanently (host waits forever)
+
+Name and version
+  build 11381 (836d57176), release package cross-built with the Snapdragon toolchain (arm64-linux v0.7), Hexagon SDK
+  6.6.0.0, htp-v75. The relevant code (htp/main.c process_ops / vtcm_acquire / vtcm_release) is unchanged on master
+  (2026-10-09, 79e2e74eb) apart from line offsets.
+
+Hardware / OS
+  Arduino VENTUNO Q (Qualcomm QCS8275, Hexagon v75, one NPU), Ubuntu 24.04, kernel 6.8.0-1084-qcom, qcom-fastrpc1
+  1.0.15+repack2.
+
+Command (a 4B model needs two virtual sessions because one session cannot map it):
+  GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 llama-server -m NeoHorse-1-4B-q4_0-pure.gguf -c 32768 --cache-ram 7942
+    --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0
+  (default split mode: layers; the two sessions alternate per graph split)
+
+Problem
+  At a random request (about 1-2 % of requests on a fresh NPU, much more often after a previous hang), generation stops
+  in prefill or in decode and never resumes. Host threads sit in fastrpc_wait_for_completion; flush_pending() loops on
+  AEE_EEXPIRED forever; there is no kernel message and no abort. Seen with 2, 3 and 4 virtual sessions; we have no
+  single-session data (the models do not fit one session). GGML_HEXAGON_OPQUEUE=1 (verified in the process: opt_opqueue
+  = 1) does not prevent it.
+
+Measurement (an LD_LIBRARY_PATH shim named libcdsprpc.so that wraps dspqueue_create/write/read for counting and
+forwards everything else to the real library; it reads dspqueue_get_stat when a queue makes no progress):
+  - At the hang, queue 0 has 1 request outstanding that the DSP has NOT read (WRITE_QUEUE_PACKETS = 1 at 60, 120 and
+    180 s); every earlier request on that queue was answered. Queue 1 is idle with nothing outstanding.
+  - Writing early-wakeup packets to queue 0 once per second (dspqueue_write_early_wakeup_noblock) does not help: none
+    is consumed, WRITE_QUEUE_PACKETS grows 1, 2, ... 312 over five minutes. (Earlier, during normal operation, a
+    wakeup packet on queue 1 was consumed without harm.)
+  So the DSP-side consumer of that queue stops for good between answering one batch and reading the next.
+
+Analysis (from the code; not confirmed on the DSP)
+  In that window process_ops() hands the VTCM over: every session allocates the whole VTCM (vtcm_alloc), gives it up
+  when another session asks (vtcm_release_callback -> vtcm_needs_release -> leave the loop -> release_cached) and
+  takes it back with HAP_compute_res_acquire_cached(..., 10 s) on its next callback. We suspect that handoff (or the
+  DSP-side dspqueue callback thread) can block. Note that the 10 s acquire timeout should abort() and no abort is
+  seen, which points to a block before or outside that call. Separately, process_ops() can return with unread packets
+  when it leaves the loop on vtcm_needs_release, which goes against the dspqueue packet-callback contract ("consume
+  each available packet"); a drain-after-yield change is attached as a note, but it does not explain a consumer that
+  ignores new packets.
+
+What would help
+  - DSP-side FARF logs around process_ops entry/exit and vtcm_acquire/release in a session that hangs.
+  - Whether sessions on the same NPU could each claim VTCM/N instead of the whole VTCM, removing the per-batch
+    handoff.
+We can run instrumented builds and the shim on the board.

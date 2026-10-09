@@ -1588,3 +1588,35 @@ D123 2026-10-10 D122 result so far and redesign (declared before the next run).
      1 s): PASS, 361.5/9.91 tok/s (as without it), snapshots written.
    - Run: arm P only (the default A server at -c 32768 with the shim), 12 sessions x 40 requests, the same stop rules,
      FAULT_CAP 4 (the W-1 fault already counts: up to 3 captured hangs). Diagnostic only, no root.
+D124 2026-10-10 Queue-state measurements (00:41-01:08): what the hang is and is not. Diagnostic only; no root.
+   - v0f-P-1 (default A server + dspq_probe, 00:41): request 15 hung. Snapshots at 61/121/181 s
+     (runs/v0f-hang/qstat/qstat-2727788-1..3): queue 0 2,986 written, 2,985 answered, the outstanding request NOT
+     read by the DSP (WRITE_QUEUE_PACKETS 1) at every snapshot; queue 1 2,990/2,990, idle. Watchdog kill at 00:53:32.
+   - Opt-in kick (shim V0F_KICK_S; tools/dspq_probe.c; ~/v0/dspq_kick): when a request stays unread with no response,
+     write one early-wakeup packet (dspqueue_write_early_wakeup_noblock; CPU-side reads consume them internally).
+     Kick check (v0f-kick-check, threshold 1 s, NO baseline probe before it: a protocol deviation, the P driver had been
+     stopped in its recovery wait): request 1 OK (361.1/9.87 tok/s); one kick during warm-up on queue 1 was consumed
+     harmlessly; request 2 hung (queue 0 420 written / 419 answered, queue 1 421/421 idle). 312 wakeups were written to
+     queue 0, one per second, and NONE was consumed: WRITE_QUEUE_PACKETS rose 1, 2, ... 312 until the watchdog kill
+     (01:08:28). Fault recorded by hand (faults.txt).
+   - Conclusion: at a hang the DSP-side consumer of one session's request queue has stopped for good. It answered the
+     previous batch, then never reads again, even as new packets arrive; the other session is idle with nothing
+     pending. That refutes D122's lost-wakeup mechanism as stated (a callback that is merely not re-invoked would run
+     again on new writes) and the drain patch as a fix (upstream/htp-process-ops-drain.patch.txt stays only as a
+     correctness note: returning with unread packets violates the dspqueue contract). The thread is blocked or gone
+     between answering one batch and reading the next. In htp/main.c that window holds the per-batch VTCM handoff:
+     each session claims the whole VTCM (vtcm_alloc), gives it up on another session's request and re-acquires it
+     with HAP_compute_res_acquire_cached (10 s timeout, then abort(); no abort was seen). Queue 1 has nothing pending,
+     so it is not a session holding the VTCM while waiting for the other. Where exactly it blocks (HAP compute_res,
+     the DSP-side dspqueue thread, or ggml's code) cannot be seen from the host; it needs DSP-side logs (FARF) from a
+     rebuilt libggml-htp (laptop, Hexagon SDK), and possibly root to read them.
+   - Hang rate in this cohort: 3 hangs in 21 requests (W-1 req 4, P-1 req 15, kick-check req 2) against 14/898
+     before, with no cDSP restart since 22:27 (the helper expired). This matches the earlier observation that the NPU
+     degrades after hangs (D61, D64); it also means these runs measure a degraded NPU. No further load runs tonight;
+     one recovery probe after the 15-minute wait.
+   - Not changed: no configuration is qualified; H2 and A stay NOT QUALIFIED. Next (owner): (a) a laptop build of
+     libggml-htp with FARF logging around vtcm_acquire/release and process_ops entry/exit, run with the shim, to
+     locate the block; (b) a design fix in the DSP code that removes the per-batch handoff, e.g. each of N sessions
+     claiming VTCM/N so they never contend (needs ggml-hexagon to size its scratch to a partial VTCM), which is an
+     upstream change; (c) an upstream issue with this evidence (report text in upstream/).
+   Recovery probe (probe-recovery-012424, 01:24, after the 15-minute wait): PASS (331.0/9.19 tok/s, health pass).

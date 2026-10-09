@@ -8,6 +8,11 @@
 // WRITE_QUEUE_PACKETS (requests the DSP has not read yet) and READ_QUEUE_PACKETS (responses the host has not read).
 // Reading: a stuck session with WRITE_QUEUE_PACKETS > 0 means its DSP side never read the request (a lost wakeup);
 // 0 means the DSP took it and never answered (stuck in compute or waiting). No behaviour change otherwise.
+// Opt-in workaround (D124): with V0F_KICK_S=<s>, when a queue has an outstanding request that the DSP has not read
+// (WRITE_QUEUE_PACKETS > 0) and no read has succeeded on it for <s> seconds, the watcher writes one early-wakeup packet
+// (dspqueue_write_early_wakeup_noblock; writes are serialized by the queue mutex). It changes the queue's write count,
+// so the DSP-side callback runs again and drains the stranded request; the reader consumes wakeup packets internally.
+// Each kick is logged to $V0F_DUMP_DIR/kicks-<pid>.txt with the queue counters before it.
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <pthread.h>
@@ -31,16 +36,29 @@ static AEEResult (*r_create)(int, uint32_t, uint32_t, uint32_t, dspqueue_callbac
 static AEEResult (*r_write)(dspqueue_t, uint32_t, uint32_t, struct dspqueue_buffer *, uint32_t, const uint8_t *, uint32_t);
 static AEEResult (*r_read)(dspqueue_t, uint32_t *, uint32_t, uint32_t *, struct dspqueue_buffer *, uint32_t, uint32_t *, uint8_t *, uint32_t);
 static AEEResult (*r_stat)(dspqueue_t, int, uint64_t *);
+static AEEResult (*r_wake)(dspqueue_t, uint32_t, uint32_t);
+static _Atomic int64_t last_kick_ms[MAXQ];
 
 static int64_t now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1000LL + t.tv_nsec / 1000000; }
 
 static void * watcher(void * arg) {
     (void) arg;
-    const char * dir = getenv("V0F_DUMP_DIR"); const char * s = getenv("V0F_STALL_S");
+    const char * dir = getenv("V0F_DUMP_DIR"); const char * s = getenv("V0F_STALL_S");  // dir is also used for kick logs
     int64_t stall_ms = (s ? atoll(s) : 60) * 1000; int dumps = 0; int64_t armed_ms = 0;
+    const char * k = getenv("V0F_KICK_S"); int64_t kick_ms = k ? atoll(k) * 1000 : 0;
     for (;;) {
-        sleep(1);
+        usleep(kick_ms ? 250000 : 1000000);
         int n = atomic_load(&nq), stuck = -1; int64_t t = now_ms();
+        for (int i = 0; kick_ms && r_wake && r_stat && i < n; i++) {
+            uint64_t w = atomic_load(&Q[i].writes), r = atomic_load(&Q[i].reads), wq = 0;
+            if (w <= r || t - atomic_load(&Q[i].last_read_ms) < kick_ms || t - atomic_load(&last_kick_ms[i]) < kick_ms) continue;
+            if (r_stat(Q[i].q, 3 /* WRITE_QUEUE_PACKETS */, &wq) != 0 || wq == 0) continue;
+            int rc = r_wake(Q[i].q, 0, 0); atomic_store(&last_kick_ms[i], t);
+            if (dir) { char kp[512]; snprintf(kp, sizeof kp, "%s/kicks-%d.txt", dir, (int) getpid()); FILE * kf = fopen(kp, "a");
+                if (kf) { fprintf(kf, "%lld queue %d writes %llu reads %llu since_last_read_s %.1f write_queue_packets %llu wakeup_rc %d\n",
+                                  (long long) time(NULL), i, (unsigned long long) w, (unsigned long long) r,
+                                  (t - atomic_load(&Q[i].last_read_ms)) / 1000.0, (unsigned long long) wq, rc); fclose(kf); } }
+        }
         for (int i = 0; i < n; i++)
             if (atomic_load(&Q[i].writes) > atomic_load(&Q[i].reads) && t - atomic_load(&Q[i].last_read_ms) > stall_ms) { stuck = i; break; }
         if (stuck < 0 || !dir || dumps >= 3 || t - armed_ms < stall_ms) continue;
@@ -66,10 +84,11 @@ __attribute__((constructor)) static void init(void) {
     if (!real) { fprintf(stderr, "dspq_probe: cannot open the real libcdsprpc: %s\n", dlerror()); abort(); }
     r_create = dlsym(real, "dspqueue_create"); r_write = dlsym(real, "dspqueue_write");
     r_read = dlsym(real, "dspqueue_read"); r_stat = dlsym(real, "dspqueue_get_stat");
+    r_wake = dlsym(real, "dspqueue_write_early_wakeup_noblock");
     if (!r_create || !r_write || !r_read) { fprintf(stderr, "dspq_probe: missing dspqueue symbols\n"); abort(); }
     pthread_t th; pthread_create(&th, NULL, watcher, NULL); pthread_detach(th);
-    fprintf(stderr, "dspq_probe: active (dump dir %s, stall %s s, get_stat %s)\n", getenv("V0F_DUMP_DIR") ? getenv("V0F_DUMP_DIR") : "unset",
-            getenv("V0F_STALL_S") ? getenv("V0F_STALL_S") : "60", r_stat ? "yes" : "no");
+    fprintf(stderr, "dspq_probe: active (dump dir %s, stall %s s, get_stat %s, kick %s s, wakeup %s)\n", getenv("V0F_DUMP_DIR") ? getenv("V0F_DUMP_DIR") : "unset",
+            getenv("V0F_STALL_S") ? getenv("V0F_STALL_S") : "60", r_stat ? "yes" : "no", getenv("V0F_KICK_S") ? getenv("V0F_KICK_S") : "off", r_wake ? "yes" : "no");
 }
 
 static int slot_of(dspqueue_t q) { int n = atomic_load(&nq); for (int i = 0; i < n; i++) if (Q[i].q == q) return i; return -1; }

@@ -1,0 +1,11 @@
+# D122 step 0 (2026-10-10 ~00:35): the parsed host option, read from the process with gdb (ptrace scope 1: llama-server
+# started as gdb's child; breakpoint at ggml_hexagon_session::allocate, i.e. after option parsing, before any NPU work;
+# then killed). Library: ~/v0/hexpkg/pkg-linux/lib/libggml-hexagon.so (836d5717, not stripped: _ZL11opt_opqueue).
+# Command: env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$P/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 [GGML_HEXAGON_OPQUEUE=1]
+#   gdb -batch -ex 'break ggml_hexagon_session::allocate' -ex run -ex "print (int)'opt_opqueue'" -ex "print (int)'opt_opbatch'"
+#   -ex kill --args $P/bin/llama-server -m NeoHorse-1-4B-q4_0-pure.gguf -c 32768 --port 8089 --device HTP0:0,HTP0:1 -ngl 99
+with GGML_HEXAGON_OPQUEUE=1:  opt_opqueue = 1   opt_opbatch = 1280
+without (default):            opt_opqueue = 32  opt_opbatch = 1280
+# The session-level log lines ("new session", "allocated opqueue") never reach llama-server's log in this build, even
+# with GGML_HEXAGON_VERBOSE=1 (run v0f-step0-verbose: one request, PASS, server env shows OPQUEUE=1), so the value is
+# checked in the process instead.

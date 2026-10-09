@@ -12,6 +12,8 @@
 # D123: ARMS selects the arms per round (default "W B"); arm P = B plus the dspq_probe shim (~/v0/dspq_probe first on
 # LD_LIBRARY_PATH, V0F_STALL_S=60, snapshots to the session's run directory parent $O/qstat), which records the queue
 # state of a stalled server before the watchdog kills it (300 s).
+# D124: arm K = P plus the shim's early-wakeup kick (~/v0/dspq_kick, V0F_KICK_S=3): a request the DSP has not read for
+# 3 s with no response gets one wakeup packet; kicks are logged to $O/qstat/kicks-<pid>.txt.
 # Overridable for tests: BR, CHECK_PROC, RUN_V0E, SESS_PAUSE, N_SESS, N_REQ, FAULT_CAP, ARMS + the runner's variables.
 set -uo pipefail
 source ~/v0/v0d_lib.sh
@@ -29,6 +31,7 @@ W_CMD="$E GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 GGML_HEXAGON_OPQUEUE=1 $SRV"
 B_CMD="$E GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $SRV"
 mkdir -p $O/qstat
 P_CMD="env LD_LIBRARY_PATH=$HOME/v0/dspq_probe:$P/lib ADSP_LIBRARY_PATH=$P/lib V0F_DUMP_DIR=$O/qstat V0F_STALL_S=60 GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $SRV"
+K_CMD="env LD_LIBRARY_PATH=$HOME/v0/dspq_kick:$P/lib ADSP_LIBRARY_PATH=$P/lib V0F_DUMP_DIR=$O/qstat V0F_STALL_S=60 V0F_KICK_S=3 GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $SRV"
 ARMS=${ARMS:-W B}
 $CHECK_PROC '^/bin/bash /home/arduino/v0/npu_stall_watchdog.sh' > /dev/null || { say "STOP: NPU stall watchdog not running"; exit 6; }
 $CHECK_PROC '^/bin/bash /home/arduino/v0/monitor/health_sampler.sh' > /dev/null || { say "STOP: health sampler not running"; exit 6; }
@@ -36,7 +39,7 @@ say "v0f hang diagnostic start (pid $$): arms $ARMS, $N_SESS sessions per arm, $
 lf=0
 for k in $(seq 1 $N_SESS); do
   for arm in $ARMS; do
-    lab=v0f-$arm-$k; case $arm in W) cmd=$W_CMD;; B) cmd=$B_CMD;; P) cmd=$P_CMD;; *) say "STOP: unknown arm $arm"; exit 2;; esac
+    lab=v0f-$arm-$k; case $arm in W) cmd=$W_CMD;; B) cmd=$B_CMD;; P) cmd=$P_CMD;; K) cmd=$K_CMD;; *) say "STOP: unknown arm $arm"; exit 2;; esac
     ready now
     say "START $lab"; wd0=$(wdcount)
     PHASE=$PH timeout -k 60 3600 bash $RUN_V0E $lab $HOME/v0/v0f_stress.sh -- $cmd > /dev/null 2>&1; rc=$?; killall_srv
