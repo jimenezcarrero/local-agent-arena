@@ -1,34 +1,75 @@
-V0e plan for configuration A (proposal, 2026-10-08; NOT started: V0e needs the owner's go-ahead)
+V0e plan for configuration A (declared 2026-10-09 before running; D118). Owner, after merging #48 and reading the
+recommendation (A at 32768 only, no root): "ok". Not a GO: V0e qualifies; GO is the owner's. Replaces the 2026-10-08
+proposal (e718f67), whose windows (32768 and 40960) are reconciled with the suite below, as the Codex review of
+#48 at 3793182 asked.
 
-Configuration (exact, from the D90 admission set; manifest in files.txt, runs/v0d-admit-A):
-  NeoHorse-1-4B pure Q4_0 (sha256 f822fa26...), ggml-hexagon 836d5717 release package (llama-server sha256 815b22bb...),
-  2 HTP sessions (HTP0:0, HTP0:1), -ngl 99, -c 40960, --ctx-checkpoints 0, --cache-ram 7942, 4 slots, llama-server
-  defaults otherwise (sampling: server defaults, as in V0d). Measurement commit 7badb21.
-  Ranked first under the runbook rule (Codex review 2026-10-07 20:24Z); AM is a separately eligible alternative and
-  would need its own V0e.
+Configuration (exact): the D90-admitted A server at the window the suite serves.
+  NeoHorse-1-4B pure Q4_0, NeoHorse-1-4B-q4_0-pure.gguf sha256
+  f822fa2602af45d802e54bac518bab3f62b08943029626114a474afc3d8f3049 (quantize/NeoHorse-1-4B-q4_0-pure.quantize.txt);
+  ggml-hexagon release package at 836d57176dc699a726c55418e4f96b8ca628e1bf (package sha256 5916fed1..., llama-server
+  sha256 815b22bb99c8f63e..., D40), Hexagon SDK 6.6.0.0, htp-v75. Measurement commit 7badb21. pi 0.80.10,
+  provider bench, model local32k (contextWindow 32768, maxTokens 8192, reasoning on).
+  Server (identical to the D90 admission command except -c):
+    env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$P/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server
+      -m NeoHorse-1-4B-q4_0-pure.gguf -c 32768 --cache-ram 7942 -lv 4 --host 127.0.0.1 --port 8080
+      --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0
+  n_parallel auto (4 slots) with a unified KV cache (kv_unified = true, n_ctx_seq = -c in the admission log), so each
+  request can use the whole window; V0e step 2 checks n_ctx_seq == /props n_ctx == pi's window == 32768.
+  No cDSP restart and no root anywhere (A never needed one; the helper's authorization expired 2026-10-09 09:00).
 
-Windows: A's server context is 40960, so its windows are 32K (the crusher; pi's advertised window 32768) and 40960.
-  65K is NOT part of A: the 4B at 65K needs 4 sessions (D59, D60; cap 5,727 MiB provisional, D67) and is a different
-  configuration with its own V0d admission and V0e. Marathons at 65K therefore need that configuration first; until
-  then A can run the short arenas and the 32K crusher only.
+Windows: 32768 only. suite/run_model.sh sets the server's -c to the pi window (piwin: <= 32768 -> local32k, <= 65536
+  -> local65k), so A in the arenas is served at 32768 (arenas 1-3 and the 32K crusher). 40960 is never a suite window
+  (a 40960 server would be told local65k), so it is dropped from this plan; admission measured 32K prompts at -c 40960,
+  which this does not inherit. 65K is a different configuration (4 NPU sessions, D59/D60/D67), not covered; marathons
+  at 65K need that configuration first.
+  Note (D90): A has never been loaded at -c 32768. H2 failed to load at -c 32768 (D115) but H also failed at 40960
+  (D90) on the same 572 MB third-session mapping; A uses two sessions. A load failure here is recorded as evidence
+  about the backend at that window, never shortened or worked around.
 
-Steps (RUNBOOK V0e 1-4), all through run_route-style wrappers (window registered, health, kernel audit, fail-closed
-classify/decide, watchdog and sampler required), from ~/bench-runs, never inside the repo:
-  1. Streaming tool calls: suite/tools/probe_toolcalls.py probe ... --stream (10/10) and agentic ... --stream (3/3)
-     against A; then suite/tools/pi_smoke.py, a short real-pi session (pi 0.80.10, D7) that reads a scratch file,
-     edits it, runs a command and recovers from a deliberate tool error.
-  2. Windows at real size, for 32768 and 40960: a near-limit prompt with room for the reply, a tool continuation and
-     a compaction; check that the GGUF metadata, llama-server's effective n_ctx (per slot) and pi's advertised window
-     agree. A failing window is recorded as unsupported for A, never shortened. Note: with 4 slots, check the per-slot
-     context llama-server reports against the window pi is told.
-  3. Cached multi-turn reuse: reuse a transcript, append tool output, compact; record cached-token counts from the
-     server's timings, reported separately from fresh-prefix speed (--cache-ram 7942 binds here; memfloor per run).
-  4. Sustained run >= 90 min with one server kept up (a repeating pi workload), sampling temperatures, clocks,
-     MemAvailable, swap, PSI and kernel errors throughout; compare early and late throughput. An NPU hang or abort
-     during the run fails it (D66/D69/D71/D83 struck later requests; D99 hung A on the first request of a fresh
-     server, after admission, so neither a fresh server nor a passed admission rules it out); a cDSP restart can
-     never count inside it (D92). A's record going into V0e: admitted in D90 (fault-free set), then one hang in D99.
-  Also required before V1: an NPU recovery procedure (degraded state D61/D64), separate from the restart question
-  (D96, D98).
+Sessions (tools/v0e_A.sh; each: a passing 4B baseline probe at the admission settings (-c 40960, 512 depth) -> A
+server; run_v0e.sh evidence chain: run window, health check + fail-closed verdict, kernel audit, NPU stall watchdog;
+memfloor --admit 7942 after each session):
+  S1 (budget 7200 s), steps 1-3 (tools/v0e_s1.sh), all on one server:
+    1a probe_toolcalls.py probe --stream 10/10; 1b agentic --stream 3/3; 1c pi_smoke.py;
+    2  v0e_window.py window: n_ctx_train, n_ctx_seq, /props n_ctx and pi's local32k window agree (== 32768); a prompt
+       >= 95 % of the window with >= 1024 reply tokens that must produce a bash tool call; the tool result appended and
+       continued within the window;
+    3  v0e_window.py cache: ~8K document, then two of the model's own bash calls each answered by a role "tool" result
+       (~2K tokens, matching tool_call_id); turns 2-3 reuse >= 90 % of the previous prompt (integer timings.cache_n);
+       the turn-3 prompt with a new nonce reported separately; missing or malformed counters FAIL; transcript saved;
+    2/3 v0e_compact.sh: a real three-turn pi session past pi's compaction threshold (window - 16K): every turn exits 0,
+       >= 1 compaction entry, no context-size rejection; recall recorded, not gated.
+  S2 (budget 9000 s), step 4 (tools/v0e_sustained.sh): one server kept up >= 95 min, no restart; each cycle a
+    fresh-prefix 8K speed probe (128 tokens) and one pi smoke session. PASS: the server stays up, the duration is
+    reached, every speed probe valid, v0e_sustained_summary.py VALID (>= 6 cycles each with a speed result and
+    temperatures; first 3 vs last 3 cycles prefill/decode and NSP/CPU maxima; a decline over 10 % is flagged for the
+    owner, not a fail), health and kernel evidence pass, memory ADMIT. pi smoke pass rate reported.
+  Pause between sessions 180 s.
 
-Evidence: phase-v0e/ (or a v0e section), same rules: .txt/.json/.jsonl, manifests, raw monitoring, decisions.
+Generation sampling (separate from the health sampler's 10 s cadence): the direct probes (speed_probe.py,
+  probe_toolcalls.py, v0e_window.py) send no sampling fields, so llama-server defaults apply (no general.sampling.* in
+  the GGUF, files.txt): temperature 0.8, top_k 40, top_p 0.95, min_p 0.05, presence_penalty 0 (from /props in the
+  admission tool evidence), no fixed seed; speed_probe.py adds cache_prompt false and max_tokens 128. pi has no
+  sampling settings in ~/.pi/agent; its effective per-request parameters are recorded from the server log (-lv 4).
+
+Memory: memfloor.py --admit 7942 per session: min(MemAvailable + prompt cache held) >= 7942 MiB + 0.33 GiB over the
+  run; missing samples never admit; REJECT -> NOT QUALIFIED. (A's tightest admission margin was 28 MB at -c 40960,
+  D90; real pi runs alongside here, so this gate is a real risk, reported either way.)
+
+Policy (declared; the D114 load rule applies from the start):
+  - Any HANG or DEVFAULT (baseline probes included): fault recorded, recovery by baseline probing (every 900 s, up to
+    13) without a restart, STOP: A NOT QUALIFIED in this attempt.
+  - S1 items failing on a clean session: S1 FAIL recorded; S2 still runs for evidence; A not qualified.
+  - A clean load failure (server exits before ready on an NPU mapping failure, health pass, kernel pass or npu_map
+    only): recovery, then that session once more; a second -> STOP: NOT QUALIFIED (load); a fault during the recovery
+    -> NOT QUALIFIED.
+  - Any other non-PASS (missing evidence, memory REJECT, invalid sustained summary) -> STOP.
+  QUALIFIED only if S1 and S2 PASS, memory ADMIT in both, the sustained summary VALID and no fault. A's record going
+  in: admitted in D90 (fault-free set), then one hang on the first request of a fresh server (D99); any hang stays on
+  record either way. Also still needed before V1: an NPU recovery procedure (D61/D64).
+
+Entry: setsid bash ~/v0/v0e_A.sh from ~/bench-runs (never inside the repo); deployed copies in ~/v0 identical to tools/.
+Evidence: ~/bench-runs/v0/v0e-A (status ~/bench-runs/v0/v0d/v0e-A-status.txt), copied to runs/v0e-A with the
+monitoring export; pi sessions under ~/bench-runs/pi-smoke and ~/bench-runs/v0e-compact.
+Tests (offline, mocked): tools/test_v0e_A.sh 13/13 (policy branches incl. memory reject and missing summary);
+tools/test_v0e_window.py 12/12; tools/test_v0e_sustained_summary.sh 6/6.
