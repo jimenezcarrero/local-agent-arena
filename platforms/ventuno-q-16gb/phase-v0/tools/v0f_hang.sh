@@ -9,7 +9,10 @@
 # A HANG or DEVFAULT: recorded, recovery by baseline probing without a restart (ready wait), then the schedule goes on
 # (counting hangs is the point). STOP: FAULT_CAP faults in total (default 8), a load failure twice in a row, a probe that
 # never passes (ready() exits), missing evidence, or the end of the schedule. No root.
-# Overridable for tests: BR, CHECK_PROC, RUN_V0E, SESS_PAUSE, N_SESS, N_REQ, FAULT_CAP + the runner's variables.
+# D123: ARMS selects the arms per round (default "W B"); arm P = B plus the dspq_probe shim (~/v0/dspq_probe first on
+# LD_LIBRARY_PATH, V0F_STALL_S=60, snapshots to the session's run directory parent $O/qstat), which records the queue
+# state of a stalled server before the watchdog kills it (300 s).
+# Overridable for tests: BR, CHECK_PROC, RUN_V0E, SESS_PAUSE, N_SESS, N_REQ, FAULT_CAP, ARMS + the runner's variables.
 set -uo pipefail
 source ~/v0/v0d_lib.sh
 BR=${BR:-$HOME/bench-runs}; CHECK_PROC=${CHECK_PROC:-pgrep -f}
@@ -24,13 +27,16 @@ source ~/v0/v0d_runner.sh
 SRV="$P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 32768 --cache-ram 7942 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0"
 W_CMD="$E GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 GGML_HEXAGON_OPQUEUE=1 $SRV"
 B_CMD="$E GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $SRV"
+mkdir -p $O/qstat
+P_CMD="env LD_LIBRARY_PATH=$HOME/v0/dspq_probe:$P/lib ADSP_LIBRARY_PATH=$P/lib V0F_DUMP_DIR=$O/qstat V0F_STALL_S=60 GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $SRV"
+ARMS=${ARMS:-W B}
 $CHECK_PROC '^/bin/bash /home/arduino/v0/npu_stall_watchdog.sh' > /dev/null || { say "STOP: NPU stall watchdog not running"; exit 6; }
 $CHECK_PROC '^/bin/bash /home/arduino/v0/monitor/health_sampler.sh' > /dev/null || { say "STOP: health sampler not running"; exit 6; }
-say "v0f hang diagnostic start (pid $$): $N_SESS sessions per arm, $N_REQ requests each, fault cap $FAULT_CAP, no root"
+say "v0f hang diagnostic start (pid $$): arms $ARMS, $N_SESS sessions per arm, $N_REQ requests each, fault cap $FAULT_CAP, no root"
 lf=0
 for k in $(seq 1 $N_SESS); do
-  for arm in W B; do
-    lab=v0f-$arm-$k; cmd=$W_CMD; [ $arm = B ] && cmd=$B_CMD
+  for arm in $ARMS; do
+    lab=v0f-$arm-$k; case $arm in W) cmd=$W_CMD;; B) cmd=$B_CMD;; P) cmd=$P_CMD;; *) say "STOP: unknown arm $arm"; exit 2;; esac
     ready now
     say "START $lab"; wd0=$(wdcount)
     PHASE=$PH timeout -k 60 3600 bash $RUN_V0E $lab $HOME/v0/v0f_stress.sh -- $cmd > /dev/null 2>&1; rc=$?; killall_srv

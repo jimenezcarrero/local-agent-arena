@@ -1564,3 +1564,27 @@ D122 2026-10-10 Owner: "find why and solve it" (the NPU hang). Offline analysis 
    - Readout: hangs per request in each arm, with B as the contemporaneous control; W's prefill/decode cost vs B.
      Expected at the historical rate (1.6 %): ~6 hangs in B's 400 requests; P(0 hangs in 400 | 1.6 %) = 0.0016. If W
      hangs, the hypothesis or the workaround is wrong; if B does not hang either, the test is inconclusive.
+D123 2026-10-10 D122 result so far and redesign (declared before the next run).
+   - Step 0: GGML_HEXAGON_OPQUEUE reaches the backend: read in the process with gdb (llama-server as gdb's child,
+     breakpoint ggml_hexagon_session::allocate): opt_opqueue = 1 with the variable, 32 without
+     (runs/v0f-hang/step0-gdb.txt). Session-level log lines never reach llama-server's log in this build, even with
+     GGML_HEXAGON_VERBOSE=1, so the log cannot show it.
+   - v0f-W-1 (OPQUEUE=1, 00:23): request 4 (1,459 prompt tokens) HUNG in decode after >= 100 tokens; watchdog kill at
+     00:30:02 (same signature: 4 threads in fastrpc_wait_for_completion). Recovery not yet probed. The driver was stopped
+     during its recovery wait (no server running): the W arm cannot work as a workaround, so the W/B rate comparison
+     was dropped.
+   - What this falsifies: "at most one pending batch per session prevents the hang". It does not falsify the
+     lost-wakeup mechanism: re-reading process_ops, one unread packet is enough (a release request that arrives after
+     vtcm_acquire and before the first dspqueue_read_noblock makes the loop exit without reading; that packet was
+     already counted in the callback's snapshot). The drain fix (upstream/htp-process-ops-drain.patch.txt; applies to
+     836d5717 and to upstream master at offset 7; not compiled: needs the Hexagon SDK) covers both cases.
+   - New, decisive measurement instead of rates: tools/dspq_probe.c, a shim built on the board as
+     ~/v0/dspq_probe/libcdsprpc.so (ggml-hexagon dlopen()s libcdsprpc.so by name; the shim wraps only
+     dspqueue_create/write/read, counting, and everything else resolves to the real library through its DT_NEEDED;
+     all 19 symbols checked). When a queue has requests outstanding and no read for 60 s, it writes a snapshot of every
+     queue with dspqueue_get_stat: WRITE_QUEUE_PACKETS (requests the DSP has not read) and READ_QUEUE_PACKETS.
+     At a hang: the stuck session's request still unread (> 0) supports the lost wakeup; 0 means the DSP took the
+     request and never answered (the hypothesis is wrong). Shim check (v0f-shim-check, 2 requests, stall threshold
+     1 s): PASS, 361.5/9.91 tok/s (as without it), snapshots written.
+   - Run: arm P only (the default A server at -c 32768 with the shim), 12 sessions x 40 requests, the same stop rules,
+     FAULT_CAP 4 (the W-1 fault already counts: up to 3 captured hangs). Diagnostic only, no root.
