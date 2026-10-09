@@ -1473,3 +1473,12 @@ D117 2026-10-09 Codex review of PR #48 at 431af39 (no blocking findings on the n
    generation sampling separately from the monitoring cadence (server defaults for the direct probes, from files.txt
    and /props: temperature 0.8, top_k 40, top_p 0.95, min_p 0.05, presence_penalty 0, no seed; real pi's effective
    request parameters to be recorded from the server log at execution).
+
+D118 2026-10-09 #48 merged (negative-evidence checkpoint). Owner approved the recommendation: V0e for A at window 32768
+   only, no root. Plan declared before running: v0e-plan-A.txt (replaces the 2026-10-08 proposal; windows reconciled
+   with the suite: run_model.sh serves A at 32768, 40960 is never a suite window, 65K is another configuration).
+   Driver tools/v0e_A.sh, derived from v0e_H2.sh without the cDSP restart, helper and expiry; same S1/S2 workloads with
+   the D117 fixes, memfloor --admit 7942, the D114 load rule from the start. Mocked tests/test_v0e_A.sh 13/13 (new: S1
+   memory reject). Deployed copies in ~/v0 checked identical. A has never been loaded at -c 32768 (admitted at 40960).
+   Record from D90 noted in the plan: H's original admission failure at 40960 was the same 572 MB HTP0:2 mapping, so
+   that failure is not unique to 32768 (D116/D117 already say cause unresolved).
