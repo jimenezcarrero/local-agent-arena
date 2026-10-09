@@ -1510,7 +1510,19 @@ D120 2026-10-09 V0e A (D118 plan, relaunched after D119), 22:21-22:49: NOT QUALI
    Not measured for A: window agreement / near-limit / continuation, cached tool-result reuse, compaction, sustained
    run, memory with real pi. Owner decisions (none taken): (a) whether any 4B NPU configuration can qualify, given
    faults on A in D66, D99, D120 and on the 4B baseline in D69, D105 (an NPU recovery procedure is still missing,
-   D61/D64); (b) V0e for AM (same NPU path, so the same exposure; draft model on a third session); (c) no non-NPU route
-   is an alternative: every measured CPU/GPU route is 9-56x below the frozen prefill gate (V0c; D55); (d) pause the
+   D61/D64); (b) V0e for AM (same NPU path, so the same exposure; draft model on a third session); (c) [corrected in D121]
+   no tested non-NPU configuration has established provisional eligibility under the frozen campaign rules (the
+   4B's best CPU result, 4 big-core threads, D55: 23.9 prefill / 4.83 decode at 7,579 prompt tokens, ~6.1x below
+   the prefill threshold; its 16K/32K cells screened out under D32; GPU lockups and unsupported defaults are separate
+   outcomes; this is not an exhaustive exclusion of useful non-NPU operation); (d) pause the
    Ventuno campaign until the NPU hang cause is understood (e.g. an upstream ggml-hexagon issue or a newer build,
    which would need its own V0b-V0d).
+D121 2026-10-10 Codex review of #49 at 32f6c1d: the negative result and stop/recovery handling are supported; one P2.
+   1. D120(c) and the PR description's owner decision 2 overstated the non-NPU gap ("9-56x" is the 9B's range, V0c).
+      Corrected in place (marked): for the 4B the best CPU result is ~6.1x below the prefill threshold; no tested
+      non-NPU configuration has established provisional eligibility; not an exhaustive exclusion.
+   2. Provenance: tools/publish_env.sh publishes env/: every dpkg baseline the health check has used (D35, D87, D101,
+      D119 snapshots and the current one, "<package> <version>" lines), apt-mark showhold at export (12 holds), the
+      apt history since 2026-10-04 (only Start-Date/Commandline/Install/Upgrade/Remove/End-Date lines), and a manifest
+      with line counts and sha256. The 2026-10-09 06:51-06:52 unattended-upgrade entries, the 1,715-package count
+      and the before/after diff (7 packages) are now checkable from the repo.
