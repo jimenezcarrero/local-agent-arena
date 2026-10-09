@@ -3,13 +3,13 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D119).
+[`decisions.txt`](decisions.txt) (D1–D120).
 
-**Status (2026-10-09 17:30): V0b and V0c complete. V0d admission sets done: the 4B is provisionally eligible in two
+**Status (2026-10-09 23:10): V0b and V0c complete. V0d admission sets done: the 4B is provisionally eligible in two
 configurations (D90); the 9B is provisionally eligible as H2, which requires a cDSP restart before every load (D109).
-V0e for H2 at its intended window 32768 (D112-D117): NOT QUALIFIED, 3 of 3 loads at -c 32768 failed identically
-(no fault); the admitted -c 40960 command loaded afterwards (diagnostic; consistent with a context-dependent mapping
-issue, cause unresolved). Nothing is GO.**
+V0e at window 32768: H2 NOT QUALIFIED (D112-D117: 3 of 3 loads failed identically, no fault; -c 40960 loaded
+afterwards, cause unresolved); A NOT QUALIFIED (D118-D120: loaded and passed both streaming tool gates, then an NPU
+hang on the 21st request, pi's first, during decode; watchdog kill, recovered without a restart). Nothing is GO.**
 
 | Set (D85) | 16K median prefill/decode | 8K / 32K median decode | Tools | Memory (lowest margin) | Outcome |
 |---|---|---|---|---|---|
@@ -39,7 +39,7 @@ first request; A's admission set stands, but the hang is on record for V0e.
 Gates at 16K: 145/4.4. AM trades 44 % of prefill and 3.7 GiB of prompt cache for +5 % median decode at 16K (ranges
 do not overlap); at 8K it is level with A, and at 32K the +7 % median is within run-to-run spread (ranges overlap).
 Under the runbook ranking (prefill first) A ranks first; AM is a separately eligible alternative (Codex, 20:24Z). No NPU hang or abort occurred in A's or AM's D90 sets. H2's set had one fault (attempt 1 r1 hung at
-32K) and passed on its second attempt (D109). Earlier faults (D66, D69, D71, D83, D99, D105, D109) remain on record: V0e's
+32K) and passed on its second attempt (D109). Earlier faults (D66, D69, D71, D83, D99, D105, D109, D120) remain on record: V0e's
 sustained runs must show whether the admitted configurations stay fault-free.
 
 ## What was measured, and how
@@ -215,6 +215,8 @@ rate):
   - H2 attempt 1: r1 hung at 32K on its sixth request (task 661, 31,722 prompt tokens, after the off-depth 512 and
     8K retries), during decode; the first recovery probe failed to load (degraded mapping, as D61/D64), the second
     passed (D109, D110). Attempt 2 passed with no fault.
+  - V0e A: the 21st request of a fresh -c 32768 A server (pi's first request, 1,642 prompt tokens) hung during
+    decode after ~278 tokens; watchdog kill after 300 s; the first recovery probe passed without a restart (D120).
 - **Pattern:** through D90 every fault hit a later request on a server that had already answered. D99 and D105
   break that: a fresh server is not a safeguard, with or without a cDSP restart. The cause is unknown.
 
