@@ -1387,3 +1387,89 @@ D111 2026-10-08 USB serial redacted from the monitoring export (Codex review of 
      published branches; that is the owner's call, not done here.
    - Helper use to date (log /var/log/v0-cdsp-restart.log): 12 calls between 14:48 and 21:45, all OK, about
      19-20 s each, plus the D96 REFUSED at 00:33. Not called since 21:45; expiry 2026-10-09T09:00.
+D112 2026-10-09 V0e for H2 declared before running (owner, 2026-10-08/09: start with H2 while the helper is valid,
+   work autonomously). Plan: v0e-plan-H2.txt. Window 32768 only (the suite's pi windows; 40960 would be declared to pi
+   as 65536). Two sessions, each after the admitted restart -> settle -> baseline workflow: S1 = steps 1-3 (streaming
+   tool gates, pi smoke, window agreement, near-limit prompt + tool continuation, cached reuse, real-pi compaction),
+   S2 = step 4 (>= 95 min on one server, no restart inside). Any device fault stops the attempt: not qualified. New
+   tools: run_v0e.sh (run_v0c.sh's evidence chain around a workload), v0e_s1.sh, v0e_window.py, v0e_compact.sh,
+   v0e_sustained.sh, v0e_H2.sh; mocked test test_v0e_H2.sh 8/8. The helper's expiry (09:00) is not extended.
+D113 2026-10-09 V0e H2 first launch (00:40) stopped at S1 before any H2 load: run_v0e.sh was installed without the
+   execute bit, so `timeout run_v0e.sh` could not start it (no run directory; classify -> EVIDENCE -> STOP, as
+   declared). What ran: one cDSP restart (OK) and one 4B baseline probe (PASS, 00:42). No 9B server, no fault. The mocked
+   test passed because its fakes were executable. Fix: the driver calls `bash $RUN_V0E`, and the scripts carry the
+   execute bit. Evidence kept as ~/bench-runs/v0/v0e-H2-abort1. Relaunched unchanged otherwise, as the D112 attempt.
+D114 2026-10-09 V0e H2 attempt 1 (D112/D113, 00:45-00:49): STOPPED, H2 load failure in S1, no fault.
+   - Restart OK (00:45:57, cdsprpcd new PID), settle, 4B baseline PASS (00:47:51).
+   - H2 at -c 32768: SERVER EXITED before ready after 25 s: "ggml-hex: HTP0:2 buffer mapping failed ... size 572133376",
+     fastrpc_mmap abort. Kernel audit npu_map only (fastrpc compute-cb@2 failed to map buffer); health pass. A clean load
+     failure, the signature of D61/D64's degraded mapping state. The window is not the likely cause: every KV and compute
+     buffer is smaller than in the admitted 40960 loads (KV 384/256/384 MiB vs 480/320/480), the weights identical.
+   - Declared policy (D112) stopped on any load failure, and it did. H load record after a restart: 11 of 12 mapped.
+   Attempt 2, declared now, before it runs (owner: work autonomously on H2 while the helper is valid): identical except
+   the load-failure rule now follows the admission sets (D68, decide() LOADFAIL): a clean load failure (server exited
+   before ready, NPU "mapping failed", health pass, kernel audit pass or npu_map) -> recovery without restart (ready
+   wait: 900 s idle, baseline until PASS) -> the same session once more from its restart (<label>-retry); a second
+   load failure of that session -> STOP, NOT QUALIFIED (load). A fault during that recovery -> NOT QUALIFIED. Faults
+   and every other rule unchanged. Mocked test test_v0e_H2.sh 12/12 (4 new load-failure cases).
+   Attempt 1 evidence: ~/bench-runs/v0/v0e-H2-a1 (published with the results).
+D115 2026-10-09 V0e H2 attempt 2 (D114, 00:58-01:19): NOT QUALIFIED (load), no fault.
+   - S1: restart OK, baseline PASS, H2 at -c 32768 LOADFAIL; recovery (900 s, baseline PASS 01:17); S1-retry: restart OK,
+     baseline PASS, H2 LOADFAIL. Every failure (attempts 1 and 2, 3 of 3 loads at -c 32768) is identical: the warm-up
+     run maps a 572,133,376-byte buffer on HTP0:2 (domain 11) and fastrpc_mmap fails; kernel npu_map only, health pass.
+     The 11 earlier H2-workflow loads at -c 40960 all passed that point. The identical size and point point to the
+     window setting rather than the random degraded state, although every buffer the log lists is smaller at 32768.
+   - Diagnostic declared now, before it runs (not a qualification run): tools/v0e_diag.sh, one cycle of restart ->
+     settle -> baseline -> the admitted H2 command at -c 40960 with a 512 probe. PASS = the 32768 failures are
+     window-specific; LOADFAIL = the board's current state, not the window. Any fault: recorded, recovery, stop.
+     Nothing else runs on the board afterwards without the owner.
+D116 2026-10-09 D115 diagnostic, 01:20-01:24: PASS. Restart OK, baseline PASS, the admitted H2 command at -c 40960 loaded
+   and answered the 512 probe (162.4/5.81 tok/s; kernel audit pass), three minutes after the third -c 32768 failure.
+   Conclusion [corrected in D117; the original said "specific to that window setting, not the board's state", which
+   the evidence does not support]: -c 32768 failed repeatedly while -c 40960 loaded afterwards; consistent with a
+   context-dependent mapping issue, cause unresolved (state, time and order were not held constant). Record: H2 workflow loads 12/12 at -c 40960, 0/3 at -c 32768 (all at the warm-up's 572,133,376-byte
+   mapping on HTP0:2). Cause unknown (every KV/compute buffer the log lists is smaller at 32768).
+   V0e H2 result: NOT QUALIFIED at 32768 (load). Steps 1-4 were not reached; nothing about tool streaming, pi, windows,
+   reuse or sustained behaviour was measured for H2.
+   Retrospective audit note: runs/v0e-H2/attempt2/probe-011757 audits npu_map from the committed monitor because its
+   window tail (to 01:19:03) holds the S1-retry server's mapping-failure line (01:18:59; that server started 01:18:51,
+   the probe ended 01:18:33). Its live audit at 01:18:50 was pass; the line belongs to the next run.
+   Restarts on 2026-10-09: 5, all OK (00:40 launch D113, 00:45 attempt 1, 00:59 attempt 2 S1, 01:17 S1-retry, 01:20
+   diagnostic; runs/v0e-H2/v0-cdsp-restart.log.txt). Not called again; expiry 09:00.
+   Owner decisions (none taken here): (a) run H2's arenas with a 40960 server and pi told local32k (pi compacts below
+   the server's limit; V0e's agreement check would have to accept server > pi window), which needs a shared-suite
+   change since run_model.sh sets -c to the pi window; (b) investigate the 32768 mapping failure (e.g. other -c
+   values); (c) V0e for A or AM instead; (d) stop the 9B here.
+
+D117 2026-10-09 Codex review of PR #48 at 431af39 (no blocking findings on the negative result; five P2 findings),
+   addressed offline; no hardware run, no root (the helper's authorization expired at 09:00; any further use needs the
+   owner's renewal).
+   1. D116's causal claim corrected in place (marked): the 40960 load followed another reset, baseline and later load,
+      so state/time/order were not held constant. Now: "32768 repeatedly failed while 40960 subsequently loaded;
+      consistent with a context-dependent mapping issue, cause unresolved". Denominators kept: 0/3 at 32768, 12/12 at
+      40960 in the H2 workflow. Same wording in the README and the PR description.
+   2. tools/v0e_window.py fails closed: every turn needs a positive integer usage.prompt_tokens; reuse needs an integer
+      timings.cache_n; the fresh request needs an integer cache_n in [0, 64), a prompt within 64 tokens of turn 3's and
+      a positive prefill rate. Before, a missing cache_n counted as a fresh prefix (Codex's fake response passed).
+   3. The cache test now uses real tool-result history: turn 1 asks for two bash calls one at a time; the model's own
+      calls are kept as assistant tool_calls, each answered by a role "tool" result (~2K tokens) with the matching
+      tool_call_id; reuse is measured on the continuations after each result; the final transcript is saved
+      (cache-transcript.json). A turn without a bash call (with an id) is a FAIL, not retried.
+      tools/test_v0e_window.py: 12/12 offline cases (good path with matching ids; missing or string cache_n in turns
+      2/3 and fresh; missing usage; zero prefill; low reuse; no call; call without id; HTTP 500).
+   4. Sustained report: v0e_sustained.sh records each cycle's window (cycles.tsv); tools/v0e_sustained_summary.py
+      computes first 3 vs last 3 cycles (prefill, decode, % change; per-cycle max NSP and CPU temperature from the
+      health sampler) and flags a decline over 10 % for the owner (a flag, as declared in D112, not a fail). Fewer than
+      6 cycles is reported as INSUFFICIENT, a cycle without a speed result or temperature samples as INVALID; either
+      fails S2. v0e_H2.sh prints QUALIFIED only after reading a VALID summary. tools/test_v0e_sustained_summary.sh
+      6/6; tools/test_v0e_H2.sh 13/13 (new case: S2 PASS without the summary -> NOT QUALIFIED, rc 2).
+   5. The PR description now holds the full execution brief (configuration, hashes, commit, entry commands, sampling,
+      budgets, memory rule, recovery/stop rules, D114 amendment).
+   Codex's next-step guidance recorded: a 40960 server with local32k pi needs the shared-suite/context-policy change
+   reviewed first and that exact combination qualified (nothing inherited from the short diagnostic, never labelled
+   65K); the alternative is V0e for A. Both are owner decisions. Nothing runs until then.
+   Codex follow-up at 3793182: ready to merge as a negative-evidence checkpoint (not qualification, not GO); tests
+   reproduced (12/12, 6/6, 13/13). Its one nonblocking point, done: the brief and v0e-plan-H2.txt now describe
+   generation sampling separately from the monitoring cadence (server defaults for the direct probes, from files.txt
+   and /props: temperature 0.8, top_k 40, top_p 0.95, min_p 0.05, presence_penalty 0, no seed; real pi's effective
+   request parameters to be recorded from the server log at execution).

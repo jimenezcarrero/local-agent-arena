@@ -1,0 +1,61 @@
+V0e plan for configuration H2 (declared 2026-10-09 before running; D112). Owner: "we could start with H2 this way you
+can use if its needed" and "could you work autonomously?" (2026-10-08/09). Not a GO: V0e qualifies; GO is the owner's.
+
+Configuration (exact): the D109-admitted H2 workflow and server, at the intended window 32768.
+  Ornith-1.0-9B pure Q4_0, ggml-hexagon 836d5717 release package (the D109 binaries), 3 HTP sessions
+  (GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1,HTP0:2, GGML_HEXAGON_MBUF=256), -ngl 33 --no-op-offload -t 4 --no-host,
+  --ctx-checkpoints 0, --cache-ram 5364, llama-server defaults otherwise. Measurement commit 7badb21.
+  Workflow: before every load, cDSP restart + 30 s settle (owner-installed helper, expiry 2026-10-09T09:00), then a
+  passing 4B baseline probe, then the H2 load. Never a restart inside a session.
+
+Windows: 32768 only. The suite runs every arena at a pi window (suite/run_model.sh piwin): with H2's 40960 maximum,
+  arenas 1-3 and the crusher run at 32768 (pi model local32k); a 40960 server would be declared to pi as local65k
+  (65536), which disagrees, so 40960 is not an intended window. 65K and up are a different configuration (more NPU
+  sessions or memory), not covered. The window sets the server's -c, so V0e runs H2 with -c 32768 (otherwise
+  identical to the admitted command; its admission measured 32K prompts at -c 40960).
+
+Sessions (tools/v0e_H2.sh; each restart -> settle -> baseline -> H2 server; run_v0e.sh evidence chain: run window,
+health, kernel audit, NPU stall watchdog; memfloor --admit 5364 after each session):
+  S1, steps 1-3 (tools/v0e_s1.sh), all on one server:
+    1a probe_toolcalls.py probe --stream 10/10; 1b agentic --stream 3/3; 1c pi_smoke.py (pi 0.80.10, local32k);
+    2  v0e_window.py window: n_ctx_train, n_ctx_seq, /props n_ctx and pi's local32k window agree (== 32768); a prompt
+       >= 95 % of the window with >= 1024 tokens of reply room that must produce a bash tool call; the tool result
+       appended and continued within the window;
+    3  v0e_window.py cache: ~8K transcript + two appended tool outputs; turns 2-3 reuse >= 90 % of the previous prompt
+       (timings.cache_n), and the same prompt with a fresh prefix reported separately;
+       [D117, for any later attempt: the tool outputs are real tool_call/tool-result pairs from the model's own bash
+       calls; missing or malformed counters fail]
+    2/3 v0e_compact.sh: a real pi session of three turns that passes pi's compaction threshold (window - 16K): every
+       turn exits 0, >= 1 compaction entry, no context-size rejection; recall of the code words recorded, not gated.
+  S2, step 4 (tools/v0e_sustained.sh): one server kept up >= 95 min; each cycle a fresh-prefix 8K speed probe (128
+    tokens) and one pi smoke session. PASS: the server stays up, the duration is reached, every speed probe is valid,
+    health and kernel evidence pass, memory ADMIT. Early vs late throughput (first 3 vs last 3 cycles) and temperatures
+    are reported; a late drop over 10 % is flagged for the owner, not an automatic fail. Smoke pass rate reported.
+    [D117, for any later attempt: that report (v0e_sustained_summary.py) must be VALID, >= 6 cycles each with a speed
+    result and temperatures, before S2 passes and before QUALIFIED is printed]
+
+Generation sampling (added in D117, from files.txt; separate from the health sampler's 10 s cadence): the direct probes
+  (speed_probe.py, probe_toolcalls.py, v0e_window.py) send no sampling fields, so llama-server defaults apply (the GGUF
+  has no general.sampling.*): temperature 0.8, top_k 40, top_p 0.95, min_p 0.05, presence_penalty 0 (from /props in
+  the H2 admission tool evidence), no fixed seed; speed_probe.py adds cache_prompt false and max_tokens 128. Real pi
+  (0.80.10, bench/local32k: contextWindow 32768, maxTokens 8192, reasoning on) has no sampling settings in ~/.pi/agent;
+  its effective per-request parameters are recorded from the server log when qualification runs.
+
+Policy (declared):
+  - Any HANG or DEVFAULT (baseline probes included): fault recorded, recovery without restart, STOP: H2 NOT QUALIFIED
+    in this attempt.
+  - S1 items failing on a clean session: S1 FAIL, recorded; S2 still runs for evidence; H2 not qualified.
+  - Any other non-PASS (load failure, missing evidence, memory reject): STOP.
+    Amended for attempt 2 (D114): a clean load failure gets recovery and one more try of that session, as in the
+    admission sets; a second one stops (NOT QUALIFIED, load).
+  - No restart later than the helper's expiry minus 10 min; nothing uses root after 09:00.
+  QUALIFIED only if S1 and S2 both PASS with no fault. Any hang stays on record either way (D66, D69, D71, D99, D105,
+  D109). Also still needed before V1, whatever the result: an NPU recovery procedure (D61/D64) and, for H2, a standing
+  root authorization or another reset mechanism.
+
+Evidence: ~/bench-runs/v0/v0e-H2 (status ~/bench-runs/v0/v0d/v0e-H2-status.txt), copied to runs/v0e-H2 with the
+monitoring export; pi sessions under ~/bench-runs/pi-smoke and ~/bench-runs/v0e-compact.
+Tests: tools/test_v0e_H2.sh 8/8 (mocked policy branches; 13/13 after D114/D117); v0e_window.py exercised against a fake server (both modes); after D117 tools/test_v0e_window.py 12/12 and
+tools/test_v0e_sustained_summary.sh 6/6.
+Result (D115-D117): NOT QUALIFIED at 32768 (load, 0/3); -c 40960 loaded afterwards; consistent with a
+context-dependent mapping issue, cause unresolved.
