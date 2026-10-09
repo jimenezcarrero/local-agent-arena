@@ -6,7 +6,7 @@ fails=0
 # fake run_route (baseline probes) and run_v0e (sessions); behaviour per label from $T/mode-<S1|S2|probe>:
 #   pass (S2 also writes a VALID sustained summary) | nosummary (S2 PASS without it) | fail (workload failed, clean) | hang (watchdog line) | evidence (health failed) | loadfail (clean, D114)
 FAKE='#!/bin/bash
-lab=$1; ph=${PHASE:-$2}; o=$BR/v0/$ph/$lab; mkdir -p $o; k=probe; case $lab in v0f-W-*) k=W;; v0f-B-*) k=B;; v0f-P-*) k=P;; esac
+lab=$1; ph=${PHASE:-$2}; o=$BR/v0/$ph/$lab; mkdir -p $o; k=probe; case $lab in v0f-W-*) k=W;; v0f-B-*) k=B;; v0f-P-*) k=P;; v0f-K-*) k=K;; esac
 echo "$k" >> $T/calls; m=$(head -1 $T/mode-$k 2>/dev/null); m=${m:-pass}; sed -i 1d $T/mode-$k 2>/dev/null
 echo pass > $o/health-verdict.txt; : > $o/server.log; echo "pass" > $o/kernel-audit.txt
 case $m in
@@ -39,4 +39,5 @@ case1 fault-cap 5 "probe W probe probe B" mode-W=hang mode-B=hang FAULT_CAP=2
 case1 baseline-hang-recovers 0 "probe probe W probe B probe W probe B" mode-probe=hang,pass
 case1 arm-p-only 0 "probe P probe P" ARMS=P
 case1 arm-p-hang-cap 5 "probe P probe probe P" ARMS=P mode-P=hang,hang FAULT_CAP=2
+case1 arm-k-only 0 "probe K probe K" ARMS=K
 echo "failures: $fails"; exit $fails
