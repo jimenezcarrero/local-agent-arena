@@ -78,5 +78,9 @@ case $C in
   HANG|DEVFAULT) onfault $LAB $C;;
   *) say "STOP: $LAB $C"; say "V0e H2: NOT QUALIFIED (S2 $C)"; exit 2;;
 esac
+# D117: no QUALIFIED without the sustained report (first 3 vs last 3 cycles); a >10 % decline is a flag for the owner
+sline=$(tail -1 $O/$LAB/sustained-summary.txt 2>/dev/null)
+case $sline in "RESULT summary: VALID"*) say "S2 $sline";;
+  *) say "STOP: S2 sustained summary missing or not VALID: ${sline:-none}"; say "V0e H2: NOT QUALIFIED (S2 summary)"; exit 2;; esac
 if [ $s1ok = 1 ]; then say "V0e H2: QUALIFIED at window 32768 (S1 and S2 PASS, faults $(nfaults))"; exit 0
 else say "V0e H2: NOT QUALIFIED (S1 items failed; S2 PASS)"; exit 1; fi

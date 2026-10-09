@@ -1425,8 +1425,9 @@ D115 2026-10-09 V0e H2 attempt 2 (D114, 00:58-01:19): NOT QUALIFIED (load), no f
      Nothing else runs on the board afterwards without the owner.
 D116 2026-10-09 D115 diagnostic, 01:20-01:24: PASS. Restart OK, baseline PASS, the admitted H2 command at -c 40960 loaded
    and answered the 512 probe (162.4/5.81 tok/s; kernel audit pass), three minutes after the third -c 32768 failure.
-   Conclusion: the -c 32768 load failure is specific to that window setting on this build, not the board's state at
-   the time. Record: H2 workflow loads 12/12 at -c 40960, 0/3 at -c 32768 (all at the warm-up's 572,133,376-byte
+   Conclusion [corrected in D117; the original said "specific to that window setting, not the board's state", which
+   the evidence does not support]: -c 32768 failed repeatedly while -c 40960 loaded afterwards; consistent with a
+   context-dependent mapping issue, cause unresolved (state, time and order were not held constant). Record: H2 workflow loads 12/12 at -c 40960, 0/3 at -c 32768 (all at the warm-up's 572,133,376-byte
    mapping on HTP0:2). Cause unknown (every KV/compute buffer the log lists is smaller at 32768).
    V0e H2 result: NOT QUALIFIED at 32768 (load). Steps 1-4 were not reached; nothing about tool streaming, pi, windows,
    reuse or sustained behaviour was measured for H2.
@@ -1439,3 +1440,31 @@ D116 2026-10-09 D115 diagnostic, 01:20-01:24: PASS. Restart OK, baseline PASS, t
    the server's limit; V0e's agreement check would have to accept server > pi window), which needs a shared-suite
    change since run_model.sh sets -c to the pi window; (b) investigate the 32768 mapping failure (e.g. other -c
    values); (c) V0e for A or AM instead; (d) stop the 9B here.
+
+D117 2026-10-09 Codex review of PR #48 at 431af39 (no blocking findings on the negative result; five P2 findings),
+   addressed offline; no hardware run, no root (the helper's authorization expired at 09:00; any further use needs the
+   owner's renewal).
+   1. D116's causal claim corrected in place (marked): the 40960 load followed another reset, baseline and later load,
+      so state/time/order were not held constant. Now: "32768 repeatedly failed while 40960 subsequently loaded;
+      consistent with a context-dependent mapping issue, cause unresolved". Denominators kept: 0/3 at 32768, 12/12 at
+      40960 in the H2 workflow. Same wording in the README and the PR description.
+   2. tools/v0e_window.py fails closed: every turn needs a positive integer usage.prompt_tokens; reuse needs an integer
+      timings.cache_n; the fresh request needs an integer cache_n in [0, 64), a prompt within 64 tokens of turn 3's and
+      a positive prefill rate. Before, a missing cache_n counted as a fresh prefix (Codex's fake response passed).
+   3. The cache test now uses real tool-result history: turn 1 asks for two bash calls one at a time; the model's own
+      calls are kept as assistant tool_calls, each answered by a role "tool" result (~2K tokens) with the matching
+      tool_call_id; reuse is measured on the continuations after each result; the final transcript is saved
+      (cache-transcript.json). A turn without a bash call (with an id) is a FAIL, not retried.
+      tools/test_v0e_window.py: 12/12 offline cases (good path with matching ids; missing or string cache_n in turns
+      2/3 and fresh; missing usage; zero prefill; low reuse; no call; call without id; HTTP 500).
+   4. Sustained report: v0e_sustained.sh records each cycle's window (cycles.tsv); tools/v0e_sustained_summary.py
+      computes first 3 vs last 3 cycles (prefill, decode, % change; per-cycle max NSP and CPU temperature from the
+      health sampler) and flags a decline over 10 % for the owner (a flag, as declared in D112, not a fail). Fewer than
+      6 cycles is reported as INSUFFICIENT, a cycle without a speed result or temperature samples as INVALID; either
+      fails S2. v0e_H2.sh prints QUALIFIED only after reading a VALID summary. tools/test_v0e_sustained_summary.sh
+      6/6; tools/test_v0e_H2.sh 13/13 (new case: S2 PASS without the summary -> NOT QUALIFIED, rc 2).
+   5. The PR description now holds the full execution brief (configuration, hashes, commit, entry commands, sampling,
+      budgets, memory rule, recovery/stop rules, D114 amendment).
+   Codex's next-step guidance recorded: a 40960 server with local32k pi needs the shared-suite/context-policy change
+   reviewed first and that exact combination qualified (nothing inherited from the short diagnostic, never labelled
+   65K); the alternative is V0e for A. Both are owner decisions. Nothing runs until then.

@@ -3,12 +3,13 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D116).
+[`decisions.txt`](decisions.txt) (D1–D117).
 
-**Status (2026-10-09 01:40): V0b and V0c complete. V0d admission sets done: the 4B is provisionally eligible in two
+**Status (2026-10-09 17:30): V0b and V0c complete. V0d admission sets done: the 4B is provisionally eligible in two
 configurations (D90); the 9B is provisionally eligible as H2, which requires a cDSP restart before every load (D109).
-V0e for H2 at its intended window 32768 (D112-D116): NOT QUALIFIED, 3 of 3 loads at -c 32768 failed identically
-(no fault); the admitted -c 40960 command loaded and ran right after (diagnostic). Nothing is GO.**
+V0e for H2 at its intended window 32768 (D112-D117): NOT QUALIFIED, 3 of 3 loads at -c 32768 failed identically
+(no fault); the admitted -c 40960 command loaded afterwards (diagnostic; consistent with a context-dependent mapping
+issue, cause unresolved). Nothing is GO.**
 
 | Set (D85) | 16K median prefill/decode | 8K / 32K median decode | Tools | Memory (lowest margin) | Outcome |
 |---|---|---|---|---|---|
