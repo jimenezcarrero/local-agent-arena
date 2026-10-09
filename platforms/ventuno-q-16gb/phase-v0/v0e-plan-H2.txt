@@ -34,6 +34,13 @@ health, kernel audit, NPU stall watchdog; memfloor --admit 5364 after each sessi
     [D117, for any later attempt: that report (v0e_sustained_summary.py) must be VALID, >= 6 cycles each with a speed
     result and temperatures, before S2 passes and before QUALIFIED is printed]
 
+Generation sampling (added in D117, from files.txt; separate from the health sampler's 10 s cadence): the direct probes
+  (speed_probe.py, probe_toolcalls.py, v0e_window.py) send no sampling fields, so llama-server defaults apply (the GGUF
+  has no general.sampling.*): temperature 0.8, top_k 40, top_p 0.95, min_p 0.05, presence_penalty 0 (from /props in
+  the H2 admission tool evidence), no fixed seed; speed_probe.py adds cache_prompt false and max_tokens 128. Real pi
+  (0.80.10, bench/local32k: contextWindow 32768, maxTokens 8192, reasoning on) has no sampling settings in ~/.pi/agent;
+  its effective per-request parameters are recorded from the server log when qualification runs.
+
 Policy (declared):
   - Any HANG or DEVFAULT (baseline probes included): fault recorded, recovery without restart, STOP: H2 NOT QUALIFIED
     in this attempt.
