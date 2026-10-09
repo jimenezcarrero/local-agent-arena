@@ -4,13 +4,14 @@
 pgrep -x llama-server > /dev/null && { echo "a llama-server is running; not testing"; exit 9; }
 fails=0
 # fake run_route (baseline probes) and run_v0e (sessions); behaviour per label from $T/mode-<S1|S2|probe>:
-#   pass | fail (workload failed, clean) | hang (watchdog line) | evidence (health failed) | loadfail (clean, D114)
+#   pass (S2 also writes a VALID sustained summary) | nosummary (S2 PASS without it) | fail (workload failed, clean) | hang (watchdog line) | evidence (health failed) | loadfail (clean, D114)
 FAKE='#!/bin/bash
 lab=$1; ph=${PHASE:-$2}; o=$BR/v0/$ph/$lab; mkdir -p $o; k=probe; case $lab in *S1|*S1-retry) k=S1;; *S2|*S2-retry) k=S2;; esac
 echo "$k" >> $T/calls; m=$(head -1 $T/mode-$k 2>/dev/null); m=${m:-pass}; sed -i 1d $T/mode-$k 2>/dev/null
 echo pass > $o/health-verdict.txt; : > $o/server.log; echo "pass" > $o/kernel-audit.txt
 case $m in
-  pass) echo "t RESULT PASS (workload, health: pass, kernel evidence)" > $o/run.txt; exit 0;;
+  pass|nosummary) [ $k = S2 ] && [ $m = pass ] && echo "RESULT summary: VALID (6 cycles)" > $o/sustained-summary.txt
+    echo "t RESULT PASS (workload, health: pass, kernel evidence)" > $o/run.txt; exit 0;;
   fail) echo "t RESULT FAIL: workload=1" > $o/run.txt; echo "t x: rc=1" > $o/items.txt; exit 1;;
   hang) echo "NPU-WATCHDOG" >> $WD_LOG; echo "t RESULT FAIL: workload=5" > $o/run.txt; exit 1;;
   evidence) echo "t RESULT FAIL: health=(fail: x)" > $o/run.txt; exit 1;;
@@ -39,5 +40,6 @@ case1 s1-loadfail-once 0 "R probe S1 probe R probe S1 R probe S2" mode-S1=loadfa
 case1 s1-loadfail-twice 3 "R probe S1 probe R probe S1" mode-S1=loadfail,loadfail
 case1 s2-loadfail-once 0 "R probe S1 R probe S2 probe R probe S2" mode-S2=loadfail,pass
 case1 loadfail-then-recovery-hang 3 "R probe S1 probe probe" mode-S1=loadfail mode-probe=pass,hang
+case1 s2-no-summary 2 "R probe S1 R probe S2" mode-S2=nosummary
 case1 expiry-near 4 "" EXPIRES=$(( $(date +%s) + 300 ))
 echo "failures: $fails"; exit $fails

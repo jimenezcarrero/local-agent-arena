@@ -11,9 +11,14 @@ window: RUNBOOK V0e step 2 at <window>, against the running server ($URL, defaul
   - tool continuation: the call and its tool result appended; PASS: HTTP 200, the new prompt is longer than the
     first prompt plus its reply minus 64, prompt + reply <= window, no truncation. The finish reason is recorded.
   (Compaction is checked through real pi: v0e_compact.sh.)
-cache: RUNBOOK V0e step 3, cached multi-turn reuse reported separately from fresh-prefix speed: a ~8K-token transcript,
-  then two turns each appending a tool output (~2K tokens); then the same final prompt with a new nonce (fresh). PASS:
-  the server reports timings.cache_n, and turns 2 and 3 reuse >= 90 % of the previous turn's prompt.
+cache: RUNBOOK V0e step 3, cached multi-turn reuse with real tool-result history, reported separately from fresh-prefix
+  speed (D117): turn 1 is a ~8K-token document plus an instruction to run two bash commands one at a time; the model's own
+  bash calls are kept as assistant tool_calls and each gets a role "tool" result (~2K tokens) with the matching
+  tool_call_id; turns 2 and 3 continue from those results. Then the turn-3 prompt with a new nonce at its start (fresh).
+  Fail closed: every turn needs HTTP 200 and a positive integer usage.prompt_tokens; turns 1 and 2 need a bash call with a
+  call id (else FAIL, not retried); turns 2 and 3 need an integer timings.cache_n >= 90 % of the previous prompt; the
+  fresh request needs an integer cache_n in [0, 64), a prompt within 64 tokens of turn 3's, and a positive prefill rate.
+  An absent or malformed counter is a FAIL. The final transcript goes to <out dir>/cache-transcript.json.
 Raw responses go to <out dir>/<mode>.jsonl; checks to stdout. Exit 0 only if every check passed."""
 import json, os, random, re, sys, time, urllib.error, urllib.request, uuid
 
@@ -23,8 +28,7 @@ from speed_probe import corpus  # the frozen corpus (measurement commit 7badb21)
 URL = os.environ.get("URL", "http://127.0.0.1:8080")
 TOOLS = [{"type": "function", "function": {"name": "bash", "description": "Run a shell command",
           "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}}]
-mode, out, slog, W, pim = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5]
-RAW = open(os.path.join(out, f"{mode}.jsonl"), "a")
+mode = out = slog = W = pim = RAW = None
 checks = []
 
 
@@ -57,9 +61,10 @@ def ntok(text):
 
 
 def summary(d):
-    u, t = d.get("usage", {}), d.get("timings", {})
-    return (f"prompt={u.get('prompt_tokens')} completion={u.get('completion_tokens')} cache_n={t.get('cache_n')} "
-            f"prompt_n={t.get('prompt_n')} prefill={t.get('prompt_per_second', 0):.1f} decode={t.get('predicted_per_second', 0):.2f}")
+    u, t = d.get("usage") or {}, d.get("timings") or {}
+    f = lambda v, n: f"{v:.{n}f}" if isinstance(v, (int, float)) else repr(v)
+    return (f"prompt={u.get('prompt_tokens')!r} completion={u.get('completion_tokens')!r} cache_n={t.get('cache_n')!r} "
+            f"prompt_n={t.get('prompt_n')!r} prefill={f(t.get('prompt_per_second'), 1)} decode={f(t.get('predicted_per_second'), 2)}")
 
 
 def text_of(tokens, cpt=3.2):
@@ -118,33 +123,67 @@ def window():
           f"http={code2} prompt={p2} reply={c2} total={p2 + c2} of {W}, finish={fr2}, cache_n={d2.get('timings', {}).get('cache_n')}")
 
 
+def counters(d):
+    """(prompt_tokens, cache_n, prompt_per_second) when present and well-formed, else None for that field"""
+    p = (d.get("usage") or {}).get("prompt_tokens"); t = d.get("timings") or {}
+    cn, pps = t.get("cache_n"), t.get("prompt_per_second")
+    ok_int = lambda v, lo: isinstance(v, int) and not isinstance(v, bool) and v >= lo
+    return (p if ok_int(p, 1) else None, cn if ok_int(cn, 0) else None,
+            pps if isinstance(pps, (int, float)) and not isinstance(pps, bool) and pps > 0 else None)
+
+
 def cache():
     nonce = uuid.uuid4()
     msg = [{"role": "user", "content": f"Run {nonce}. Here is a project document.\n\n" + text_of(8000)
-            + "\n\nIn one sentence, what is this document about?"}]
-    prev = None
+            + "\n\nNow inspect two log files, one at a time: first call the bash tool with the command cat out1.txt; after "
+            "you see its output, call it with the command cat out2.txt. After both outputs, reply with one sentence about "
+            "the document and one line about each output."}]
+    prev = final = None
     for turn in (1, 2, 3):
-        code, d, dt = chat(msg, 256)
-        p = d.get("usage", {}).get("prompt_tokens") or 0; t = d.get("timings", {})
+        sent = [dict(m) for m in msg]
+        code, d, dt = chat(msg, 512, TOOLS)
+        p, cn, _ = counters(d)
         print(f"turn {turn}: http={code} {summary(d)} {dt:.0f}s")
+        if code != 200 or p is None:
+            check(f"turn {turn}", False, f"http={code} prompt_tokens={(d.get('usage') or {}).get('prompt_tokens')!r}"); return
         if turn > 1:
-            cn = t.get("cache_n")
-            check(f"turn {turn} reuse", code == 200 and isinstance(cn, int) and cn >= 0.9 * prev,
-                  f"cache_n={cn} of previous prompt {prev} ({(cn or 0) / max(prev, 1):.1%}), new tokens prompt_n={t.get('prompt_n')}, "
-                  f"effective prefill {p / max(t.get('prompt_ms', 1) / 1000, 1e-9):.0f} tok/s over the whole prompt")
-        elif code != 200:
-            check("turn 1", False, f"http={code}"); return
-        prev = p
-        reply = (d.get("choices") or [{}])[0].get("message", {}).get("content") or ""
-        msg += [{"role": "assistant", "content": reply},
-                {"role": "user", "content": f"Tool output {turn}:\n" + text_of(2000) + "\n\nSummarize this tool output in one line."}]
-    msg[0]["content"] = msg[0]["content"].replace(str(nonce), str(uuid.uuid4()))
-    code, d, dt = chat(msg[:-2], 256)  # the turn-3 prompt, with a new nonce at its start
+            t = d.get("timings") or {}
+            check(f"turn {turn} reuse after a tool result", cn is not None and cn >= 0.9 * prev,
+                  f"cache_n={t.get('cache_n')!r} of previous prompt {prev} ({(cn or 0) / prev:.1%}), new tokens "
+                  f"prompt_n={t.get('prompt_n')}, effective prefill {p / max((t.get('prompt_ms') or 1) / 1000, 1e-9):.0f} "
+                  "tok/s over the whole prompt")
+        prev, final = p, sent
+        if turn == 3:
+            break
+        m = (d.get("choices") or [{}])[0].get("message") or {}
+        calls = [c for c in (m.get("tool_calls") or []) if (c.get("function") or {}).get("name") == "bash" and c.get("id")]
+        cmd = (calls[0]["function"].get("arguments") or "") if calls else ""
+        check(f"turn {turn} tool call", bool(calls), f"bash call with an id: {'yes' if calls else 'no'}"
+              + (f", arguments {cmd[:80]!r} (asked for cat out{turn}.txt)" if calls else ""))
+        if not calls:
+            return
+        msg += [{"role": "assistant", "content": m.get("content") or "", "tool_calls": calls[:1]},
+                {"role": "tool", "tool_call_id": calls[0]["id"], "content": f"out{turn}.txt:\n" + text_of(2000)}]
+    json.dump(final, open(os.path.join(out, "cache-transcript.json"), "w"), indent=1)
+    p3 = prev
+    final[0]["content"] = final[0]["content"].replace(str(nonce), str(uuid.uuid4()))
+    code, d, dt = chat(final, 512, TOOLS)  # the turn-3 prompt, with a new nonce at its start
+    p, cn, pps = counters(d)
     print(f"fresh (same final prompt, new nonce): http={code} {summary(d)} {dt:.0f}s")
-    check("fresh prefix reported separately", code == 200 and (d.get("timings", {}).get("cache_n") or 0) < 64,
-          f"cache_n={d.get('timings', {}).get('cache_n')} prefill={d.get('timings', {}).get('prompt_per_second', 0):.1f} tok/s")
+    t = d.get("timings") or {}
+    check("fresh prefix reported separately",
+          code == 200 and p is not None and abs(p - p3) <= 64 and cn is not None and cn < 64 and pps is not None,
+          f"http={code} prompt={p} (turn 3: {p3}) cache_n={t.get('cache_n')!r} prefill={t.get('prompt_per_second')!r} tok/s")
 
 
-{"window": window, "cache": cache}[mode]()
-print(f"RESULT {mode}: {'PASS' if checks and all(checks) else 'FAIL'} ({sum(checks)}/{len(checks)} checks)")
-sys.exit(0 if checks and all(checks) else 1)
+def main(argv):
+    global mode, out, slog, W, pim, RAW
+    mode, out, slog, W, pim = argv[1], argv[2], argv[3], int(argv[4]), argv[5]
+    RAW = open(os.path.join(out, f"{mode}.jsonl"), "a")
+    {"window": window, "cache": cache}[mode]()
+    print(f"RESULT {mode}: {'PASS' if checks and all(checks) else 'FAIL'} ({sum(checks)}/{len(checks)} checks)")
+    return 0 if checks and all(checks) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -23,12 +23,16 @@ health, kernel audit, NPU stall watchdog; memfloor --admit 5364 after each sessi
        appended and continued within the window;
     3  v0e_window.py cache: ~8K transcript + two appended tool outputs; turns 2-3 reuse >= 90 % of the previous prompt
        (timings.cache_n), and the same prompt with a fresh prefix reported separately;
+       [D117, for any later attempt: the tool outputs are real tool_call/tool-result pairs from the model's own bash
+       calls; missing or malformed counters fail]
     2/3 v0e_compact.sh: a real pi session of three turns that passes pi's compaction threshold (window - 16K): every
        turn exits 0, >= 1 compaction entry, no context-size rejection; recall of the code words recorded, not gated.
   S2, step 4 (tools/v0e_sustained.sh): one server kept up >= 95 min; each cycle a fresh-prefix 8K speed probe (128
     tokens) and one pi smoke session. PASS: the server stays up, the duration is reached, every speed probe is valid,
     health and kernel evidence pass, memory ADMIT. Early vs late throughput (first 3 vs last 3 cycles) and temperatures
     are reported; a late drop over 10 % is flagged for the owner, not an automatic fail. Smoke pass rate reported.
+    [D117, for any later attempt: that report (v0e_sustained_summary.py) must be VALID, >= 6 cycles each with a speed
+    result and temperatures, before S2 passes and before QUALIFIED is printed]
 
 Policy (declared):
   - Any HANG or DEVFAULT (baseline probes included): fault recorded, recovery without restart, STOP: H2 NOT QUALIFIED
@@ -44,4 +48,7 @@ Policy (declared):
 
 Evidence: ~/bench-runs/v0/v0e-H2 (status ~/bench-runs/v0/v0d/v0e-H2-status.txt), copied to runs/v0e-H2 with the
 monitoring export; pi sessions under ~/bench-runs/pi-smoke and ~/bench-runs/v0e-compact.
-Tests: tools/test_v0e_H2.sh 8/8 (mocked policy branches); v0e_window.py exercised against a fake server (both modes).
+Tests: tools/test_v0e_H2.sh 8/8 (mocked policy branches; 13/13 after D114/D117); v0e_window.py exercised against a fake server (both modes); after D117 tools/test_v0e_window.py 12/12 and
+tools/test_v0e_sustained_summary.sh 6/6.
+Result (D115-D117): NOT QUALIFIED at 32768 (load, 0/3); -c 40960 loaded afterwards; consistent with a
+context-dependent mapping issue, cause unresolved.
