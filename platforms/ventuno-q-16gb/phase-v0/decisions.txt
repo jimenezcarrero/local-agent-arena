@@ -1526,3 +1526,41 @@ D121 2026-10-10 Codex review of #49 at 32f6c1d: the negative result and stop/rec
       apt history since 2026-10-04 (only Start-Date/Commandline/Install/Upgrade/Remove/End-Date lines), and a manifest
       with line counts and sha256. The 2026-10-09 06:51-06:52 unattended-upgrade entries, the 1,715-package count
       and the before/after diff (7 packages) are now checkable from the repo.
+D122 2026-10-10 Owner: "find why and solve it" (the NPU hang). Offline analysis first, then a declared diagnostic (not a
+   qualification; nothing here admits or qualifies a configuration).
+   Evidence pattern (all 198 NPU server logs in runs/, tools: none committed yet; numbers from the logs): 14 watchdog
+   hangs in 898 requests (1.6 %). Phase: 8 before the first token, 6 during decode (after 100-278 tokens); all with
+   ubatch 512. Sessions: 11 hangs in 580 requests with 2 virtual sessions, 2/275 with 3, 1/41 with 4; only 1 server
+   (2 requests) ever ran with 1 session. First use of a slot: 12/600 vs 2/298 on a reused slot (one-sided Fisher
+   p = 0.11: not significant). Upstream (ggml-org/llama.cpp, fetched 2026-10-10): no hang fix among the 10 hexagon
+   commits after 836d5717; issue #24963 (HMX pipeline hang on small remainder batches) was fixed by #24954 before our
+   build.
+   Hypothesis (code reading, 836d5717 and upstream master; unverified on hardware):
+   - The host writes every op batch to ALL virtual sessions of the device (flush_batch: sub-sessions then the main
+     one), up to opt_opqueue = 32 pending batches per session, and waits for responses with a timeout that only loops
+     (flush_pending: AEE_EEXPIRED -> continue), so a lost response is an endless wait (the watchdog's
+     fastrpc_wait_for_completion threads, no kernel line).
+   - Each session acquires the whole VTCM (htp/main.c vtcm_alloc, cached mode, release callback). process_ops, the
+     dspqueue packet callback, processes batches while !vtcm_needs_release; when another session asks for the VTCM it
+     finishes the current batch, releases and RETURNS, possibly with batches still unread in its queue.
+   - dspqueue invokes the packet callback only when the queue's write count changed since the previous call
+     (quic/fastrpc src/dspqueue/dspqueue_cpu.c, dspqueue_packet_callback_thread; the header: "Client is expected to
+     consume each available ... packet"). Batches already counted when the callback returned are never processed; the
+     host waits for their responses and writes nothing new: a deadlock at a random batch, in prefill or decode.
+   - Prediction: it needs >= 2 virtual sessions on one NPU (VTCM contention) and >= 2 pending batches in a session.
+     With GGML_HEXAGON_OPQUEUE=1 (host-side, no rebuild) a session never has an unread batch when it yields, so the
+     race cannot strand anything. The proper fix is in the DSP loop (re-acquire and drain after yielding); it needs a
+     DSP rebuild (Hexagon SDK, laptop), i.e. the owner.
+   Diagnostic plan (declared before running; tools/v0f_hang.sh, v0f_stress.py/.sh; mocked tests test_v0f_hang.sh 8/8):
+   - Step 0: one short verbose server with GGML_HEXAGON_OPQUEUE=1 (GGML_HEXAGON_VERBOSE=1, one request) to confirm the
+     setting reaches the sessions ("allocated opqueue ... depth 1" for both); a server env snapshot is also kept for
+     every session (/proc/<pid>/environ, GGML_HEXAGON_* only).
+   - Arms, interleaved W1 B1 W2 B2 ... W10 B10, each a fresh server of A's D118 command at -c 32768 (2 sessions):
+     W with GGML_HEXAGON_OPQUEUE=1, B default. Each session: 4B baseline probe (must pass), then 40 sequential
+     requests (prompt 300/500/1000/1700 tokens, max_tokens 64/128/300, the same seeded sequence for W-k and B-k, no
+     tools, server-default sampling, cache_prompt false), stop at the first error.
+   - A hang: recorded, recovery by probing without a restart, the schedule continues. STOP: 8 faults in total, two
+     load failures in a row, a probe that never passes, missing evidence. No root (the helper is expired).
+   - Readout: hangs per request in each arm, with B as the contemporaneous control; W's prefill/decode cost vs B.
+     Expected at the historical rate (1.6 %): ~6 hangs in B's 400 requests; P(0 hangs in 400 | 1.6 %) = 0.0016. If W
+     hangs, the hypothesis or the workaround is wrong; if B does not hang either, the test is inconclusive.
