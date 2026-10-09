@@ -1490,3 +1490,27 @@ D119 2026-10-09 First D118 launch (22:19) stopped fail-closed at its first basel
    qcom-fastrpc1, qcom-libdmabufheap) are intact; the package count is unchanged (1,715). As in D87 and D101, the dpkg
    baseline was reset (previous kept as dpkg-baseline-20261009-pre-unattended.txt) and the driver relaunched under
    the same declared plan. No A session had started; probe-221935 stays on record.
+D120 2026-10-09 V0e A (D118 plan, relaunched after D119), 22:21-22:49: NOT QUALIFIED (fault HANG in v0e-A-S1).
+   - Baseline probe-222143 PASS. A loaded at -c 32768 in 6 s (the first A load at that window; D115's 32768 mapping
+     failure did not occur with A's two sessions).
+   - S1 items: 1a streaming tool probe 10/10 PASS; 1b streaming agentic 3/3 PASS; 1c pi smoke: the server's 21st
+     request (task 1842, pi's first request, 1,642 prompt tokens, no cache reuse) stopped during decode at 22:27:25
+     after ~278 tokens at ~9.8 tok/s. The NPU stall watchdog killed the server at 22:32:46 (300 s with 4 threads in
+     fastrpc_wait_for_completion and < 0.5 core-s/10 s; runs/v0e-A/attempt2/npu-stall-2550899-223246.txt). pi got
+     "Connection error" on its retries: smoke 0/7. Items 2, 3 and 2/3 were not run (server gone).
+   - classify: HANG; fault recorded (faults.txt); recovery without a restart: the first recovery probe (probe-224839,
+     after the 900 s wait) PASS; driver STOP as declared. No root used.
+   - Evidence: health pass for S1 (health-verdict.txt); kernel audits recomputed from the committed monitor export:
+     pass for all four run windows (the hang leaves no kernel line, as before); no OOM, zero swap; memfloor (report
+     only, the admit check is not reached after a fault): min MemAvailable 8.61 GiB, min (MemAvailable + cache) 8.74
+     GiB, cache 0.13 GiB at most.
+   - A's fault record: hung in its final r1 (D66), on the first request of a fresh server after admission (D99), and
+     now on the 21st request of a fresh -c 32768 server, during decode of a short real-pi request. Under the plan A is
+     NOT QUALIFIED in this V0e attempt; the result stands whatever the cause.
+   Not measured for A: window agreement / near-limit / continuation, cached tool-result reuse, compaction, sustained
+   run, memory with real pi. Owner decisions (none taken): (a) whether any 4B NPU configuration can qualify, given
+   faults on A in D66, D99, D120 and on the 4B baseline in D69, D105 (an NPU recovery procedure is still missing,
+   D61/D64); (b) V0e for AM (same NPU path, so the same exposure; draft model on a third session); (c) no non-NPU route
+   is an alternative: every measured CPU/GPU route is 9-56x below the frozen prefill gate (V0c; D55); (d) pause the
+   Ventuno campaign until the NPU hang cause is understood (e.g. an upstream ggml-hexagon issue or a newer build,
+   which would need its own V0b-V0d).
