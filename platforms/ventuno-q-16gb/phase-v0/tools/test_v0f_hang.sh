@@ -25,6 +25,8 @@ case $m in
   reqerr-kunknown) echo unknown > $o/ka-mode; printf "t server still up at the end of the workload\nt RESULT FAIL: workload=1\n" > $o/run.txt; exit 1;;
   load-health) echo "fail: missing kernel read" > $o/health-verdict.txt
     printf "t SERVER EXITED before ready\nt RESULT FAIL: load=4 health=(fail: missing kernel read)\n" > $o/run.txt; exit 1;;
+  reqerr-timeout) printf "t server still up at the end of the workload\nt RESULT FAIL: workload=1\n" > $o/run.txt; exit 124;;
+  load-killed) printf "t SERVER EXITED before ready\nt RESULT FAIL: load=4\n" > $o/run.txt; echo "ggml-hex: HTP0:2 buffer mapping failed" > $o/server.log; exit 137;;
   load-kunknown) echo unknown > $o/ka-mode; printf "t SERVER EXITED before ready\nt RESULT FAIL: load=4\n" > $o/run.txt; exit 1;;
 esac'
 case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
@@ -61,4 +63,7 @@ case1 reqerr-server-gone-stops 2 "probe W" mode-W=reqerr-gone
 case1 reqerr-kernel-unknown-stops 2 "probe W" mode-W=reqerr-kunknown
 case1 load-health-stops 2 "probe W" mode-W=load-health
 case1 load-kernel-unknown-stops 2 "probe W" mode-W=load-kunknown
+# D128 (Codex review of 8002b63 finding 1): clean-looking evidence from an interrupted runner (timeout, kill) stops
+case1 reqerr-timeout-stops 2 "probe W" mode-W=reqerr-timeout
+case1 load-killed-stops 2 "probe W" mode-W=load-killed
 echo "failures: $fails"; exit $fails

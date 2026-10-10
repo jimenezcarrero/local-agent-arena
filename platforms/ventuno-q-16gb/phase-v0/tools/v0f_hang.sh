@@ -43,6 +43,8 @@ ARMS=${ARMS:-W B}
 # clean_fail <dir> <result line> <kernel audit classes>: the run's only failure is the named one (D125, Codex review of
 # 892d7b9 finding 1): its last RESULT line is exactly <result line>, the health verdict passed and the kernel audit's
 # class is one of <kernel audit classes>. Anything else (failed or missing health or kernel evidence) stops the driver.
+# The runner must also have exited normally with a completed failure (rc 1; D128, Codex review of 8002b63 finding 1):
+# a timeout (124), a kill (137) or any other status stops the driver whatever the saved evidence says.
 clean_fail() { local res; res=$(grep -oE 'RESULT (PASS|FAIL).*' "$1/run.txt" 2>/dev/null | tail -1)
   [ "$res" = "$2" ] && head -1 "$1/health-verdict.txt" 2>/dev/null | grep -q '^pass' \
     && head -1 "$1/kernel-audit.txt" 2>/dev/null | cut -d' ' -f1 | grep -qxE "$3"; }
@@ -63,9 +65,9 @@ for k in $(seq 1 $N_SESS); do
     case $C in
       PASS) lf=0;;
       HANG|DEVFAULT) lf=0; fault $lab $C; ready wait;;
-      *) if clean_fail $O/$lab 'RESULT FAIL: load=4' 'pass|npu_map' && grep -q 'SERVER EXITED before ready' $O/$lab/run.txt; then lf=$((lf+1))
+      *) if [ $rc = 1 ] && clean_fail $O/$lab 'RESULT FAIL: load=4' 'pass|npu_map' && grep -q 'SERVER EXITED before ready' $O/$lab/run.txt; then lf=$((lf+1))
            [ $lf -ge 2 ] && { say "STOP: two load failures in a row"; exit 2; }; ready wait
-         elif clean_fail $O/$lab 'RESULT FAIL: workload=1' 'pass' && grep -q 'server still up at the end of the workload' $O/$lab/run.txt; then
+         elif [ $rc = 1 ] && clean_fail $O/$lab 'RESULT FAIL: workload=1' 'pass' && grep -q 'server still up at the end of the workload' $O/$lab/run.txt; then
            say "NOTE $lab: a request error without a server loss (recorded)"
          else say "STOP: $lab $C"; exit 2; fi;;
     esac
