@@ -1,0 +1,24 @@
+# htp retry build manifest (upstream/htp-retry-validation-plan.txt section 1), 2026-10-10T18:07:10+02:00
+host: Linux 7.2.5-3-omarchy x86_64
+docker: Docker version 29.7.2, build a7dcaa6fdb
+source: ggml-org/llama.cpp 836d57176dc699a726c55418e4f96b8ca628e1bf (fresh clone, clean before patching)
+image: ghcr.io/snapdragon-toolchain/arm64-linux:v0.7 sha256:41b710ee5f99d21f0fb9d83a1f815ecffb7708315b4218a11cd0baeb5ecf4c14
+commands: cp docs/backend/snapdragon/CMakeUserPresets.json .; cmake --preset arm64-linux-snapdragon-release -B build-<name>;
+          cmake --build build-<name> -j $(nproc); cmake --install build-<name> --prefix pkg-<name>
+patch: htp-main-thread-retry.patch.txt sha256 4b9838df84f60e802bf1bd9564c78c72afc915e902a81b173d0d72a65045151c
+   ggml/src/ggml-hexagon/htp/main.c | 12 ++++++++++--
+   1 file changed, 10 insertions(+), 2 deletions(-)
+toolchain:
+  HEXAGON_SDK_ROOT=/opt/hexagon/6.6.0.0
+  HEXAGON_TOOLS_ROOT=/opt/hexagon/6.6.0.0/tools/HEXAGON_Tools/19.0.07
+  QuIC LLVM Hexagon Clang version 19.0.07
+  Target: hexagon
+  Thread model: posix
+  InstalledDir: /opt/hexagon/6.6.0.0/tools/HEXAGON_Tools/19.0.07/Tools/bin
+  Build config: +assertions
+SDK line in both build logs: -- hexagon: using /opt/hexagon/6.6.0.0 and /opt/hexagon/6.6.0.0/tools/HEXAGON_Tools/19.0.07 for building libggml-htp skels
+libggml-htp-v75-control.so sha256 1fd898cc0709498defeed3439a52500ff8340efd7725b3f88902e0adb2d0aa37 bytes 891144
+libggml-htp-v75-retry.so sha256 aa2ae2a978d95935b763234c1a6cefe27f42c1cf98d67f041c17f13210fedde2 bytes 891144
+release (measured) libggml-htp-v75.so sha256 1fd898cc0709498defeed3439a52500ff8340efd7725b3f88902e0adb2d0aa37
+control == release bytes: yes
+strings check: retry has 'in a row), retrying': yes; control: no

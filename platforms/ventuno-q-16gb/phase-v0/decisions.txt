@@ -1473,3 +1473,411 @@ D117 2026-10-09 Codex review of PR #48 at 431af39 (no blocking findings on the n
    generation sampling separately from the monitoring cadence (server defaults for the direct probes, from files.txt
    and /props: temperature 0.8, top_k 40, top_p 0.95, min_p 0.05, presence_penalty 0, no seed; real pi's effective
    request parameters to be recorded from the server log at execution).
+
+D118 2026-10-09 #48 merged (negative-evidence checkpoint). Owner approved the recommendation: V0e for A at window 32768
+   only, no root. Plan declared before running: v0e-plan-A.txt (replaces the 2026-10-08 proposal; windows reconciled
+   with the suite: run_model.sh serves A at 32768, 40960 is never a suite window, 65K is another configuration).
+   Driver tools/v0e_A.sh, derived from v0e_H2.sh without the cDSP restart, helper and expiry; same S1/S2 workloads with
+   the D117 fixes, memfloor --admit 7942, the D114 load rule from the start. Mocked tests/test_v0e_A.sh 13/13 (new: S1
+   memory reject). Deployed copies in ~/v0 checked identical. A has never been loaded at -c 32768 (admitted at 40960).
+   Record from D90 noted in the plan: H's original admission failure at 40960 was the same 572 MB HTP0:2 mapping, so
+   that failure is not unique to 32768 (D116/D117 already say cause unresolved).
+D119 2026-10-09 First D118 launch (22:19) stopped fail-closed at its first baseline probe (probe-221935): the probe itself
+   passed (ready 6 s, speed_probe rc 0, kernel audit pass), but health failed on package drift. unattended-upgrade at
+   06:51 today: libarchive13t64 3.7.2-2ubuntu0.8 -> 0.9, libpng16-16t64 1.6.43-5ubuntu0.6 -> 0.7, poppler-utils,
+   libpoppler134, libpoppler-cpp0t64, libpoppler-glib8t64 24.02.0-1ubuntu9.9 -> 9.10, sudo 1.9.15p5-3ubuntu5.24.04.3
+   -> .4 (security updates; not the accelerator stack). The 12 apt holds (kernel, firmware, Mesa, qcom-adreno-cl1,
+   qcom-fastrpc1, qcom-libdmabufheap) are intact; the package count is unchanged (1,715). As in D87 and D101, the dpkg
+   baseline was reset (previous kept as dpkg-baseline-20261009-pre-unattended.txt) and the driver relaunched under
+   the same declared plan. No A session had started; probe-221935 stays on record.
+D120 2026-10-09 V0e A (D118 plan, relaunched after D119), 22:21-22:49: NOT QUALIFIED (fault HANG in v0e-A-S1).
+   - Baseline probe-222143 PASS. A loaded at -c 32768 in 6 s (the first A load at that window; D115's 32768 mapping
+     failure did not occur with A's two sessions).
+   - S1 items: 1a streaming tool probe 10/10 PASS; 1b streaming agentic 3/3 PASS; 1c pi smoke: the server's 21st
+     request (task 1842, pi's first request, 1,642 prompt tokens, no cache reuse) stopped during decode at 22:27:25
+     after ~278 tokens at ~9.8 tok/s. The NPU stall watchdog killed the server at 22:32:46 (300 s with 4 threads in
+     fastrpc_wait_for_completion and < 0.5 core-s/10 s; runs/v0e-A/attempt2/npu-stall-2550899-223246.txt). pi got
+     "Connection error" on its retries: smoke 0/7. Items 2, 3 and 2/3 were not run (server gone).
+   - classify: HANG; fault recorded (faults.txt); recovery without a restart: the first recovery probe (probe-224839,
+     after the 900 s wait) PASS; driver STOP as declared. No root used.
+   - Evidence: health pass for S1 (health-verdict.txt); kernel audits recomputed from the committed monitor export:
+     pass for all four run windows (the hang leaves no kernel line, as before); no OOM, zero swap; memfloor (report
+     only, the admit check is not reached after a fault): min MemAvailable 8.61 GiB, min (MemAvailable + cache) 8.74
+     GiB, cache 0.13 GiB at most.
+   - A's fault record: hung in its final r1 (D66), on the first request of a fresh server after admission (D99), and
+     now on the 21st request of a fresh -c 32768 server, during decode of a short real-pi request. Under the plan A is
+     NOT QUALIFIED in this V0e attempt; the result stands whatever the cause.
+   Not measured for A: window agreement / near-limit / continuation, cached tool-result reuse, compaction, sustained
+   run, memory with real pi. Owner decisions (none taken): (a) whether any 4B NPU configuration can qualify, given
+   faults on A in D66, D99, D120 and on the 4B baseline in D69, D105 (an NPU recovery procedure is still missing,
+   D61/D64); (b) V0e for AM (same NPU path, so the same exposure; draft model on a third session); (c) [corrected in D121]
+   no tested non-NPU configuration has established provisional eligibility under the frozen campaign rules (the
+   4B's best CPU result, 4 big-core threads, D55: 23.9 prefill / 4.83 decode at 7,579 prompt tokens, ~6.1x below
+   the prefill threshold; its 16K/32K cells screened out under D32; GPU lockups and unsupported defaults are separate
+   outcomes; this is not an exhaustive exclusion of useful non-NPU operation); (d) pause the
+   Ventuno campaign until the NPU hang cause is understood (e.g. an upstream ggml-hexagon issue or a newer build,
+   which would need its own V0b-V0d).
+D121 2026-10-10 Codex review of #49 at 32f6c1d: the negative result and stop/recovery handling are supported; one P2.
+   1. D120(c) and the PR description's owner decision 2 overstated the non-NPU gap ("9-56x" is the 9B's range, V0c).
+      Corrected in place (marked): for the 4B the best CPU result is ~6.1x below the prefill threshold; no tested
+      non-NPU configuration has established provisional eligibility; not an exhaustive exclusion.
+   2. Provenance: tools/publish_env.sh publishes env/: every dpkg baseline the health check has used (D35, D87, D101,
+      D119 snapshots and the current one, "<package> <version>" lines), apt-mark showhold at export (12 holds), the
+      apt history since 2026-10-04 (only Start-Date/Commandline/Install/Upgrade/Remove/End-Date lines), and a manifest
+      with line counts and sha256. The 2026-10-09 06:51-06:52 unattended-upgrade entries, the 1,715-package count
+      and the before/after diff (7 packages) are now checkable from the repo.
+D122 2026-10-10 Owner: "find why and solve it" (the NPU hang). Offline analysis first, then a declared diagnostic (not a
+   qualification; nothing here admits or qualifies a configuration).
+   Evidence pattern (all 198 NPU server logs in runs/, tools: none committed yet; numbers from the logs): 14 watchdog
+   hangs in 898 requests (1.6 %). Phase: 8 before the first token, 6 during decode (after 100-278 tokens); all with
+   ubatch 512. Sessions: 11 hangs in 580 requests with 2 virtual sessions, 2/275 with 3, 1/41 with 4; only 1 server
+   (2 requests) ever ran with 1 session. First use of a slot: 12/600 vs 2/298 on a reused slot (one-sided Fisher
+   p = 0.11: not significant). Upstream (ggml-org/llama.cpp, fetched 2026-10-10): no hang fix among the 10 hexagon
+   commits after 836d5717; issue #24963 (HMX pipeline hang on small remainder batches) was fixed by #24954 before our
+   build.
+   Hypothesis (code reading, 836d5717 and upstream master; unverified on hardware):
+   - The host writes every op batch to ALL virtual sessions of the device (flush_batch: sub-sessions then the main
+     one), up to opt_opqueue = 32 pending batches per session, and waits for responses with a timeout that only loops
+     (flush_pending: AEE_EEXPIRED -> continue), so a lost response is an endless wait (the watchdog's
+     fastrpc_wait_for_completion threads, no kernel line).
+   - Each session acquires the whole VTCM (htp/main.c vtcm_alloc, cached mode, release callback). process_ops, the
+     dspqueue packet callback, processes batches while !vtcm_needs_release; when another session asks for the VTCM it
+     finishes the current batch, releases and RETURNS, possibly with batches still unread in its queue.
+   - dspqueue invokes the packet callback only when the queue's write count changed since the previous call
+     (quic/fastrpc src/dspqueue/dspqueue_cpu.c, dspqueue_packet_callback_thread; the header: "Client is expected to
+     consume each available ... packet"). Batches already counted when the callback returned are never processed; the
+     host waits for their responses and writes nothing new: a deadlock at a random batch, in prefill or decode.
+   - Prediction: it needs >= 2 virtual sessions on one NPU (VTCM contention) and >= 2 pending batches in a session.
+     With GGML_HEXAGON_OPQUEUE=1 (host-side, no rebuild) a session never has an unread batch when it yields, so the
+     race cannot strand anything. The proper fix is in the DSP loop (re-acquire and drain after yielding); it needs a
+     DSP rebuild (Hexagon SDK, laptop), i.e. the owner.
+   Diagnostic plan (declared before running; tools/v0f_hang.sh, v0f_stress.py/.sh; mocked tests test_v0f_hang.sh 8/8):
+   - Step 0: one short verbose server with GGML_HEXAGON_OPQUEUE=1 (GGML_HEXAGON_VERBOSE=1, one request) to confirm the
+     setting reaches the sessions ("allocated opqueue ... depth 1" for both); a server env snapshot is also kept for
+     every session (/proc/<pid>/environ, GGML_HEXAGON_* only).
+   - Arms, interleaved W1 B1 W2 B2 ... W10 B10, each a fresh server of A's D118 command at -c 32768 (2 sessions):
+     W with GGML_HEXAGON_OPQUEUE=1, B default. Each session: 4B baseline probe (must pass), then 40 sequential
+     requests (prompt 300/500/1000/1700 tokens, max_tokens 64/128/300, the same seeded sequence for W-k and B-k, no
+     tools, server-default sampling, cache_prompt false), stop at the first error.
+   - A hang: recorded, recovery by probing without a restart, the schedule continues. STOP: 8 faults in total, two
+     load failures in a row, a probe that never passes, missing evidence. No root (the helper is expired).
+   - Readout: hangs per request in each arm, with B as the contemporaneous control; W's prefill/decode cost vs B.
+     Expected at the historical rate (1.6 %): ~6 hangs in B's 400 requests; P(0 hangs in 400 | 1.6 %) = 0.0016. If W
+     hangs, the hypothesis or the workaround is wrong; if B does not hang either, the test is inconclusive.
+D123 2026-10-10 D122 result so far and redesign (declared before the next run).
+   - Step 0: GGML_HEXAGON_OPQUEUE reaches the backend: read in the process with gdb (llama-server as gdb's child,
+     breakpoint ggml_hexagon_session::allocate): opt_opqueue = 1 with the variable, 32 without
+     (runs/v0f-hang/step0-gdb.txt). Session-level log lines never reach llama-server's log in this build, even with
+     GGML_HEXAGON_VERBOSE=1, so the log cannot show it.
+   - v0f-W-1 (OPQUEUE=1, 00:23): request 4 (1,459 prompt tokens) HUNG in decode after >= 100 tokens; watchdog kill at
+     00:30:02 (same signature: 4 threads in fastrpc_wait_for_completion). Recovery not yet probed. The driver was stopped
+     during its recovery wait (no server running): the W arm cannot work as a workaround, so the W/B rate comparison
+     was dropped.
+   - What this falsifies: "at most one pending batch per session prevents the hang". It does not falsify the
+     lost-wakeup mechanism: re-reading process_ops, one unread packet is enough (a release request that arrives after
+     vtcm_acquire and before the first dspqueue_read_noblock makes the loop exit without reading; that packet was
+     already counted in the callback's snapshot). The drain fix (upstream/htp-process-ops-drain.patch.txt; applies to
+     836d5717 and to upstream master at offset 7; not compiled: needs the Hexagon SDK) covers both cases.
+   - New, decisive measurement instead of rates: tools/dspq_probe.c, a shim built on the board as
+     ~/v0/dspq_probe/libcdsprpc.so (ggml-hexagon dlopen()s libcdsprpc.so by name; the shim wraps only
+     dspqueue_create/write/read, counting, and everything else resolves to the real library through its DT_NEEDED;
+     all 19 symbols checked). When a queue has requests outstanding and no read for 60 s, it writes a snapshot of every
+     queue with dspqueue_get_stat: WRITE_QUEUE_PACKETS (requests the DSP has not read) and READ_QUEUE_PACKETS.
+     At a hang: the stuck session's request still unread (> 0) supports the lost wakeup; 0 means the DSP took the
+     request and never answered (the hypothesis is wrong). Shim check (v0f-shim-check, 2 requests, stall threshold
+     1 s): PASS, 361.5/9.91 tok/s (as without it), snapshots written.
+   - Run: arm P only (the default A server at -c 32768 with the shim), 12 sessions x 40 requests, the same stop rules,
+     FAULT_CAP 4 (the W-1 fault already counts: up to 3 captured hangs). Diagnostic only, no root.
+D124 2026-10-10 Queue-state measurements (00:41-01:08): what the hang is and is not. Diagnostic only; no root.
+   - v0f-P-1 (default A server + dspq_probe, 00:41): request 15 hung. Snapshots at 61/121/181 s
+     (runs/v0f-hang/qstat/qstat-2727788-1..3): queue 0 2,986 written, 2,985 answered, the outstanding request NOT
+     read by the DSP (WRITE_QUEUE_PACKETS 1) at every snapshot; queue 1 2,990/2,990, idle. Watchdog kill at 00:53:32.
+   - Opt-in kick (shim V0F_KICK_S; tools/dspq_probe.c; ~/v0/dspq_kick): when a request stays unread with no response,
+     write one early-wakeup packet (dspqueue_write_early_wakeup_noblock; CPU-side reads consume them internally).
+     Kick check (v0f-kick-check, threshold 1 s, NO baseline probe before it: a protocol deviation, the P driver had been
+     stopped in its recovery wait): request 1 OK (361.1/9.87 tok/s); one kick during warm-up on queue 1 was consumed
+     harmlessly; request 2 hung (queue 0 420 written / 419 answered, queue 1 421/421 idle). 312 wakeups were written to
+     queue 0, one per second, and NONE was consumed: WRITE_QUEUE_PACKETS rose 1, 2, ... 312 until the watchdog kill
+     (01:08:28). Fault recorded by hand (faults.txt).
+   - Conclusion: at a hang the DSP-side consumer of one session's request queue has stopped for good. It answered the
+     previous batch, then never reads again, even as new packets arrive; the other session is idle with nothing
+     pending. That refutes D122's lost-wakeup mechanism as stated (a callback that is merely not re-invoked would run
+     again on new writes) and the drain patch as a fix (upstream/htp-process-ops-drain.patch.txt stays only as a
+     correctness note: returning with unread packets violates the dspqueue contract). The thread is blocked or gone
+     between answering one batch and reading the next. In htp/main.c that window holds the per-batch VTCM handoff:
+     each session claims the whole VTCM (vtcm_alloc), gives it up on another session's request and re-acquires it
+     with HAP_compute_res_acquire_cached (10 s timeout, then abort(); no abort was seen). Queue 1 has nothing pending,
+     so it is not a session holding the VTCM while waiting for the other. Where exactly it blocks (HAP compute_res,
+     the DSP-side dspqueue thread, or ggml's code) cannot be seen from the host; it needs DSP-side logs (FARF) from a
+     rebuilt libggml-htp (laptop, Hexagon SDK), and possibly root to read them.
+   - Hang rate in this cohort: 3 hangs in 21 requests (W-1 req 4, P-1 req 15, kick-check req 2) against 14/898
+     before, with no cDSP restart since 22:27 (the helper expired). This matches the earlier observation that the NPU
+     degrades after hangs (D61, D64); it also means these runs measure a degraded NPU. No further load runs tonight;
+     one recovery probe after the 15-minute wait.
+   - Not changed: no configuration is qualified; H2 and A stay NOT QUALIFIED. Next (owner): (a) a laptop build of
+     libggml-htp with FARF logging around vtcm_acquire/release and process_ops entry/exit, run with the shim, to
+     locate the block; (b) a design fix in the DSP code that removes the per-batch handoff, e.g. each of N sessions
+     claiming VTCM/N so they never contend (needs ggml-hexagon to size its scratch to a partial VTCM), which is an
+     upstream change; (c) an upstream issue with this evidence (report text in upstream/).
+   Recovery probe (probe-recovery-012424, 01:24, after the 15-minute wait): PASS (331.0/9.19 tok/s, health pass).
+D125 2026-10-10 Codex review of #49 at 892d7b9 (four P2 findings) and a declared DSP-log diagnostic (arm F). No root.
+   - Finding 1 (driver recovery predicate): v0f_hang.sh recovered from an apparent load failure or request error even
+     when health or kernel evidence had failed. Now clean_fail(): recovery only when the run's last RESULT line is
+     exactly "RESULT FAIL: load=4" (plus "SERVER EXITED before ready", kernel audit pass or npu_map) or exactly "RESULT
+     FAIL: workload=1" (plus "server still up at the end of the workload", kernel audit pass), and the health verdict
+     passed; anything else stops. Seven new mocked cases (request error with failed/unnamed health, server gone,
+     unknown kernel audit; load failure with failed health or unknown kernel audit; a clean request error continues).
+   - Finding 2 (shim registry race): dspqueue_create now registers under a mutex and publishes the slot (nq, release
+     store) only after its handle and clock are set; readers load nq with acquire; queues past MAXQ are not tracked.
+     Built as a new variant, ~/v0/dspq_probe2; the D123/D124 binaries are left as they were. The D123/D124 snapshots
+     were taken minutes into steady state, long after both queues were registered, so they are not affected.
+   - Finding 3 (claims beyond the evidence): D124's conclusions are narrowed as follows, and this wording replaces
+     D124's where they differ. Observed: at each of three hangs, one session's request queue made no dequeue progress
+     (WRITE_QUEUE_PACKETS > 0, no response) from the stall until the watchdog kill (about 5 minutes), after every
+     earlier request on it had been answered, with the other session idle; in the kick check, 312 early-wakeup
+     packets written to the stuck queue were not dequeued either. Not shown: that the consumer stopped "for good"
+     (only until the kill), that a DSP thread is blocked or gone, that any signal reached the DSP or that a callback
+     ran (a successful host-side write proves neither), or where the DSP side stopped. The VTCM-handoff explanation is
+     a hypothesis, as are a lost signal and a worker-thread exit. OPQUEUE=1 and the kick were ineffective in the
+     observed runs (W-1; the kick check), not proven useless in general; the drain patch is uncompiled and
+     unvalidated. The DSP path is not known either: htp_iface_start first imports the queue with NULL callbacks and
+     runs a dedicated htp-main thread (dspqueue_peek loop), falling back to the callback path only on AEE_EBADPARM
+     (htp/main.c 836d5717 lines 386-393, 598-616); the analysis in D122-D124 assumed the callback path. The main-thread
+     path adds a candidate the earlier analysis missed: htp_main_thread leaves its loop, and the session has no reader
+     any more, on any dspqueue_peek error other than EWOULDBLOCK/EEXPIRED (it logs FARF(ERROR, "dspqueue_peek failed")
+     first). The "1-2 % on a fresh NPU" figure in the upstream report is replaced by the pooled count (14 hangs in 898
+     requests across the committed V0b-V0d logs, mixed configurations and recovery histories; not a controlled rate)
+     and the W/B comparison is described as abandoned. The shim comments and upstream/npu-hang-report.txt are
+     corrected accordingly.
+   - Finding 4 (provenance): tools/shim_manifest.sh writes a build record per shim variant (source hash and the
+     commits it matches, the one build command, a rebuild compared byte for byte with the deployed binary, binary
+     hash, SONAME/NEEDED, the real libcdsprpc hash and package version, and which object provides each of the 19
+     functions ggml-hexagon resolves, via tools/shim_symcheck.c). Records in runs/v0f-hang/shim-builds/: dspq_probe =
+     source of 4b79724 (arm P, shim check), dspq_kick = source of 892d7b9 (kick check), dspq_probe2 = this commit;
+     all three rebuild byte-identically. The gdb record gets the raw lines as captured (the command filtered them
+     with grep " = "; unfiltered output was not kept). A census script reproduces the 14/898 count from the committed
+     logs. The PR description gets the diagnostic commands, arms, thresholds, stop rules and the dated deviations.
+   - New fact (no NPU use): the system FastRPC library (qcom-fastrpc1 1.0.15+repack2) logs to the system journal
+     (readable without root: adm group), and every server last night looked for "llama-server.farf" on
+     ADSP_LIBRARY_PATH to enable DSP-side runtime logging (log_config.c) and did not find it. With that file, DSP
+     messages of the selected levels are forwarded to the host journal under the server's pid (adspmsgd). The release
+     libggml-htp-v75.so has its FARF(HIGH) messages compiled out, but its FARF(ERROR) messages are in the binary
+     ("dspqueue_peek failed: 0x%08x", "ggml-hex: failed to acquire VTCM", "dspqueue_read_noblock failed", ...), and
+     the DSP framework (QuRT, dspqueue, HAP compute_res) logs too. So DSP-side evidence needs neither root nor a
+     rebuild. The host journal of the three hung servers shows nothing between startup and the stall except the
+     repeated 1 s response-wait timeouts.
+   - Declared plan, arm F (v0f_hang.sh, configuration A at -c 32768 as before): the fixed shim (~/v0/dspq_probe2,
+     V0F_STALL_S=60, no kick) plus ~/v0/farf first on ADSP_LIBRARY_PATH holding llama-server.farf = 0x1f (DSP
+     levels LOW..FATAL). After every session the server's journal lines go to <run>/fastrpc-journal.txt.
+     F0 smoke: driver with ARMS=F N_SESS=1 N_REQ=3 (baseline probe first, as always). Go on to F1 only if DSP-origin
+     lines appear in the export, journald reports no suppressed messages for the server, and the three requests'
+     prefill/decode speeds are within 10 % of P-1's requests of the same size; if the volume is the problem, retry F0
+     once with mask 0x1c (HIGH, ERROR, FATAL); otherwise stop and report.
+     F1: ARMS=F N_SESS=6 N_REQ=40 FAULT_CAP=4 (faults.txt already holds 3, so the driver stops at the first new
+     fault); one recovery probe after the 15-minute wait.
+     Readings, declared now: (a) "dspqueue_peek failed" from the stuck session before the stall -> the htp-main thread
+     left its loop (worker-lifecycle defect; the path is the main-thread one); (b) "failed to acquire VTCM" -> the
+     VTCM re-acquire failed (an abort should follow); (c) other DSP framework errors at the stall -> reported as
+     found; (d) no DSP error at all -> consistent with a block without an error (VTCM wait, signalling or other); the
+     location then still needs an instrumented libggml-htp (laptop). Any line that identifies the queue import path
+     (NULL callbacks vs callbacks) is reported either way.
+D126 2026-10-10 First F0 launch (07:41) stopped fail-closed at its baseline probe (probe-074113): the probe itself passed
+   (ready 6 s, speed_probe rc 0, kernel audit pass), but health failed on package drift. unattended-upgrade at 06:43
+   today: libxml2 2.9.14+dfsg-1.3ubuntu3.9 -> 3.10, bluez, bluez-cups, bluez-obexd, libbluetooth3 5.72-0ubuntu5.5 ->
+   5.7 (security updates; not the accelerator stack; llama-server links neither). The 12 apt holds are intact and the
+   package count is unchanged (1,715). As in D87, D101 and D119, the dpkg baseline was reset (previous kept as
+   dpkg-baseline-20261010-pre-unattended.txt) and F0 relaunched under the D125 plan. probe-074113 stays on record.
+   F0 result (07:43-07:46): probe-074300 PASS; v0f-F-1 PASS (3/3 requests, health pass, kernel evidence). The FastRPC
+   library found llama-server.farf ("adspmsgd enabled", both sessions) and the export holds 285 journal lines for
+   the server, about half of them CDSP0 lines from the DSP side (user PD loader, mappings, dspqueue "Queue state
+   structure initialized", QuRT thread creation); no journald suppression. No libggml-htp message appeared (none of its
+   compiled-in ERROR paths ran). Speeds against P-1's requests of the same target size: prefill -0.4 %, -0.0 %, -2.5 %;
+   decode +7.7 %, +3.3 %, +5.8 %; within the 10 % gate. F1 launched as declared (ARMS=F N_SESS=6 N_REQ=40 FAULT_CAP=4).
+   F0's run directory was renamed v0f-F-1 -> v0f-F0-1 before F1's first session started (07:46, during F1's baseline
+   probe), because F1 reuses the label v0f-F-1 and run_v0e appends to an existing directory; the status lines of F0
+   name v0f-F-1.
+   Deviation: F1 was launched (07:46:22) while the F0 driver was still in its 60 s post-session pause; F0's driver
+   then only printed "v0f hang diagnostic complete: faults 3" (07:46:49) and exited. It started no server, so the two
+   drivers did not act on the NPU together, but the status file interleaves that line with F1's start.
+D127 2026-10-10 F1 result: the hang's DSP side is identified (reading (a) of D125). Diagnostic only; no root.
+   - F1 (07:46-08:04): probe-074622 PASS; v0f-F-1 served 29 requests, then HUNG on request 30 (target 1,000 prompt
+     tokens, 300 max) in decode; watchdog kill 08:02:58 (pid 3227371); the driver stopped at the fault cap as declared.
+     Shim snapshots (qstat-3227371-1..3): queue 0 5,172 written / 5,171 answered, WRITE_QUEUE_PACKETS 1; queue 1
+     5,179/5,179 idle: the same pattern as P-1 and the kick check.
+   - DSP log (v0f-F-1/fastrpc-journal.txt), the only DSP lines after loading, all at 07:57:37, from one DSP thread:
+       CDSP0: Error 0x2f: wait_signal_locked failed for queue 01E56910 signal 0
+       CDSP0: wait_signal_locked failed with 0x2f
+       CDSP0: dspqueue_peek failed: 0x0000002f
+     The third line is ggml's FARF(ERROR) in htp_main_thread (htp/main.c 836d5717 line 1363); it exists nowhere else.
+     So (1) this build runs the main-thread path (NULL-callback import succeeded), and (2) that thread left its loop:
+     on any dspqueue_peek error other than EWOULDBLOCK/EEXPIRED it logs and breaks, and nothing else reads that
+     session's queue afterwards. 0x2f is AEE_ENOMORE (AEEStdErr.h), returned by the DSP-side dspqueue's internal
+     signal wait. Timing: request 30 was decoding at 07:57:33 (221 of 300 tokens, server log); the error came at
+     07:57:37; the host then waited on an unread request until the kill. This explains every host-side observation
+     in D123-D124: the previous batch answered, the next request (and the 312 wakeup packets) never dequeued, the other
+     session idle, no abort, no kernel message.
+   - What remains unknown: why the DSP dspqueue's signal wait returns AEE_ENOMORE (closed DSP-side code). It is one
+     capture; the three earlier hangs fit the same mechanism but had no DSP logging.
+   - Fix (upstream/htp-main-thread-retry.patch.txt): do not leave the loop on a peek error; log (rate-limited), sleep
+     1 ms and retry; htp_iface_stop still ends the loop through ctx->killed. Applies to 836d57176 and to master
+     f2918cabb (htp_main_thread unchanged there). Not compiled or tested: the board has no Hexagon toolchain, and
+     installing one would change packages and still lack the Hexagon SDK. Whether a retried peek succeeds after
+     ENOMORE is itself unverified; if it does not, the next step is a fallback (e.g. re-import the queue) and a
+     report to Qualcomm about the signal wait. The drain patch (D124) is unrelated to this path (it changes the
+     callback path, which this build does not use).
+   - The VTCM-handoff hypothesis is not supported by this capture (no VTCM error, and the failure is in the
+     queue wait, not in the acquire). Next: one recovery probe after 15 minutes (declared in D125); then a laptop build
+     of libggml-htp-v75.so with the patch, and a test on the board (A configuration, the v0f driver, arm F logging,
+     a declared request budget) before any V0e run.
+   Recovery probe (probe-recovery-081840, 08:18, after the 15-minute wait): PASS (health pass, kernel evidence).
+D128 2026-10-10 Codex review of #49 at 8002b63 (09:04Z): three P2 findings and one description detail. No hardware run.
+   1. Driver recovery ignored the runner's exit status. v0f_hang.sh now treats a load failure or a request error as
+      recoverable only when the runner exited with 1 (a completed failure) AND clean_fail holds; a timeout (124), a
+      kill (137) or any other status stops the driver. Mocked tests: reqerr-timeout-stops and load-killed-stops added;
+      22/22 pass (~/v0 copies updated).
+   2. Monitoring for the morning runs published (tools/publish_monitor.py, 11:19): monitor/health-20261010-{minutes,
+      runs}.jsonl, kernel-20261010.jsonl, run-windows.jsonl (+6 windows), health-checks.txt, and the 2026-10-09 tail.
+      No machine-id or SoC serial in monitor/ or env/ (checked); the one USB serial line is redacted.
+      - The F0 window had been registered as v0f-hang/v0f-F-1 (the directory was renamed to v0f-F0-1 afterwards,
+        D126). The raw run-windows.jsonl was relabelled (start epoch 1791611053 only); the previous file is kept in
+        ~/v0-backups/run-windows-20261010-pre-F0-label.jsonl.
+      - kernel_audit.py printed pass on an export that ended before the run (it checked messages only). It now
+        requires a health sample at or after END with kern_read ok in the same monitor directory, else "missing"
+        (exit 3). Against the old export F1 now reports missing; against the new one, pass. Earlier runs checked
+        (v0e-A-S1, v0f-P-1): still pass.
+      - Recomputed from the committed export only (runs/v0f-hang/monitor-recompute-20261010.txt): all six morning
+        windows (probe-074113, probe-074300, v0f-F0-1, probe-074622, v0f-F-1, probe-recovery-081840) kernel pass;
+        max sample gap 12 s; swap used 0 kB; no failed kernel reads; first successful kernel read 17-34 s after END.
+        F1 min MemAvailable 6.93 GiB (memfloor), as reported in D127; probe-074113's health verdict failed on package
+        drift only (D126).
+   3. Environment cohort (tools/publish_env.sh, 11:19): env/dpkg-baseline-20261010-pre-unattended.txt (the baseline
+      before the D126 reset) and dpkg-baseline-current.txt (after it): 1,715 packages each, 5 lines differ: bluez,
+      bluez-cups, bluez-obexd, libbluetooth3 5.72-0ubuntu5.5 -> 5.72-0ubuntu5.7; libxml2 2.9.14+dfsg-1.3ubuntu3.9 ->
+      2.9.14+dfsg-1.3ubuntu3.10. apt-history.txt holds the two unattended-upgrade entries (2026-10-10 06:43:19 and
+      06:43:45) with exactly these versions. apt-holds-20261010.txt: 12 holds at export (11:19), the same 12 packages
+      and versions as in both baselines (a snapshot at export, not at the runs). manifest.txt updated. Cohorts:
+      probe-074113 ran on the post-update packages against the pre-update baseline (hence its drift ALERT); F0, F1
+      and the recovery probe ran on the current baseline.
+   4. Description: P-1's budget stated (ARMS=P, N_SESS=12, N_REQ=40, FAULT_CAP=4; driver log line at 00:41:26).
+   Also from the review, recorded: F1's request 30 was task 4949 with 765 actual prompt tokens (target 1,000), max
+   300; the last progress counter was n_gen=221. The retry patch is a proposed mitigation, not a fix; the DSP log
+   identifies the consumer exit for F1 only; earlier hangs are compatible with it but have no DSP capture.
+   Validation plan for the patch declared before any build: upstream/htp-retry-validation-plan.txt (build manifest
+   incl. an unpatched control build with the same toolchain; arms C and R; V1 smoke, V2 240 requests, V3 SIGTERM
+   shutdown; readings (a)-(d)). Each step needs the owner's go-ahead.
+   Board: an unplanned reset between 10:50:19 (last sample of boot ddfab954) and 10:50:57 (new boot 50c6700f). The
+   previous boot's journal ends without any shutdown sequence (last line 10:50:03, sysstat); the last sample had
+   14.2 GB MemAvailable, 38.7 C max, no llama-server (a Codex review sandbox was running). [Corrected in D129: the owner reset it by
+   mistake while moving the board.] No NPU work was running; the board was idle since the 08:20 backup. The health sampler
+   restarted at boot; the NPU stall watchdog did not (it must be started before any driver run; the driver refuses
+   to start without it).
+D129 2026-10-10 Codex review of #49 at a89e958 (11:12Z): one P2; reset attributed. No hardware run.
+   1. kernel_audit.py's coverage guard (D128) accepted any later sample with kern_read ok, even a failed parse, from
+      another boot or from unrelated later activity. It now requires the runner's own good-read predicate (kern_read
+      ok, kern_parse not FAILED, integer kern_alert_lines), the run's boot id (run.txt START boot=; missing -> rc 3),
+      and a sample after END within COVER_S = 150 s (the runner waits up to 12 x 10 s for that read). Offline checks in
+      test_kernel_audit.sh: parse failed, no alert count, read failed, other boot, 151 s after END, at END, no boot in
+      run.txt -> missing; a good read at +20 s and at +150 s -> pass; 28/28 pass (the 9 coverage cases are new; the
+      synthetic run and monitor now carry a boot id and a good read, which D128 had not added: with the D128 versions
+      the file failed 14 cases; I had not re-run it in D128). Regression from the committed monitor export: all 316 run directories give the same
+      verdict as the D128 version.
+   2. The ~10:50 board reset (D128): the owner reset it by mistake while moving the board (owner, to the review).
+      D128 marked as corrected. Before any later authorized run, the NPU stall watchdog must be started again (the
+      health sampler restarted at boot; the driver refuses to start without both).
+   3. Build route for the retry patch (owner question "how can I build what you need and why you can't?"):
+      tools/build_htp_retry_x86.sh, for the laptop (x86_64 + Docker), same pinned toolchain image (id checked) and
+      documented commands as build_hexagon_x86.sh / D40; builds the control (unpatched) then the patched
+      libggml-htp-v75.so in a separate tree (~/llama.cpp-htp-retry), pins the patch by sha256 (4b9838df...), checks it
+      touches only htp/main.c, checks the patch's log string is in the patched library only (the release library
+      already holds its FARF(ERROR) format strings, so the check is meaningful), writes the plan's manifest, and
+      copies one tarball to ~/v0/ on the board with a sha256 check. Checked here: bash -n; the patch steps on a
+      worktree of 836d57176 (applies, 1 file, +10/-2); the release library lacks the string. Not run end to end
+      (no x86 host here). Why not on the board: the Hexagon toolchain ships only as an amd64 container (Hexagon
+      SDK 6.6 inside), and on this arm64 board qemu-user crashes inside it (D26); building natively would need the
+      SDK installed (packages, root, package drift) and would still not be the toolchain the measured package used.
+
+D130 2026-10-10 Codex review of #49 at 91fe117 (15:03Z): three P2 findings in build_htp_retry_x86.sh. No hardware run.
+   1. Destructive checkout/cleanup of a fixed directory: every run now clones fresh into a NEW ~/htp-retry-<stamp>
+      (objects borrowed read-only from ~/llama.cpp-hex if present, --dissociate) and packs ~/htp-retry-builds-<stamp>
+      .tar.gz; it refuses if either exists, never checks out, cleans or deletes an existing tree or earlier output,
+      and refuses to copy over an existing tarball on the board.
+   2. SIGPIPE in the manifest (grep | sort -u | head): the manifest no longer filters the build logs; the build step
+      instead requires the measured build's exact SDK line ("-- hexagon: using /opt/hexagon/6.6.0.0 and
+      .../HEXAGON_Tools/19.0.07 for building libggml-htp skels", present once in builds/hexagon-laptop) in each log.
+   3. Toolchain provenance was best-effort (|| true): it is now required. The image must set HEXAGON_SDK_ROOT=
+      /opt/hexagon/6.6.0.0 and HEXAGON_TOOLS_ROOT=.../19.0.07 (the variables the preset reads, as in the measured
+      build log), and $HEXAGON_TOOLS_ROOT/Tools/bin/hexagon-clang --version must succeed and print a version;
+      otherwise the script stops before building.
+   Download from a reviewed commit, not the branch (header updated); the patch URL is pinned to commit 8002b63 and
+   by sha256.
+   Mocked tests (tools/test_build_htp_retry.sh: fake uname/docker/curl/ssh/scp/date, a local clone with 836d57176,
+   200,000-line build logs): normal run packs and copies; a second run keeps the first; the board copy never
+   overwrites; missing toolchain, wrong SDK and a log without the SDK line stop with no tarball; an existing
+   ~/llama.cpp-htp-retry with a local file is untouched in every case. 7/7 pass. Against the 91fe117 script the
+   normal case fails (it cannot clone into the existing directory); its toolchain cases stop at that same point, so
+   they do not re-demonstrate findings 2-3 here (Codex reproduced them with its own mocks).
+D131 2026-10-10 Retry patch built by the owner on the laptop (build_htp_retry_x86.sh at 33743e4, 17:55-18:07). No NPU run.
+   - The owner ran it with docker wrapped as "sudo docker" (their Docker needs sudo); the container still ran as the
+     owner's uid (-u). All script checks passed: fresh clone at 836d57176, image id sha256:41b710ee..., SDK root
+     /opt/hexagon/6.6.0.0, tools 19.0.07, "QuIC LLVM Hexagon Clang version 19.0.07", the measured SDK line in both
+     build logs, patch sha256 4b9838df..., 1 file +10/-2, string check (retry yes, control no).
+   - Control (unpatched) libggml-htp-v75.so sha256 1fd898cc... = the measured release library, byte for byte: the
+     toolchain and commands reproduce the measured DSP binary exactly. Retry: aa2ae2a9... (same size, 891,144 bytes).
+   - Board: tarball sha256 3105824458aa... verified; unpacked; ~/v0/htp-control/ and ~/v0/htp-retry/ each hold one
+     read-only libggml-htp-v75.so (hashes re-checked); ~/v0/hexpkg untouched. Records (manifest, toolchain, patch
+     check/diffstat/diff, both build logs, board check) in runs/v0f-hang/htp-retry-build/; the tarball (binaries) in
+     ~/v0/ and ~/v0-backups/20261010/.
+   - Consequence for the plan: arm C would load bytes identical to the release library already run in F0/F1, so V1-C
+     adds no information about the build. Proposed to the owner: V1 with R only (3 requests); this needs the owner's
+     agreement, as does every validation step.
+D132 2026-10-10 Owner "ok" (18:2x) to the D131 proposal: validation of the retry patch, R only, in the plan's order,
+   each step only if the previous one meets its gate. Diagnostic only (a patched DSP binary is a new runtime cohort;
+   nothing here qualifies anything). No root. Declared before running:
+   - Driver: v0f_hang.sh arm R = arm F (dspq_probe2 shim, llama-server.farf 0x1f, journal export) with
+     ~/v0/htp-retry first on ADSP_LIBRARY_PATH; the library's sha256 (aa2ae2a9...) is checked before and after every
+     R session, a mismatch stops. Mocked tests: arm-r-only, arm-r-wrong-lib-stops; 24/24 pass.
+   - Preconditions at 18:28: no llama-server, health check pass with no package drift, 13.6 GiB available, swap 0;
+     NPU stall watchdog restarted (not running since the D128 reset); health sampler running since boot.
+   - V1: ARMS=R N_SESS=1 N_REQ=3 FAULT_CAP=6 (faults.txt holds 4). Gate: PASS 3/3, DSP lines from CDSP0 in the
+     exported journal, prefill/decode within 10 % of F0's three requests, sha256 unchanged.
+   - V2 (only if V1 meets its gate): ARMS=R N_SESS=6 N_REQ=40 FAULT_CAP=6 (stops at the second new fault), then one
+     recovery probe after the usual wait if a fault occurred. Readings (a)-(d) of the plan.
+   - V3 (after V2): one R server started by hand under the same environment, one request, then SIGTERM; it must exit
+     within 30 s; then a baseline probe must PASS without a restart. Run directory runs/v0f-hang/v3-sigterm.
+D133 2026-10-10 Retry patch validation (D132), V1 and V2 run, V3 met by the same sessions. Diagnostic only; no root.
+   - V1 (18:28-18:32): probe PASS; v0f-R-V1-1 PASS 3/3 (directory renamed from v0f-R-1 before V2's session started;
+     its run window relabelled in the raw run-windows.jsonl, previous file kept in ~/v0-backups). Gate met: CDSP0
+     lines in the journal (156), the same startup error set as F0 (only thread ids/handles differ); speeds against
+     F0's three requests: prefill -1.8 %, -3.1 %, +1.4 %; decode +3.0 %, +4.4 %, +1.4 %; sha256 unchanged.
+   - V2 (18:33-20:03, ARMS=R N_SESS=6 N_REQ=40 FAULT_CAP=6): six sessions, each PASS 40/40 (240/240), every baseline
+     probe before them PASS, no fault (faults.txt still 4), no NPU stall watchdog kill, no queue-stall snapshot.
+   - DSP log: 8 events of the F1 signature ("Error 0x2f: wait_signal_locked failed ... signal 0", then
+     "dspqueue_peek failed: 0x0000002f (1 in a row), retrying"): R-1 18:35:52; R-2 18:50:14, 18:57:03, 18:58:46;
+     R-3 19:16:28; R-4 19:27:18; R-5 19:38:16; R-6 20:00:26. Each was a single error (max 1 in a row); each session
+     kept serving requests after it (1.5-12 min later) to its 40th. Reading (a) of the plan: the logged-and-retried
+     AEE_ENOMORE was followed by continued processing on the same session. Without the patch, htp_main_thread would
+     have left its loop at each of these 8 events (the F1 mechanism, D127); by that mechanism each would have been a
+     hang (an inference: unpatched behaviour after the same event was observed once, in F1).
+   - Host-side "dspqueue_cpu.c:1864 error 0xc: wait_signal_locked(q, DSPQUEUE_SIGNAL_RESP_PACKET, timeout)" lines
+     (20-40 per R session) are the host reader's timed waits; F0, V1 (2 each) and F1 (339) have them too. Not new.
+   - V3 (shutdown): run_v0e.sh already stops every server with SIGTERM to its process group and waits up to 30 s
+     before SIGKILL (logging "ignored SIGTERM" if it escalates); D132's "instead of the driver's SIGKILL" misdescribed
+     this (the driver's killall -KILL runs only afterwards, on anything left). All 7 R servers exited on SIGTERM
+     within about 1 s (workload end to END 1 s, no escalation), and the baseline probe after each of R-V1-1 and
+     R-1..R-5 passed without an NPU restart. That is V3's declared condition, met 6 times; the separate hand run
+     would repeat it, so it was not run. After R-6 no probe was run (the driver ends).
+   - Monitoring published (publish_monitor.py, 20:04); all 14 windows recomputed from the committed export
+     (runs/v0f-hang/monitor-recompute-20261010-R.txt): kernel pass; R sessions min MemAvailable 6.14-6.41 GiB.
+   - Not shown: the persistent-error path (no event repeated); why the DSP signal wait returns AEE_ENOMORE (closed
+     dspqueue code); other models, session counts or configurations. One build, one configuration (A, 2 sessions),
+     one evening. A patched DSP binary is a new runtime cohort: no configuration is qualified by this; V0e with it
+     needs its own owner-approved plan.
+D134 2026-10-10 Codex review of #49 at dd9d692 (19:16Z): supports the retry mitigation for the tested configuration; one P3
+   (description). No hardware run.
+   - PR description: "the next baseline probe passed each time" overcounted. Now: 7 clean SIGTERM stops, 6 stop ->
+     probe-PASS pairs (after V1 and R-1..R-5; no probe after R-6), and the V3 substitution stated as a deviation.
+     The D127 "not built or tested" sentence marked historical. Scope added: V2 prompts 255-1,462 tokens, 64-300
+     generated (recomputed from the six stress.jsonl files); no pi, tool execution, compaction or V0e workload.
+   - D133's "met 6 times" is correct; its "All 7 R servers exited on SIGTERM" refers to stops, not pairs.
+   - Validation plan: dated results/amendments section appended (declaration unchanged; the pinned patch file keeps
+     its historical header).
