@@ -38,6 +38,13 @@ mkdir -p $O/qstat
 P_CMD="env LD_LIBRARY_PATH=$HOME/v0/dspq_probe:$P/lib ADSP_LIBRARY_PATH=$P/lib V0F_DUMP_DIR=$O/qstat V0F_STALL_S=60 GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $SRV"
 K_CMD="env LD_LIBRARY_PATH=$HOME/v0/dspq_kick:$P/lib ADSP_LIBRARY_PATH=$P/lib V0F_DUMP_DIR=$O/qstat V0F_STALL_S=60 V0F_KICK_S=3 GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $SRV"
 F_CMD="env LD_LIBRARY_PATH=$HOME/v0/dspq_probe2:$P/lib ADSP_LIBRARY_PATH=$HOME/v0/farf;$P/lib V0F_DUMP_DIR=$O/qstat V0F_STALL_S=60 GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $SRV"
+# D132: arm R = F with the patched DSP library (upstream/htp-retry-validation-plan.txt, built in D131) first on
+# ADSP_LIBRARY_PATH: ~/v0/htp-retry/libggml-htp-v75.so (sha256 RETRY_SHA, read-only). FastRPC names only the file it
+# opened, so the library is identified by this search order plus its sha256 checked before and after every R session
+# (a mismatch stops the driver).
+HTPR=${HTPR:-$HOME/v0/htp-retry}; RETRY_SHA=${RETRY_SHA:-aa2ae2a978d95935b763234c1a6cefe27f42c1cf98d67f041c17f13210fedde2}
+R_CMD="env LD_LIBRARY_PATH=$HOME/v0/dspq_probe2:$P/lib ADSP_LIBRARY_PATH=$HOME/v0/farf;$HTPR;$P/lib V0F_DUMP_DIR=$O/qstat V0F_STALL_S=60 GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $SRV"
+rsha() { [ "$(sha256sum "$HTPR/libggml-htp-v75.so" 2>/dev/null | cut -d' ' -f1)" = "$RETRY_SHA" ]; }
 JOURNAL=${JOURNAL:-journalctl}
 ARMS=${ARMS:-W B}
 # clean_fail <dir> <result line> <kernel audit classes>: the run's only failure is the named one (D125, Codex review of
@@ -54,11 +61,13 @@ say "v0f hang diagnostic start (pid $$): arms $ARMS, $N_SESS sessions per arm, $
 lf=0
 for k in $(seq 1 $N_SESS); do
   for arm in $ARMS; do
-    lab=v0f-$arm-$k; case $arm in W) cmd=$W_CMD;; B) cmd=$B_CMD;; P) cmd=$P_CMD;; K) cmd=$K_CMD;; F) cmd=$F_CMD;; *) say "STOP: unknown arm $arm"; exit 2;; esac
+    lab=v0f-$arm-$k; case $arm in W) cmd=$W_CMD;; B) cmd=$B_CMD;; P) cmd=$P_CMD;; K) cmd=$K_CMD;; F) cmd=$F_CMD;; R) cmd=$R_CMD;; *) say "STOP: unknown arm $arm"; exit 2;; esac
     ready now
+    [ $arm = R ] && { rsha || { say "STOP: $HTPR/libggml-htp-v75.so is not sha256 $RETRY_SHA"; exit 2; }; }
     say "START $lab"; wd0=$(wdcount)
     PHASE=$PH timeout -k 60 3600 bash $RUN_V0E $lab $HOME/v0/v0f_stress.sh -- $cmd > /dev/null 2>&1; rc=$?; killall_srv
     spid=$(grep -oE 'server pid [0-9]+' $O/$lab/run.txt 2>/dev/null | head -1 | cut -d' ' -f3)
+    [ $arm = R ] && { rsha && say "NOTE $lab: patched library sha256 checked before and after" || { say "STOP: $HTPR/libggml-htp-v75.so changed during $lab"; exit 2; }; }
     [ -n "$spid" ] && $JOURNAL _PID=$spid --no-pager -q -o short-iso > $O/$lab/fastrpc-journal.txt 2>&1
     C=$(classify $O/$lab $rc $wd0)
     n_ok=$(grep -c '"ok": true' $O/$lab/stress.jsonl 2>/dev/null); say "END $lab: $C | requests ok ${n_ok:-0} | $(grep -h 'RESULT' $O/$lab/run.txt 2>/dev/null | tail -1)"

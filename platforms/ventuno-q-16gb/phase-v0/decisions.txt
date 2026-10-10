@@ -1830,3 +1830,17 @@ D131 2026-10-10 Retry patch built by the owner on the laptop (build_htp_retry_x8
    - Consequence for the plan: arm C would load bytes identical to the release library already run in F0/F1, so V1-C
      adds no information about the build. Proposed to the owner: V1 with R only (3 requests); this needs the owner's
      agreement, as does every validation step.
+D132 2026-10-10 Owner "ok" (18:2x) to the D131 proposal: validation of the retry patch, R only, in the plan's order,
+   each step only if the previous one meets its gate. Diagnostic only (a patched DSP binary is a new runtime cohort;
+   nothing here qualifies anything). No root. Declared before running:
+   - Driver: v0f_hang.sh arm R = arm F (dspq_probe2 shim, llama-server.farf 0x1f, journal export) with
+     ~/v0/htp-retry first on ADSP_LIBRARY_PATH; the library's sha256 (aa2ae2a9...) is checked before and after every
+     R session, a mismatch stops. Mocked tests: arm-r-only, arm-r-wrong-lib-stops; 24/24 pass.
+   - Preconditions at 18:28: no llama-server, health check pass with no package drift, 13.6 GiB available, swap 0;
+     NPU stall watchdog restarted (not running since the D128 reset); health sampler running since boot.
+   - V1: ARMS=R N_SESS=1 N_REQ=3 FAULT_CAP=6 (faults.txt holds 4). Gate: PASS 3/3, DSP lines from CDSP0 in the
+     exported journal, prefill/decode within 10 % of F0's three requests, sha256 unchanged.
+   - V2 (only if V1 meets its gate): ARMS=R N_SESS=6 N_REQ=40 FAULT_CAP=6 (stops at the second new fault), then one
+     recovery probe after the usual wait if a fault occurred. Readings (a)-(d) of the plan.
+   - V3 (after V2): one R server started by hand under the same environment, one request, then SIGTERM; it must exit
+     within 30 s; then a baseline probe must PASS without a restart. Run directory runs/v0f-hang/v3-sigterm.

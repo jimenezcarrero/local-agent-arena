@@ -6,7 +6,7 @@ fails=0
 # fake run_route (baseline probes) and run_v0e (sessions); behaviour per label from $T/mode-<S1|S2|probe>:
 #   pass (S2 also writes a VALID sustained summary) | nosummary (S2 PASS without it) | fail (workload failed, clean) | hang (watchdog line) | evidence (health failed) | loadfail (clean, D114)
 FAKE='#!/bin/bash
-lab=$1; ph=${PHASE:-$2}; o=$BR/v0/$ph/$lab; mkdir -p $o; k=probe; case $lab in v0f-W-*) k=W;; v0f-B-*) k=B;; v0f-P-*) k=P;; v0f-K-*) k=K;; v0f-F-*) k=F;; esac
+lab=$1; ph=${PHASE:-$2}; o=$BR/v0/$ph/$lab; mkdir -p $o; k=probe; case $lab in v0f-W-*) k=W;; v0f-B-*) k=B;; v0f-P-*) k=P;; v0f-K-*) k=K;; v0f-F-*) k=F;; v0f-R-*) k=R;; esac
 echo "$k" >> $T/calls; m=$(head -1 $T/mode-$k 2>/dev/null); m=${m:-pass}; sed -i 1d $T/mode-$k 2>/dev/null
 echo pass > $o/health-verdict.txt; : > $o/server.log; echo "pass" > $o/kernel-audit.txt
 case $m in
@@ -66,4 +66,9 @@ case1 load-kernel-unknown-stops 2 "probe W" mode-W=load-kunknown
 # D128 (Codex review of 8002b63 finding 1): clean-looking evidence from an interrupted runner (timeout, kill) stops
 case1 reqerr-timeout-stops 2 "probe W" mode-W=reqerr-timeout
 case1 load-killed-stops 2 "probe W" mode-W=load-killed
+# D132: arm R runs only with the patched library's expected sha256, checked before and after each session
+mkdir -p ${TMPDIR:-/tmp}/v0f-r-$$; echo lib > ${TMPDIR:-/tmp}/v0f-r-$$/libggml-htp-v75.so; RS=$(sha256sum ${TMPDIR:-/tmp}/v0f-r-$$/libggml-htp-v75.so | cut -d' ' -f1)
+HTPR=${TMPDIR:-/tmp}/v0f-r-$$ RETRY_SHA=$RS case1 arm-r-only 0 "probe R probe R" ARMS=R
+HTPR=${TMPDIR:-/tmp}/v0f-r-$$ RETRY_SHA=0000 case1 arm-r-wrong-lib-stops 2 "probe" ARMS=R
+rm -rf ${TMPDIR:-/tmp}/v0f-r-$$
 echo "failures: $fails"; exit $fails
