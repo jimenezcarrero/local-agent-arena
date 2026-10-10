@@ -1816,3 +1816,17 @@ D130 2026-10-10 Codex review of #49 at 91fe117 (15:03Z): three P2 findings in bu
    ~/llama.cpp-htp-retry with a local file is untouched in every case. 7/7 pass. Against the 91fe117 script the
    normal case fails (it cannot clone into the existing directory); its toolchain cases stop at that same point, so
    they do not re-demonstrate findings 2-3 here (Codex reproduced them with its own mocks).
+D131 2026-10-10 Retry patch built by the owner on the laptop (build_htp_retry_x86.sh at 33743e4, 17:55-18:07). No NPU run.
+   - The owner ran it with docker wrapped as "sudo docker" (their Docker needs sudo); the container still ran as the
+     owner's uid (-u). All script checks passed: fresh clone at 836d57176, image id sha256:41b710ee..., SDK root
+     /opt/hexagon/6.6.0.0, tools 19.0.07, "QuIC LLVM Hexagon Clang version 19.0.07", the measured SDK line in both
+     build logs, patch sha256 4b9838df..., 1 file +10/-2, string check (retry yes, control no).
+   - Control (unpatched) libggml-htp-v75.so sha256 1fd898cc... = the measured release library, byte for byte: the
+     toolchain and commands reproduce the measured DSP binary exactly. Retry: aa2ae2a9... (same size, 891,144 bytes).
+   - Board: tarball sha256 3105824458aa... verified; unpacked; ~/v0/htp-control/ and ~/v0/htp-retry/ each hold one
+     read-only libggml-htp-v75.so (hashes re-checked); ~/v0/hexpkg untouched. Records (manifest, toolchain, patch
+     check/diffstat/diff, both build logs, board check) in runs/v0f-hang/htp-retry-build/; the tarball (binaries) in
+     ~/v0/ and ~/v0-backups/20261010/.
+   - Consequence for the plan: arm C would load bytes identical to the release library already run in F0/F1, so V1-C
+     adds no information about the build. Proposed to the owner: V1 with R only (3 requests); this needs the owner's
+     agreement, as does every validation step.
