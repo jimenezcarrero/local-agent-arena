@@ -2,8 +2,8 @@ Validation plan for the proposed htp_main_thread retry (D128; Codex review of 80
 Status: PROPOSED MITIGATION, NOT BUILT, NOT TESTED. A changed DSP binary is a new runtime cohort: whatever this plan
 finds is diagnostic only and cannot replace V0e qualification of any configuration.
 
-1. Build manifest (the owner builds on the laptop; the board has no Hexagon SDK). Record, in
-   runs/v0f-hang/htp-retry-build/manifest.txt, before anything is copied to the board:
+1. Build manifest (the owner builds on the laptop; the board has no Hexagon SDK). tools/build_htp_retry_x86.sh does
+   all of this and writes manifest.txt (committed to runs/v0f-hang/htp-retry-build/ after the copy is verified):
    - source: ggml-org/llama.cpp commit 836d57176 (the measured build), `git status --porcelain` empty before patching
    - patch: upstream/htp-main-thread-retry.patch.txt, its sha256, `git apply --check` output, `git diff --stat` after
    - toolchain: Hexagon SDK version string, `hexagon-clang --version`, host OS, the exact configure/build commands
