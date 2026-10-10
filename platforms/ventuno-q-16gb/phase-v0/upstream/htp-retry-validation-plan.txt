@@ -44,3 +44,16 @@ finds is diagnostic only and cannot replace V0e qualification of any configurati
    fault-cap stop must PASS. Persistent errors cost DSP time (one retry per ms, logs rate-limited); that is recorded,
    not judged here.
    Any V0e qualification of a configuration with the patched binary is a separate, owner-approved plan.
+
+Results and amendments (appended 2026-10-10, D131-D134; the declaration above is unchanged, and the patch file keeps
+its pre-test header because it is pinned by sha256 4b9838df...; that header's "NOT compiled or tested yet" is
+historical):
+   - D131: built by the owner with tools/build_htp_retry_x86.sh at 33743e4; control sha256 1fd898cc... is
+     byte-identical to the release library; retry sha256 aa2ae2a9...; records in runs/v0f-hang/htp-retry-build/.
+   - D132 amendment (owner-agreed): arm C dropped from V1 (its bytes are the release library already run in F0/F1).
+   - D133: V1 PASS 3/3 within the gate. V2 240/240 in 6 servers, no fault; 8 AEE_ENOMORE peek errors, each logged
+     "(1 in a row), retrying" and followed by further completed requests: reading (a). Persistent errors were not
+     exercised. Prompts 255-1,462 tokens, 64-300 generated.
+   - V3 deviation: no separate hand run. The runner's ordinary SIGTERM stop covered it: 7 clean stops within ~1 s, no
+     SIGKILL escalation, 6 stop -> baseline-probe-PASS pairs without an NPU restart (after V1 and R-1..R-5; none after
+     R-6).
