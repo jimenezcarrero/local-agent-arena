@@ -1796,3 +1796,23 @@ D129 2026-10-10 Codex review of #49 at a89e958 (11:12Z): one P2; reset attribute
       SDK 6.6 inside), and on this arm64 board qemu-user crashes inside it (D26); building natively would need the
       SDK installed (packages, root, package drift) and would still not be the toolchain the measured package used.
 
+D130 2026-10-10 Codex review of #49 at 91fe117 (15:03Z): three P2 findings in build_htp_retry_x86.sh. No hardware run.
+   1. Destructive checkout/cleanup of a fixed directory: every run now clones fresh into a NEW ~/htp-retry-<stamp>
+      (objects borrowed read-only from ~/llama.cpp-hex if present, --dissociate) and packs ~/htp-retry-builds-<stamp>
+      .tar.gz; it refuses if either exists, never checks out, cleans or deletes an existing tree or earlier output,
+      and refuses to copy over an existing tarball on the board.
+   2. SIGPIPE in the manifest (grep | sort -u | head): the manifest no longer filters the build logs; the build step
+      instead requires the measured build's exact SDK line ("-- hexagon: using /opt/hexagon/6.6.0.0 and
+      .../HEXAGON_Tools/19.0.07 for building libggml-htp skels", present once in builds/hexagon-laptop) in each log.
+   3. Toolchain provenance was best-effort (|| true): it is now required. The image must set HEXAGON_SDK_ROOT=
+      /opt/hexagon/6.6.0.0 and HEXAGON_TOOLS_ROOT=.../19.0.07 (the variables the preset reads, as in the measured
+      build log), and $HEXAGON_TOOLS_ROOT/Tools/bin/hexagon-clang --version must succeed and print a version;
+      otherwise the script stops before building.
+   Download from a reviewed commit, not the branch (header updated); the patch URL is pinned to commit 8002b63 and
+   by sha256.
+   Mocked tests (tools/test_build_htp_retry.sh: fake uname/docker/curl/ssh/scp/date, a local clone with 836d57176,
+   200,000-line build logs): normal run packs and copies; a second run keeps the first; the board copy never
+   overwrites; missing toolchain, wrong SDK and a log without the SDK line stop with no tarball; an existing
+   ~/llama.cpp-htp-retry with a local file is untouched in every case. 7/7 pass. Against the 91fe117 script the
+   normal case fails (it cannot clone into the existing directory); its toolchain cases stop at that same point, so
+   they do not re-demonstrate findings 2-3 here (Codex reproduced them with its own mocks).
