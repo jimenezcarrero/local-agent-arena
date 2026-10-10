@@ -1,7 +1,7 @@
 Proposed upstream issue for ggml-org/llama.cpp (NOT filed; the owner decides). Evidence: D122-D125, runs/v0f-hang.
 Wording narrowed in D125 (Codex review of 892d7b9): only host-side observations are stated as facts.
 
-Title: Hexagon: with 2+ virtual sessions on one NPU, a session's request queue stops being dequeued (host waits forever)
+Title: Hexagon: htp_main_thread exits on a dspqueue_peek error (AEE_ENOMORE seen on v75); the session's queue is never read again and the host hangs
 
 Name and version
   build 11381 (836d57176), release package cross-built with the Snapdragon toolchain (arm64-linux v0.7), Hexagon SDK
@@ -38,23 +38,20 @@ forwards everything else to the real library; it reads dspqueue_get_stat when a 
   making progress for at least the ~5 minutes until the kill. A successful host-side write does not show that the DSP
   was signalled or that any DSP thread ran; where the DSP side stopped is not known.
 
-Candidates (from reading htp/main.c; none confirmed on the DSP)
-  - Which path runs is itself unknown to us: htp_iface_start first imports the queue with NULL callbacks and starts a
-    dedicated htp-main thread (dspqueue_peek loop); it falls back to the packet callback only on AEE_EBADPARM.
-  - Main-thread path: htp_main_thread leaves its loop on any dspqueue_peek error other than EWOULDBLOCK/EEXPIRED, after
-    which nothing reads the session's queue (it logs FARF(ERROR, "dspqueue_peek failed") first).
-  - VTCM handoff: every session allocates the whole VTCM (vtcm_alloc), gives it up when another session asks
-    (vtcm_release_callback -> vtcm_needs_release -> leave the loop -> release_cached) and takes it back with
-    HAP_compute_res_acquire_cached(..., 10 s) on its next pass. A block there would match the timing, but the 10 s
-    acquire timeout should abort() and no abort is seen, so it would have to be a block outside that call.
-  - Callback path: process_ops() can return with unread packets when it leaves the loop on vtcm_needs_release, which
-    goes against the dspqueue packet-callback contract ("consume each available packet"); a drain-after-yield change
-    is attached as a note (not compiled, not validated); it would not explain packets that are never dequeued.
+DSP-side log (runtime FARF via llama-server.farf, release build), the only DSP lines after loading, at the stall:
+  CDSP0: Error 0x2f: wait_signal_locked failed for queue 01E56910 signal 0
+  CDSP0: wait_signal_locked failed with 0x2f
+  CDSP0: dspqueue_peek failed: 0x0000002f
+  The last line is htp_main_thread's FARF(ERROR) (htp/main.c, 836d57176 line 1363): the build runs the main-thread path
+  and that thread leaves its loop on any dspqueue_peek error other than EWOULDBLOCK/EEXPIRED. Nothing reads the
+  session's queue afterwards, which matches the host-side measurements above. 0x2f is AEE_ENOMORE, returned by the
+  DSP dspqueue's internal signal wait in the middle of a decode (one capture so far).
+
+Proposed change (attached; not yet built: we have no Hexagon SDK on the board): keep the loop alive on peek errors
+(rate-limited log, 1 ms sleep, retry; htp_iface_stop still ends it via ctx->killed). Why the signal wait returns
+AEE_ENOMORE is a question for the dspqueue owners.
 
 What would help
-  - Which import path the release build takes on v75, and DSP-side FARF logs around process_ops entry/exit,
-    htp_main_thread's loop and vtcm_acquire/release in a session that hangs (we are capturing the runtime FARF(ERROR)
-    output of the release build now and will add it).
-  - Whether sessions on the same NPU could each claim VTCM/N instead of the whole VTCM, removing the per-batch
-    handoff (a question, not a verified fix).
+  - Whether retrying dspqueue_peek after AEE_ENOMORE is safe and sufficient, or whether the queue must be re-imported.
+  - Why the DSP-side signal wait returns AEE_ENOMORE under multi-session load.
 We can run instrumented builds and the shim on the board.
