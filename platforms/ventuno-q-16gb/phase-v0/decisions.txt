@@ -1681,3 +1681,21 @@ D125 2026-10-10 Codex review of #49 at 892d7b9 (four P2 findings) and a declared
      found; (d) no DSP error at all -> consistent with a block without an error (VTCM wait, signalling or other); the
      location then still needs an instrumented libggml-htp (laptop). Any line that identifies the queue import path
      (NULL callbacks vs callbacks) is reported either way.
+D126 2026-10-10 First F0 launch (07:41) stopped fail-closed at its baseline probe (probe-074113): the probe itself passed
+   (ready 6 s, speed_probe rc 0, kernel audit pass), but health failed on package drift. unattended-upgrade at 06:43
+   today: libxml2 2.9.14+dfsg-1.3ubuntu3.9 -> 3.10, bluez, bluez-cups, bluez-obexd, libbluetooth3 5.72-0ubuntu5.5 ->
+   5.7 (security updates; not the accelerator stack; llama-server links neither). The 12 apt holds are intact and the
+   package count is unchanged (1,715). As in D87, D101 and D119, the dpkg baseline was reset (previous kept as
+   dpkg-baseline-20261010-pre-unattended.txt) and F0 relaunched under the D125 plan. probe-074113 stays on record.
+   F0 result (07:43-07:46): probe-074300 PASS; v0f-F-1 PASS (3/3 requests, health pass, kernel evidence). The FastRPC
+   library found llama-server.farf ("adspmsgd enabled", both sessions) and the export holds 285 journal lines for
+   the server, about half of them CDSP0 lines from the DSP side (user PD loader, mappings, dspqueue "Queue state
+   structure initialized", QuRT thread creation); no journald suppression. No libggml-htp message appeared (none of its
+   compiled-in ERROR paths ran). Speeds against P-1's requests of the same target size: prefill -0.4 %, -0.0 %, -2.5 %;
+   decode +7.7 %, +3.3 %, +5.8 %; within the 10 % gate. F1 launched as declared (ARMS=F N_SESS=6 N_REQ=40 FAULT_CAP=4).
+   F0's run directory was renamed v0f-F-1 -> v0f-F0-1 before F1's first session started (07:46, during F1's baseline
+   probe), because F1 reuses the label v0f-F-1 and run_v0e appends to an existing directory; the status lines of F0
+   name v0f-F-1.
+   Deviation: F1 was launched (07:46:22) while the F0 driver was still in its 60 s post-session pause; F0's driver
+   then only printed "v0f hang diagnostic complete: faults 3" (07:46:49) and exited. It started no server, so the two
+   drivers did not act on the NPU together, but the status file interleaves that line with F1's start.
