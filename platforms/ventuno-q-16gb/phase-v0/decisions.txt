@@ -1730,3 +1730,44 @@ D127 2026-10-10 F1 result: the hang's DSP side is identified (reading (a) of D12
      of libggml-htp-v75.so with the patch, and a test on the board (A configuration, the v0f driver, arm F logging,
      a declared request budget) before any V0e run.
    Recovery probe (probe-recovery-081840, 08:18, after the 15-minute wait): PASS (health pass, kernel evidence).
+D128 2026-10-10 Codex review of #49 at 8002b63 (09:04Z): three P2 findings and one description detail. No hardware run.
+   1. Driver recovery ignored the runner's exit status. v0f_hang.sh now treats a load failure or a request error as
+      recoverable only when the runner exited with 1 (a completed failure) AND clean_fail holds; a timeout (124), a
+      kill (137) or any other status stops the driver. Mocked tests: reqerr-timeout-stops and load-killed-stops added;
+      22/22 pass (~/v0 copies updated).
+   2. Monitoring for the morning runs published (tools/publish_monitor.py, 11:19): monitor/health-20261010-{minutes,
+      runs}.jsonl, kernel-20261010.jsonl, run-windows.jsonl (+6 windows), health-checks.txt, and the 2026-10-09 tail.
+      No machine-id or SoC serial in monitor/ or env/ (checked); the one USB serial line is redacted.
+      - The F0 window had been registered as v0f-hang/v0f-F-1 (the directory was renamed to v0f-F0-1 afterwards,
+        D126). The raw run-windows.jsonl was relabelled (start epoch 1791611053 only); the previous file is kept in
+        ~/v0-backups/run-windows-20261010-pre-F0-label.jsonl.
+      - kernel_audit.py printed pass on an export that ended before the run (it checked messages only). It now
+        requires a health sample at or after END with kern_read ok in the same monitor directory, else "missing"
+        (exit 3). Against the old export F1 now reports missing; against the new one, pass. Earlier runs checked
+        (v0e-A-S1, v0f-P-1): still pass.
+      - Recomputed from the committed export only (runs/v0f-hang/monitor-recompute-20261010.txt): all six morning
+        windows (probe-074113, probe-074300, v0f-F0-1, probe-074622, v0f-F-1, probe-recovery-081840) kernel pass;
+        max sample gap 12 s; swap used 0 kB; no failed kernel reads; first successful kernel read 17-34 s after END.
+        F1 min MemAvailable 6.93 GiB (memfloor), as reported in D127; probe-074113's health verdict failed on package
+        drift only (D126).
+   3. Environment cohort (tools/publish_env.sh, 11:19): env/dpkg-baseline-20261010-pre-unattended.txt (the baseline
+      before the D126 reset) and dpkg-baseline-current.txt (after it): 1,715 packages each, 5 lines differ: bluez,
+      bluez-cups, bluez-obexd, libbluetooth3 5.72-0ubuntu5.5 -> 5.72-0ubuntu5.7; libxml2 2.9.14+dfsg-1.3ubuntu3.9 ->
+      2.9.14+dfsg-1.3ubuntu3.10. apt-history.txt holds the two unattended-upgrade entries (2026-10-10 06:43:19 and
+      06:43:45) with exactly these versions. apt-holds-20261010.txt: 12 holds at export (11:19), the same 12 packages
+      and versions as in both baselines (a snapshot at export, not at the runs). manifest.txt updated. Cohorts:
+      probe-074113 ran on the post-update packages against the pre-update baseline (hence its drift ALERT); F0, F1
+      and the recovery probe ran on the current baseline.
+   4. Description: P-1's budget stated (ARMS=P, N_SESS=12, N_REQ=40, FAULT_CAP=4; driver log line at 00:41:26).
+   Also from the review, recorded: F1's request 30 was task 4949 with 765 actual prompt tokens (target 1,000), max
+   300; the last progress counter was n_gen=221. The retry patch is a proposed mitigation, not a fix; the DSP log
+   identifies the consumer exit for F1 only; earlier hangs are compatible with it but have no DSP capture.
+   Validation plan for the patch declared before any build: upstream/htp-retry-validation-plan.txt (build manifest
+   incl. an unpatched control build with the same toolchain; arms C and R; V1 smoke, V2 240 requests, V3 SIGTERM
+   shutdown; readings (a)-(d)). Each step needs the owner's go-ahead.
+   Board: an unplanned reset between 10:50:19 (last sample of boot ddfab954) and 10:50:57 (new boot 50c6700f). The
+   previous boot's journal ends without any shutdown sequence (last line 10:50:03, sysstat); the last sample had
+   14.2 GB MemAvailable, 38.7 C max, no llama-server (a Codex review sandbox was running). Cause unknown (power or a
+   reset outside the OS log). No NPU work was running; the board was idle since the 08:20 backup. The health sampler
+   restarted at boot; the NPU stall watchdog did not (it must be started before any driver run; the driver refuses
+   to start without it).

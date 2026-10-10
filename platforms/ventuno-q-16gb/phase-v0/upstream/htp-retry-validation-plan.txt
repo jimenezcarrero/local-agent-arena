@@ -1,0 +1,46 @@
+Validation plan for the proposed htp_main_thread retry (D128; Codex review of 8002b63). Declared before any build exists.
+Status: PROPOSED MITIGATION, NOT BUILT, NOT TESTED. A changed DSP binary is a new runtime cohort: whatever this plan
+finds is diagnostic only and cannot replace V0e qualification of any configuration.
+
+1. Build manifest (the owner builds on the laptop; the board has no Hexagon SDK). Record, in
+   runs/v0f-hang/htp-retry-build/manifest.txt, before anything is copied to the board:
+   - source: ggml-org/llama.cpp commit 836d57176 (the measured build), `git status --porcelain` empty before patching
+   - patch: upstream/htp-main-thread-retry.patch.txt, its sha256, `git apply --check` output, `git diff --stat` after
+   - toolchain: Hexagon SDK version string, `hexagon-clang --version`, host OS, the exact configure/build commands
+   - outputs, each with sha256 and size: (a) libggml-htp-v75.so built from the UNPATCHED source with the same toolchain
+     and commands (control), (b) libggml-htp-v75.so built from the patched source
+   - `strings` check: (b) contains "retrying" and "in a row"; (a) and the release binary do not
+   - the release package's libggml-htp-v75.so sha256 (~/v0/hexpkg/pkg-linux/lib), for comparison
+   On the board: each binary in its own directory (~/v0/htp-control, ~/v0/htp-retry), never inside ~/v0/hexpkg;
+   sha256 re-checked after the copy. The host side (llama-server, libggml-hexagon.so) stays the release package.
+
+2. Arms (driver v0f_hang.sh; the DSP library is selected only by ADSP_LIBRARY_PATH order, before $P/lib):
+   C  = F with ~/v0/htp-control first (control build, unpatched)
+   R  = F with ~/v0/htp-retry first (patched)
+   Both keep the F logging (dspq_probe2 shim, llama-server.farf 0x1f, journal export) so every session records which
+   DSP messages appeared. Every session starts with the stock baseline probe (must PASS), as in all v0f arms.
+
+3. Steps and budgets (each needs the owner's go-ahead; no root; stop rules as in v0f: health, kernel evidence,
+   fault cap, two load failures, rc != 1 on a recoverable failure):
+   V1 smoke, C then R: N_SESS=1 N_REQ=3 each. Gate: DSP lines arrive, speeds within 10 % of F0, and the intended
+      library was loaded. The FastRPC journal names only the file ("Successfully opened file libggml-htp-v75.so"), not
+      its directory, so identity rests on the search order (the arm's directory first on ADSP_LIBRARY_PATH) and on the
+      sha256 of that directory's file, taken just before and after the session. A C failure means the toolchain build
+      differs from the release; then nothing about R can be read and the plan stops.
+   V2 retry run, R only: N_SESS=6 N_REQ=40 (240 requests), FAULT_CAP = faults so far + 2.
+      For reference only (pooled, not a controlled rate): 14 hangs / 898 requests; F1 hung at request 30.
+   V3 shutdown check, R: after V2 (or after V1 if V2 is not approved), one session ended by SIGTERM instead of the
+      driver's SIGKILL; the server must exit within 30 s, and the next baseline probe must PASS without a restart.
+
+4. Readings (declared now):
+   (a) Supports the mitigation: a peek error is logged as "... retrying" (count shown), and afterwards the same queue
+       keeps answering (shim counts advance; later requests complete; no stall snapshot for that queue).
+   (b) Retry insufficient: a peek error is logged and repeats (the in-a-row count keeps growing, or the stall follows
+       within the 300 s watchdog). Next would be re-importing the queue, a question for the dspqueue owners.
+   (c) Different mechanism: a hang with no peek error in the DSP log. Stop; report as a separate finding.
+   (d) Inconclusive: no peek error within the budget. Not evidence that the patch works; a clean V2 alone shows only
+       that the patched build runs.
+   Watchdog termination: any hang is killed by the NPU stall watchdog as before (300 s); the recovery probe after the
+   fault-cap stop must PASS. Persistent errors cost DSP time (one retry per ms, logs rate-limited); that is recorded,
+   not judged here.
+   Any V0e qualification of a configuration with the patched binary is a separate, owner-approved plan.

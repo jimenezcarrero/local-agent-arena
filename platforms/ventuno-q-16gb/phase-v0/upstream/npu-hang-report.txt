@@ -1,4 +1,4 @@
-Proposed upstream issue for ggml-org/llama.cpp (NOT filed; the owner decides). Evidence: D122-D125, runs/v0f-hang.
+Proposed upstream issue for ggml-org/llama.cpp (NOT filed; the owner decides). Evidence: D122-D128, runs/v0f-hang.
 Wording narrowed in D125 (Codex review of 892d7b9): only host-side observations are stated as facts.
 
 Title: Hexagon: htp_main_thread exits on a dspqueue_peek error (AEE_ENOMORE seen on v75); the session's queue is never read again and the host hangs
@@ -42,14 +42,15 @@ DSP-side log (runtime FARF via llama-server.farf, release build), the only DSP l
   CDSP0: Error 0x2f: wait_signal_locked failed for queue 01E56910 signal 0
   CDSP0: wait_signal_locked failed with 0x2f
   CDSP0: dspqueue_peek failed: 0x0000002f
-  The last line is htp_main_thread's FARF(ERROR) (htp/main.c, 836d57176 line 1363): the build runs the main-thread path
-  and that thread leaves its loop on any dspqueue_peek error other than EWOULDBLOCK/EEXPIRED. Nothing reads the
-  session's queue afterwards, which matches the host-side measurements above. 0x2f is AEE_ENOMORE, returned by the
-  DSP dspqueue's internal signal wait in the middle of a decode (one capture so far).
+  The last line is htp_main_thread's FARF(ERROR) (htp/main.c, 836d57176 line 1363): the build runs the main-thread
+  path and that thread leaves its loop on any dspqueue_peek error other than EWOULDBLOCK/EEXPIRED. Nothing reads the
+  session's queue afterwards, which matches the host-side measurements of the same hang (earlier hangs had no DSP
+  log). 0x2f is AEE_ENOMORE, returned by the DSP dspqueue's internal signal wait in the middle of a decode (one
+  capture so far).
 
-Proposed change (attached; not yet built: we have no Hexagon SDK on the board): keep the loop alive on peek errors
-(rate-limited log, 1 ms sleep, retry; htp_iface_stop still ends it via ctx->killed). Why the signal wait returns
-AEE_ENOMORE is a question for the dspqueue owners.
+Proposed mitigation (attached; not yet built or tested: we have no Hexagon SDK on the board): keep the loop alive on
+peek errors (rate-limited log, 1 ms sleep, retry; htp_iface_stop still ends it via ctx->killed). Why the signal wait
+returns AEE_ENOMORE is a question for the dspqueue owners.
 
 What would help
   - Whether retrying dspqueue_peek after AEE_ENOMORE is safe and sufficient, or whether the queue must be re-imported.
