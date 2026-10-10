@@ -12,9 +12,8 @@ exactly one class:
   unknown   any other alert line (fail-closed: evidence incomplete, not a pass)
 First output line is the verdict: "pass", or the worst class present in the order fault > unknown > npu_map with counts.
 Exit 0 only for pass or npu_map-only (the caller decides whether npu_map is consistent with the run's outcome); 1 for
-fault, 2 for unknown, 3 for missing inputs (no window, no kernel journal copy, or no successful kernel read at or after
-END in the health samples: D128, Codex review of 8002b63 finding 2: a copy that ends before the run cannot vouch for
-it)."""
+fault, 2 for unknown, 3 for missing inputs (no window, no kernel journal copy, or no good kernel read from the run's boot
+within COVER_S after END in the health samples: D128/D129; a copy that ends before the run cannot vouch for it)."""
 import datetime as dt, glob, json, os, re, sys
 
 ALERT_RE = re.compile(r"oom|killed process|out of memory|thermal|throttl|fastrpc|kgsl|adsprpc|cdsp|smmu|fault|error|"
@@ -27,6 +26,7 @@ FAULT = re.compile(r"adreno|a6xx|kgsl|gpu fault|lockup|\bgpu\b.*(hang|fault|reco
 ALLOWED = [
     (re.compile(r"^usb \S+: USB disconnect"), "USB hub/device unplug (owner peripherals), not a compute device"),
 ]
+COVER_S = 150  # the runner waits up to 12 x 10 s after END for a good kernel read (run_route.sh, run_v0e.sh)
 H = os.environ.get("MONITOR_DIR", os.path.expanduser("~/bench-runs/monitor"))
 
 def ep(s): return dt.datetime.fromisoformat(s).timestamp()
@@ -56,17 +56,28 @@ def main(d):
     if not files:
         print(f"missing: no kernel journal copy in {H}"); return 3
     # The sampler appends to the kernel copy only when the kernel logs something, so silence is evidence only up to the
-    # last successful read. Coverage: some health sample at or after END (same monitor directory) records kern_read ok.
-    t_end = t1 - 30; covered = False
+    # last good read. Coverage (D128, D129: Codex reviews of 8002b63 and a89e958): a health sample in the same monitor
+    # directory, from the run's boot (run.txt START boot=), taken after END and within the runner's post-END wait
+    # (12 x 10 s; bound COVER_S), that is a good read by the runner's own predicate: kern_read ok, kern_parse not
+    # FAILED, integer kern_alert_lines. A read from another boot or from later, unrelated activity does not count.
+    m = re.search(r"^\S+ START .*\bboot=(\S+)", run, re.M)
+    if not m:
+        print("missing: no boot id in run.txt START"); return 3
+    boot = m.group(1).replace("-", ""); t_end = t1 - 30; covered = False
     for f in sorted(glob.glob(f"{H}/health-*.jsonl")):
         for l in open(f, errors="replace"):
             if '"kern_read":"ok"' not in l.replace(" ", ""): continue
             try: r = json.loads(l)
             except ValueError: continue
-            if r.get("kern_read") == "ok" and r.get("epoch", 0) >= t_end: covered = True; break
+            if (r.get("kern_read") == "ok" and r.get("kern_parse") != "FAILED"
+                    and isinstance(r.get("kern_alert_lines"), int) and not isinstance(r.get("kern_alert_lines"), bool)
+                    and str(r.get("boot_id", "")).replace("-", "") == boot
+                    and isinstance(r.get("epoch"), int) and t_end < r["epoch"] <= t_end + COVER_S):
+                covered = True; break
         if covered: break
     if not covered:
-        print(f"missing: no successful kernel read at or after END in {H}/health-*.jsonl"); return 3
+        print(f"missing: no good kernel read from boot {boot} within {COVER_S} s after END in {H}/health-*.jsonl")
+        return 3
     cnt = {c: sum(1 for x in lines if x[1] == c) for c in ("fault", "unknown", "npu_map", "allowed")}
     worst = next((c for c in ("fault", "unknown", "npu_map") if cnt[c]), None)
     print("pass" if worst is None else f"{worst} " + " ".join(f"{c}={n}" for c, n in cnt.items() if n),

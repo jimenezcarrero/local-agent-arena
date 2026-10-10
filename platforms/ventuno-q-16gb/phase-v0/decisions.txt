@@ -1767,7 +1767,20 @@ D128 2026-10-10 Codex review of #49 at 8002b63 (09:04Z): three P2 findings and o
    shutdown; readings (a)-(d)). Each step needs the owner's go-ahead.
    Board: an unplanned reset between 10:50:19 (last sample of boot ddfab954) and 10:50:57 (new boot 50c6700f). The
    previous boot's journal ends without any shutdown sequence (last line 10:50:03, sysstat); the last sample had
-   14.2 GB MemAvailable, 38.7 C max, no llama-server (a Codex review sandbox was running). Cause unknown (power or a
-   reset outside the OS log). No NPU work was running; the board was idle since the 08:20 backup. The health sampler
+   14.2 GB MemAvailable, 38.7 C max, no llama-server (a Codex review sandbox was running). [Corrected in D129: the owner reset it by
+   mistake while moving the board.] No NPU work was running; the board was idle since the 08:20 backup. The health sampler
    restarted at boot; the NPU stall watchdog did not (it must be started before any driver run; the driver refuses
    to start without it).
+D129 2026-10-10 Codex review of #49 at a89e958 (11:12Z): one P2; reset attributed. No hardware run.
+   1. kernel_audit.py's coverage guard (D128) accepted any later sample with kern_read ok, even a failed parse, from
+      another boot or from unrelated later activity. It now requires the runner's own good-read predicate (kern_read
+      ok, kern_parse not FAILED, integer kern_alert_lines), the run's boot id (run.txt START boot=; missing -> rc 3),
+      and a sample after END within COVER_S = 150 s (the runner waits up to 12 x 10 s for that read). Offline checks in
+      test_kernel_audit.sh: parse failed, no alert count, read failed, other boot, 151 s after END, at END, no boot in
+      run.txt -> missing; a good read at +20 s and at +150 s -> pass; 28/28 pass (the 9 coverage cases are new; the
+      synthetic run and monitor now carry a boot id and a good read, which D128 had not added: with the D128 versions
+      the file failed 14 cases; I had not re-run it in D128). Regression from the committed monitor export: all 316 run directories give the same
+      verdict as the D128 version.
+   2. The ~10:50 board reset (D128): the owner reset it by mistake while moving the board (owner, to the review).
+      D128 marked as corrected. Before any later authorized run, the NPU stall watchdog must be started again (the
+      health sampler restarted at boot; the driver refuses to start without both).
