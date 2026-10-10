@@ -1887,3 +1887,13 @@ D135 2026-10-10 Upstream issue filed by the owner: https://github.com/ggml-org/l
    command, the patch, the V2 result, reproduction notes and "first bad commit: unknown, not bisected"). Possible
    duplicates checked before filing: none; the closest, #24963 (HMX prefill hang), was fixed by #24954, which is in
    836d57176. The helper page upstream/file-the-issue.md was removed after filing (in git history at 6e5f2e6).
+D136 2026-10-10 Owner "Ok continue" (22:2x) to the recommendation after #30309: declare a V0e of A with the patched DSP
+   library. Declared, not run: v0e-plan-A-retry.txt (needs the owner's approval after review before any run).
+   - Same plan as D118 (v0e-plan-A.txt) except the runtime: release host package + ~/v0/htp-retry/libggml-htp-v75.so
+     (sha256 aa2ae2a9..., D131) first on ADSP_LIBRARY_PATH, with DSP error logging (.farf 0x1f) on as part of the
+     runtime; library sha256 and .farf content checked before and after every session; journal exported per
+     session; retried peek errors counted, not faults; a repeated error (more than 1 in a row) flagged for the owner.
+   - Speed re-check reported, not gated: S2's first 3 cycles at 8K against A's D90 admission medians (345.4/9.80),
+     > 10 % slower flagged.
+   - tools/v0e_A_retry.sh = v0e_A.sh plus those changes (diff checked); tools/test_v0e_A_retry.sh 17/17 (the 13
+     D118 cases plus wrong library, changed .farf, retry counted, repeat flagged). Deployed copies in ~/v0 identical.

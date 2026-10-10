@@ -1,0 +1,57 @@
+V0e plan for configuration A with the patched DSP library ("A-retry"; declared 2026-10-10 before running; D136).
+Owner, after the retry patch was validated (D133) and the upstream issue filed (ggml-org/llama.cpp#30309): "Ok
+continue" to the recommendation "declare a V0e of A with the patched library". This file is the declaration; nothing
+runs until the owner approves it after review. Not a GO: V0e qualifies; GO is the owner's.
+
+What changes against v0e-plan-A.txt (D118), and nothing else:
+  1. Runtime: a new cohort. The host side is the same release package (836d57176, llama-server sha256
+     815b22bb99c8f63e..., D40); the DSP library is ~/v0/htp-retry/libggml-htp-v75.so, sha256
+     aa2ae2a978d95935b763234c1a6cefe27f42c1cf98d67f041c17f13210fedde2 (D131: the release source plus
+     upstream/htp-main-thread-retry.patch.txt, built with the measured toolchain; the unpatched rebuild is
+     byte-identical to the release library). Selected by search order, first on ADSP_LIBRARY_PATH after the .farf
+     directory; its sha256 and the .farf content are checked before and after every session, a mismatch stops.
+  2. DSP error logging stays on: ~/v0/farf/llama-server.farf (0x1f, D125). It is part of the qualified runtime (it
+     only enables the release library's compiled-in ERROR messages; V1 of D133 measured speeds within 5 % with it on).
+     After every session the server's journal lines go to <run dir>/fastrpc-journal.txt; retried peek errors are
+     counted in the status ("DSP <label>: retried peek errors N, longest run M"). A retry is not a fault. A run of
+     more than one error in a row is flagged for the owner (that path was never exercised in D133), not a fail.
+  3. Phase and labels: v0e-A-retry, sessions v0e-A-retry-S1 and -S2 (evidence ~/bench-runs/v0/v0e-A-retry, status
+     ~/bench-runs/v0/v0d/v0e-A-retry-status.txt), driver tools/v0e_A_retry.sh.
+  Server (the D118 command with only ADSP_LIBRARY_PATH changed):
+    env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$HOME/v0/farf;$HOME/v0/htp-retry;$P/lib
+      GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server -m NeoHorse-1-4B-q4_0-pure.gguf -c 32768
+      --cache-ram 7942 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0
+  No diagnostic shim (LD_LIBRARY_PATH holds only the package). No cDSP restart and no root.
+
+Unchanged from v0e-plan-A.txt (read it for the full text): model and quantization (sha256 f822fa26...), measurement
+commit 7badb21, pi 0.80.10 / local32k, window 32768 only, the S1 items (1a streaming tool probe 10/10, 1b streaming
+agentic 3/3, 1c pi smoke, 2 window agreement and near-limit tool call, 3 cached reuse with real tool results, 2/3
+real-pi compaction), S2 (>= 95 min sustained, VALID summary), budgets (S1 7200 s, S2 9000 s), 180 s pause,
+memfloor --admit 7942 per session, baseline probe (release package, -c 40960, 512) before each session, generation
+sampling, and the policy:
+  - any HANG or DEVFAULT (baseline probes included): fault recorded, recovery by baseline probing without a restart,
+    STOP: A-retry NOT QUALIFIED;
+  - S1 items failing on a clean session: S1 FAIL recorded, S2 still runs for evidence, not qualified;
+  - a clean load failure: recovery, that session once more; a second -> NOT QUALIFIED (load);
+  - any other non-PASS (missing evidence, memory REJECT, invalid sustained summary) -> STOP.
+  QUALIFIED only if S1 and S2 PASS, memory ADMIT in both, the sustained summary VALID and no fault.
+
+Speed re-check (reported, not gated; Codex review of dd9d692: earlier speed evidence does not carry over to a changed
+binary): S2's 8K speed probes (first 3 cycles) against A's V0d admission medians at 8K (D90: prefill 345.4, decode
+9.80 tok/s). More than 10 % slower in either is flagged for the owner. V1 of D133 (short prompts) was within 5 % of
+F0.
+
+What this attempt can and cannot show:
+  - Can: whether A, with the patched DSP library, passes every V0e gate at 32768, including the pi workloads that
+    the D120 hang interrupted, with the retry path counted.
+  - Cannot: AM or H2 (separate plans), other windows (65K is another configuration), or why AEE_ENOMORE occurs.
+  - A's record stays: the D99 and D120 hangs (release library) remain on record either way.
+
+Before running (checked again at launch, recorded in the status): no llama-server running; NPU stall watchdog and
+health sampler running; health check pass with no package drift; measurement checkout 7badb21 clean; ~/v0 copies of
+v0e_A_retry.sh identical to tools/. Entry: setsid bash ~/v0/v0e_A_retry.sh from ~/bench-runs (never inside the repo).
+Evidence copied to runs/v0e-A-retry with the monitoring export; recomputed audits from the committed export.
+
+Tests (offline, mocked): tools/test_v0e_A_retry.sh 17/17: the 13 policy cases of test_v0e_A.sh, plus wrong library
+-> stop, .farf changed -> stop, a retried error counted (not a fault), a repeated error flagged (not a fault).
+Estimated NPU time if everything passes: about 3-4.5 hours (S1 up to 2 h, S2 at least 95 min, probes and pauses).
