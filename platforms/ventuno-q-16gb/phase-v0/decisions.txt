@@ -1784,3 +1784,15 @@ D129 2026-10-10 Codex review of #49 at a89e958 (11:12Z): one P2; reset attribute
    2. The ~10:50 board reset (D128): the owner reset it by mistake while moving the board (owner, to the review).
       D128 marked as corrected. Before any later authorized run, the NPU stall watchdog must be started again (the
       health sampler restarted at boot; the driver refuses to start without both).
+   3. Build route for the retry patch (owner question "how can I build what you need and why you can't?"):
+      tools/build_htp_retry_x86.sh, for the laptop (x86_64 + Docker), same pinned toolchain image (id checked) and
+      documented commands as build_hexagon_x86.sh / D40; builds the control (unpatched) then the patched
+      libggml-htp-v75.so in a separate tree (~/llama.cpp-htp-retry), pins the patch by sha256 (4b9838df...), checks it
+      touches only htp/main.c, checks the patch's log string is in the patched library only (the release library
+      already holds its FARF(ERROR) format strings, so the check is meaningful), writes the plan's manifest, and
+      copies one tarball to ~/v0/ on the board with a sha256 check. Checked here: bash -n; the patch steps on a
+      worktree of 836d57176 (applies, 1 file, +10/-2); the release library lacks the string. Not run end to end
+      (no x86 host here). Why not on the board: the Hexagon toolchain ships only as an amd64 container (Hexagon
+      SDK 6.6 inside), and on this arm64 board qemu-user crashes inside it (D26); building natively would need the
+      SDK installed (packages, root, package drift) and would still not be the toolchain the measured package used.
+
