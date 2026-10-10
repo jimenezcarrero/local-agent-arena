@@ -1,0 +1,33 @@
+# dspq_probe shim build record, 2026-10-10T07:29:50+02:00
+dir: ~/v0/dspq_kick
+source: dspq_probe.c sha256 b3b719a94bde0bd05862f719dc45e28634d33405057aeaac4cbc937dfd3ed5e4
+source matches tools/dspq_probe.c at commits: 892d7b9
+build command: gcc -O2 -Wall -Wextra -shared -fPIC -Wl,-soname,libcdsprpc.so -o <dir>/libcdsprpc.so <dir>/dspq_probe.c -ldl -lpthread -Wl,--no-as-needed /lib/aarch64-linux-gnu/libcdsprpc.so.1
+compiler: gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0; linker: GNU ld (GNU Binutils for Ubuntu) 2.42
+rebuild from this source: byte-identical to the deployed binary
+binary: libcdsprpc.so sha256 a5f3a53d2df2bfa5c558b710adfe9a56a4e4a0380702ba5dd3a8021136311e61
+  0x0000000000000001 (NEEDED)             Shared library: [libcdsprpc.so.1]
+  0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+  0x0000000000000001 (NEEDED)             Shared library: [ld-linux-aarch64.so.1]
+  0x000000000000000e (SONAME)             Library soname: [libcdsprpc.so]
+real library: /lib/aarch64-linux-gnu/libcdsprpc.so.1 -> /usr/lib/aarch64-linux-gnu/libcdsprpc.so.1.0.0 sha256 eb04ce8a84acdd647cdf8c7f6e8ac386dc1ce40e52bf6bee7855aef85a28c945, package qcom-fastrpc1 1.0.15+repack2
+symbol resolution (dlopen("libcdsprpc.so") with LD_LIBRARY_PATH=<dir>:<package lib>, as the server runs it):
+  rpcmem_alloc             /lib/aarch64-linux-gnu/libcdsprpc.so.1
+  rpcmem_alloc2            /lib/aarch64-linux-gnu/libcdsprpc.so.1
+  rpcmem_free              /lib/aarch64-linux-gnu/libcdsprpc.so.1
+  rpcmem_to_fd             /lib/aarch64-linux-gnu/libcdsprpc.so.1
+  fastrpc_mmap             /lib/aarch64-linux-gnu/libcdsprpc.so.1
+  fastrpc_munmap           /lib/aarch64-linux-gnu/libcdsprpc.so.1
+  dspqueue_create          ~/v0/dspq_kick/libcdsprpc.so
+  dspqueue_close           /lib/aarch64-linux-gnu/libcdsprpc.so.1
+  dspqueue_export          /lib/aarch64-linux-gnu/libcdsprpc.so.1
+  dspqueue_write           ~/v0/dspq_kick/libcdsprpc.so
+  dspqueue_read            ~/v0/dspq_kick/libcdsprpc.so
+  dspqueue_read_noblock    /lib/aarch64-linux-gnu/libcdsprpc.so.1
+  remote_handle64_open     /lib/aarch64-linux-gnu/libcdsprpc.so.1
+  remote_handle64_invoke   /lib/aarch64-linux-gnu/libcdsprpc.so.1
+  remote_handle_control    /lib/aarch64-linux-gnu/libcdsprpc.so.1
+  remote_handle64_control  /lib/aarch64-linux-gnu/libcdsprpc.so.1
+  remote_session_control   /lib/aarch64-linux-gnu/libcdsprpc.so.1
+  remote_handle64_close    /lib/aarch64-linux-gnu/libcdsprpc.so.1
+  remote_system_request    absent (the real library lacks it too)

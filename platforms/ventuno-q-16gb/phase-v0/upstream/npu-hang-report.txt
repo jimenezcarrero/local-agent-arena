@@ -1,0 +1,64 @@
+Proposed upstream issue for ggml-org/llama.cpp (NOT filed; the owner decides). Evidence: D122-D133, runs/v0f-hang.
+Wording narrowed in D125 (Codex review of 892d7b9): only host-side observations are stated as facts.
+
+Title: Hexagon: htp_main_thread exits on a dspqueue_peek error (AEE_ENOMORE seen on v75); the session's queue is never read again and the host hangs
+
+Name and version
+  build 11381 (836d57176), release package cross-built with the Snapdragon toolchain (arm64-linux v0.7), Hexagon SDK
+  6.6.0.0, htp-v75. The relevant code (htp/main.c process_ops / vtcm_acquire / vtcm_release) is unchanged on master
+  (2026-10-09, 79e2e74eb) apart from line offsets.
+
+Hardware / OS
+  Arduino VENTUNO Q (Qualcomm QCS8275, Hexagon v75, one NPU), Ubuntu 24.04, kernel 6.8.0-1084-qcom, qcom-fastrpc1
+  1.0.15+repack2.
+
+Command (a 4B model needs two virtual sessions because one session cannot map it):
+  GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 llama-server -m NeoHorse-1-4B-q4_0-pure.gguf -c 32768 --cache-ram 7942
+    --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0
+  (default split mode: layers; the two sessions alternate per graph split)
+
+Problem
+  At a random request, generation stops in prefill or in decode and does not resume. Host threads sit in
+  fastrpc_wait_for_completion; flush_pending() loops on AEE_EEXPIRED; there is no kernel message and no abort; our
+  watchdog kills the server after 5 minutes. Pooled over our logs: 14 hangs in 898 requests (198 servers; 11/580 with
+  2 sessions, 2/275 with 3, 1/41 with 4), across mixed configurations and with no NPU restart between some runs, so
+  this is not a controlled rate; it looked more frequent shortly after an earlier hang. We have no single-session data
+  (the models do not fit one session). GGML_HEXAGON_OPQUEUE=1 (verified in the process: opt_opqueue = 1) did not
+  prevent it in our run (hang on request 4).
+
+Measurement (an LD_LIBRARY_PATH shim named libcdsprpc.so that wraps dspqueue_create/write/read for counting and
+forwards everything else to the real library; it reads dspqueue_get_stat when a queue makes no progress):
+  - At the hang, queue 0 has 1 request outstanding that has not been dequeued on the DSP side (WRITE_QUEUE_PACKETS = 1
+    at about 60, 120 and 180 s); every earlier request on that queue was answered. Queue 1 is idle with nothing
+    outstanding. Same pattern in a second hang.
+  - In another hang, an early-wakeup packet was written to queue 0 once per second
+    (dspqueue_write_early_wakeup_noblock): none was dequeued; WRITE_QUEUE_PACKETS grew 1, 2, ... 312 until the kill.
+    (Earlier in that run, during normal operation, a wakeup packet on queue 1 was consumed without harm.)
+  So, from the host side: between answering one batch and dequeuing the next, the DSP side of that session stops
+  making progress for at least the ~5 minutes until the kill. A successful host-side write does not show that the DSP
+  was signalled or that any DSP thread ran; where the DSP side stopped is not known.
+
+DSP-side log (runtime FARF via llama-server.farf, release build), the only DSP lines after loading, at the stall:
+  CDSP0: Error 0x2f: wait_signal_locked failed for queue 01E56910 signal 0
+  CDSP0: wait_signal_locked failed with 0x2f
+  CDSP0: dspqueue_peek failed: 0x0000002f
+  The last line is htp_main_thread's FARF(ERROR) (htp/main.c, 836d57176 line 1363): the build runs the main-thread
+  path and that thread leaves its loop on any dspqueue_peek error other than EWOULDBLOCK/EEXPIRED. Nothing reads the
+  session's queue afterwards, which matches the host-side measurements of the same hang (earlier hangs had no DSP
+  log). 0x2f is AEE_ENOMORE, returned by the DSP dspqueue's internal signal wait in the middle of a decode (one
+  capture so far).
+
+Proposed change (attached, htp-main-thread-retry.patch.txt, sha256 4b9838df...; the file's own header predates the
+test): keep the loop alive on peek errors (rate-limited log, 1 ms sleep, retry; htp_iface_stop still ends it via
+ctx->killed). Tested on the same board and configuration: the patched libggml-htp-v75.so (Hexagon SDK 6.6.0.0, tools
+19.0.07; the unpatched build with the same toolchain is byte-identical to the release library) served 240/240
+requests in 6 servers with no hang. Its DSP log shows 8 events of the same signature ("Error 0x2f:
+wait_signal_locked failed ... signal 0", then "dspqueue_peek failed: 0x0000002f (1 in a row), retrying"); each was a
+single error and the session went on serving requests afterwards. All servers stopped on SIGTERM within about 1 s.
+Why the signal wait returns AEE_ENOMORE is a question for the dspqueue owners; retrying is a workaround on the ggml
+side, and the persistent-error path (repeated errors) was not exercised.
+
+What would help
+  - Whether retrying dspqueue_peek after AEE_ENOMORE is safe and sufficient, or whether the queue must be re-imported.
+  - Why the DSP-side signal wait returns AEE_ENOMORE under multi-session load.
+We can run instrumented builds and the shim on the board.

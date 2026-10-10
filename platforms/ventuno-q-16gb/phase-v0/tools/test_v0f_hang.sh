@@ -1,0 +1,74 @@
+#!/bin/bash
+# mocked tests for v0f_hang.sh (D122; derived from test_v0e_A.sh): fake run_v0e/run_route/kernel audit/memfloor under a temp dir; checks the exit
+# code and the sequence of actions for each declared policy branch. Refuses to run while a llama-server is up.
+pgrep -x llama-server > /dev/null && { echo "a llama-server is running; not testing"; exit 9; }
+fails=0
+# fake run_route (baseline probes) and run_v0e (sessions); behaviour per label from $T/mode-<S1|S2|probe>:
+#   pass (S2 also writes a VALID sustained summary) | nosummary (S2 PASS without it) | fail (workload failed, clean) | hang (watchdog line) | evidence (health failed) | loadfail (clean, D114)
+FAKE='#!/bin/bash
+lab=$1; ph=${PHASE:-$2}; o=$BR/v0/$ph/$lab; mkdir -p $o; k=probe; case $lab in v0f-W-*) k=W;; v0f-B-*) k=B;; v0f-P-*) k=P;; v0f-K-*) k=K;; v0f-F-*) k=F;; v0f-R-*) k=R;; esac
+echo "$k" >> $T/calls; m=$(head -1 $T/mode-$k 2>/dev/null); m=${m:-pass}; sed -i 1d $T/mode-$k 2>/dev/null
+echo pass > $o/health-verdict.txt; : > $o/server.log; echo "pass" > $o/kernel-audit.txt
+case $m in
+  pass|nosummary) [ $k = S2 ] && [ $m = pass ] && echo "RESULT summary: VALID (6 cycles)" > $o/sustained-summary.txt
+    echo {\"ok\": true} > $o/stress.jsonl; printf "t server pid 4242\nt RESULT PASS (workload, health: pass, kernel evidence)\n" > $o/run.txt; exit 0;;
+  fail) echo "t RESULT FAIL: workload=1" > $o/run.txt; echo "t x: rc=1" > $o/items.txt; exit 1;;
+  hang) echo "NPU-WATCHDOG" >> $WD_LOG; echo "t RESULT FAIL: workload=5" > $o/run.txt; exit 1;;
+  evidence) echo "t RESULT FAIL: health=(fail: x)" > $o/run.txt; exit 1;;
+  loadfail) printf "t SERVER EXITED before ready\nt RESULT FAIL: load=4\n" > $o/run.txt; echo "ggml-hex: HTP0:2 buffer mapping failed" > $o/server.log; exit 1;;
+  reqerr) printf "t server still up at the end of the workload\nt RESULT FAIL: workload=1\n" > $o/run.txt; exit 1;;
+  reqerr-health) echo "fail: missing kernel read" > $o/health-verdict.txt
+    printf "t server still up at the end of the workload\nt RESULT FAIL: workload=1 health=(fail: missing kernel read)\n" > $o/run.txt; exit 1;;
+  reqerr-hv) echo "fail: missing kernel read" > $o/health-verdict.txt  # verdict failed but not named in the RESULT line
+    printf "t server still up at the end of the workload\nt RESULT FAIL: workload=1\n" > $o/run.txt; exit 1;;
+  reqerr-gone) printf "t server GONE before the end of the workload\nt RESULT FAIL: workload=1\n" > $o/run.txt; exit 1;;
+  reqerr-kunknown) echo unknown > $o/ka-mode; printf "t server still up at the end of the workload\nt RESULT FAIL: workload=1\n" > $o/run.txt; exit 1;;
+  load-health) echo "fail: missing kernel read" > $o/health-verdict.txt
+    printf "t SERVER EXITED before ready\nt RESULT FAIL: load=4 health=(fail: missing kernel read)\n" > $o/run.txt; exit 1;;
+  reqerr-timeout) printf "t server still up at the end of the workload\nt RESULT FAIL: workload=1\n" > $o/run.txt; exit 124;;
+  load-killed) printf "t SERVER EXITED before ready\nt RESULT FAIL: load=4\n" > $o/run.txt; echo "ggml-hex: HTP0:2 buffer mapping failed" > $o/server.log; exit 137;;
+  load-kunknown) echo unknown > $o/ka-mode; printf "t SERVER EXITED before ready\nt RESULT FAIL: load=4\n" > $o/run.txt; exit 1;;
+esac'
+case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
+  T=$(mktemp -d); export T BR=$T/br WD_LOG=$T/wd.txt; echo x > $WD_LOG; mkdir -p $BR
+  echo "$FAKE" > $T/run.sh; printf '#!/bin/bash\nif [ -f $1/ka-mode ]; then cat $1/ka-mode; exit 0; fi; echo pass; exit 0\n' > $T/ka.sh; printf 'import os, sys\nsys.exit(2 if os.path.exists(os.environ["T"] + "/mem-reject") else 0)\n' > $T/mem.py
+  printf '#!/bin/bash\necho R >> $T/calls; echo OK restart\n' > $T/pre.sh; printf '#!/bin/bash\necho "journal $*"\n' > $T/jc.sh; chmod +x $T/run.sh $T/ka.sh $T/pre.sh $T/jc.sh
+  local kv; for kv in "$@"; do case $kv in mem=reject) : > $T/mem-reject;; mode-*) echo "${kv#*=}" | tr , '\n' > $T/${kv%%=*};; esac; done
+  local fc=8 arms="W B"; for kv in "$@"; do case $kv in FAULT_CAP=*) fc=${kv#*=};; ARMS=*) arms=${kv#*=};; esac; done
+  env RUN_ROUTE=$T/run.sh RUN_V0E=$T/run.sh MEMFLOOR=$T/mem.py KAUDIT=$T/ka.sh PROBE_WAIT=0 SESS_PAUSE=0 N_SESS=2 N_REQ=1 JOURNAL=$T/jc.sh CHECK_PROC=true FAULT_CAP=$fc ARMS="$arms" \
+      bash ~/v0/v0f_hang.sh > $T/out.txt 2>&1; local rc=$?
+  local seq=$(paste -sd' ' $T/calls 2>/dev/null)
+  if [ $rc = $want_rc ] && [ "$seq" = "$want_seq" ]; then echo "ok   $name (rc $rc: $seq)"
+  else echo "FAIL $name (rc $rc want $want_rc; seq '$seq' want '$want_seq')"; sed 's/^/     /' $T/out.txt | tail -8; fails=$((fails+1)); fi
+  if [ $name = arm-f-only ]; then grep -qx 'journal _PID=4242 --no-pager -q -o short-iso' $BR/v0/v0f-hang/v0f-F-1/fastrpc-journal.txt \
+    && echo "ok   arm-f journal exported for the server pid" || { echo "FAIL arm-f journal export"; fails=$((fails+1)); }; fi
+  rm -rf $T; }
+case1 all-pass 0 "probe W probe B probe W probe B"
+case1 b-hang-continues 0 "probe W probe B probe probe W probe B" mode-B=hang,pass
+case1 w-and-b-hang-continue 0 "probe W probe probe B probe probe W probe B" mode-W=hang,pass mode-B=hang,pass
+case1 two-loadfails-stop 2 "probe W probe probe B" mode-W=loadfail mode-B=loadfail
+case1 loadfail-then-pass 0 "probe W probe probe B probe W probe B" mode-W=loadfail,pass
+case1 evidence-stops 2 "probe W" mode-W=evidence
+case1 fault-cap 5 "probe W probe probe B" mode-W=hang mode-B=hang FAULT_CAP=2
+case1 baseline-hang-recovers 0 "probe probe W probe B probe W probe B" mode-probe=hang,pass
+case1 arm-p-only 0 "probe P probe P" ARMS=P
+case1 arm-p-hang-cap 5 "probe P probe probe P" ARMS=P mode-P=hang,hang FAULT_CAP=2
+case1 arm-k-only 0 "probe K probe K" ARMS=K
+case1 arm-f-only 0 "probe F probe F" ARMS=F
+# D125 (Codex review of 892d7b9 finding 1): a load failure or request error recovers only when it is the run's only failure
+case1 reqerr-clean-continues 0 "probe W probe B probe W probe B" mode-W=reqerr
+case1 reqerr-health-stops 2 "probe W" mode-W=reqerr-health
+case1 reqerr-verdict-stops 2 "probe W" mode-W=reqerr-hv
+case1 reqerr-server-gone-stops 2 "probe W" mode-W=reqerr-gone
+case1 reqerr-kernel-unknown-stops 2 "probe W" mode-W=reqerr-kunknown
+case1 load-health-stops 2 "probe W" mode-W=load-health
+case1 load-kernel-unknown-stops 2 "probe W" mode-W=load-kunknown
+# D128 (Codex review of 8002b63 finding 1): clean-looking evidence from an interrupted runner (timeout, kill) stops
+case1 reqerr-timeout-stops 2 "probe W" mode-W=reqerr-timeout
+case1 load-killed-stops 2 "probe W" mode-W=load-killed
+# D132: arm R runs only with the patched library's expected sha256, checked before and after each session
+mkdir -p ${TMPDIR:-/tmp}/v0f-r-$$; echo lib > ${TMPDIR:-/tmp}/v0f-r-$$/libggml-htp-v75.so; RS=$(sha256sum ${TMPDIR:-/tmp}/v0f-r-$$/libggml-htp-v75.so | cut -d' ' -f1)
+HTPR=${TMPDIR:-/tmp}/v0f-r-$$ RETRY_SHA=$RS case1 arm-r-only 0 "probe R probe R" ARMS=R
+HTPR=${TMPDIR:-/tmp}/v0f-r-$$ RETRY_SHA=0000 case1 arm-r-wrong-lib-stops 2 "probe" ARMS=R
+rm -rf ${TMPDIR:-/tmp}/v0f-r-$$
+echo "failures: $fails"; exit $fails

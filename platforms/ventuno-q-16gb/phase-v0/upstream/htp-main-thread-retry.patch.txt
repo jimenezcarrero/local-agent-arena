@@ -1,0 +1,39 @@
+Proposed fix (D127) for the NPU hang, NOT compiled or tested yet: it needs the Hexagon SDK (laptop build of
+libggml-htp-v75.so). Applies to 836d57176 and to master f2918cabb (offset 7). Evidence: runs/v0f-hang/v0f-F-1
+(fastrpc-journal.txt, 07:57:37: "wait_signal_locked failed with 0x2f" then "dspqueue_peek failed: 0x0000002f").
+htp_main_thread used to leave its loop on any dspqueue_peek error other than EWOULDBLOCK/EEXPIRED; after that nothing
+reads the session's queue and the host waits forever. The patch retries after 1 ms instead (rate-limited log);
+htp_iface_stop still ends the loop through ctx->killed.
+
+--- a/ggml/src/ggml-hexagon/htp/main.c	2026-10-10 08:05:03.787169817 +0200
++++ b/ggml/src/ggml-hexagon/htp/main.c	2026-10-10 08:05:03.826169991 +0200
+@@ -1349,6 +1349,8 @@
+ 
+     FARF(HIGH, "htp-main-thread: started");
+ 
++    unsigned n_err = 0;  // consecutive dspqueue_peek errors
++
+     while (!atomic_load(&ctx->killed)) {
+         uint32_t flags = 0;
+         uint32_t num_buffers = 0;
+@@ -1356,12 +1358,18 @@
+ 
+         int err = dspqueue_peek(ctx->dsp_queue, &flags, &num_buffers, &message_length, 50000);
+         if (err == 0) {
++            n_err = 0;
+             process_ops(ctx);
+         } else if (err == AEE_EWOULDBLOCK || err == AEE_EEXPIRED) {
+             continue;
+         } else {
+-            FARF(ERROR, "dspqueue_peek failed: 0x%08x", (unsigned) err);
+-            break;
++            // Do not leave the loop: nothing else reads this session's queue, so the host would wait forever.
++            // Seen on v75: dspqueue_peek returns AEE_ENOMORE (0x2f) from its internal signal wait in the middle of
++            // a decode. Retry after a short sleep; htp_iface_stop ends the loop through ctx->killed.
++            if (n_err++ < 8 || (n_err % 1000) == 0) {
++                FARF(ERROR, "dspqueue_peek failed: 0x%08x (%u in a row), retrying", (unsigned) err, n_err);
++            }
++            qurt_sleep(1000);
+         }
+     }
+ 
