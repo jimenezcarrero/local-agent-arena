@@ -6,12 +6,14 @@
 // read has succeeded on it for V0F_STALL_S seconds (default 60), it writes one snapshot of EVERY queue to
 // $V0F_DUMP_DIR/qstat-<pid>-<n>.txt: host writes/reads, seconds since the last successful read, and dspqueue_get_stat
 // WRITE_QUEUE_PACKETS (requests the DSP has not read yet) and READ_QUEUE_PACKETS (responses the host has not read).
-// Reading: a stuck session with WRITE_QUEUE_PACKETS > 0 means its DSP side never read the request (a lost wakeup);
-// 0 means the DSP took it and never answered (stuck in compute or waiting). No behaviour change otherwise.
+// Reading: a stuck session with WRITE_QUEUE_PACKETS > 0 means the DSP side has not dequeued the request (the cause, a
+// missed signal or a consumer thread that is blocked or gone, is not visible from the host); 0 means the DSP took it and
+// has not answered. No behaviour change otherwise.
 // Opt-in workaround (D124): with V0F_KICK_S=<s>, when a queue has an outstanding request that the DSP has not read
 // (WRITE_QUEUE_PACKETS > 0) and no read has succeeded on it for <s> seconds, the watcher writes one early-wakeup packet
-// (dspqueue_write_early_wakeup_noblock; writes are serialized by the queue mutex). It changes the queue's write count,
-// so the DSP-side callback runs again and drains the stranded request; the reader consumes wakeup packets internally.
+// (dspqueue_write_early_wakeup_noblock; writes are serialized by the queue mutex). The intent: a new packet changes the
+// queue's write count, which should make a DSP-side consumer that missed a signal run again; the host reader consumes
+// wakeup packets internally. In the D124 check it was ineffective (no packet was dequeued); this does not show why.
 // Each kick is logged to $V0F_DUMP_DIR/kicks-<pid>.txt with the queue counters before it.
 #define _GNU_SOURCE
 #include <dlfcn.h>
@@ -30,7 +32,8 @@ struct dspqueue_buffer;
 
 #define MAXQ 16
 static struct { dspqueue_t q; _Atomic uint64_t writes, reads; _Atomic int64_t last_read_ms; } Q[MAXQ];
-static _Atomic int nq;
+static _Atomic int nq;  // published slots: Q[0..nq) are fully initialized
+static pthread_mutex_t reg_lock = PTHREAD_MUTEX_INITIALIZER;
 static void * real;
 static AEEResult (*r_create)(int, uint32_t, uint32_t, uint32_t, dspqueue_callback_t, dspqueue_callback_t, void *, dspqueue_t *);
 static AEEResult (*r_write)(dspqueue_t, uint32_t, uint32_t, struct dspqueue_buffer *, uint32_t, const uint8_t *, uint32_t);
@@ -48,7 +51,7 @@ static void * watcher(void * arg) {
     const char * k = getenv("V0F_KICK_S"); int64_t kick_ms = k ? atoll(k) * 1000 : 0;
     for (;;) {
         usleep(kick_ms ? 250000 : 1000000);
-        int n = atomic_load(&nq), stuck = -1; int64_t t = now_ms();
+        int n = atomic_load_explicit(&nq, memory_order_acquire), stuck = -1; int64_t t = now_ms();
         for (int i = 0; kick_ms && r_wake && r_stat && i < n; i++) {
             uint64_t w = atomic_load(&Q[i].writes), r = atomic_load(&Q[i].reads), wq = 0;
             if (w <= r || t - atomic_load(&Q[i].last_read_ms) < kick_ms || t - atomic_load(&last_kick_ms[i]) < kick_ms) continue;
@@ -91,11 +94,19 @@ __attribute__((constructor)) static void init(void) {
             getenv("V0F_STALL_S") ? getenv("V0F_STALL_S") : "60", r_stat ? "yes" : "no", getenv("V0F_KICK_S") ? getenv("V0F_KICK_S") : "off", r_wake ? "yes" : "no");
 }
 
-static int slot_of(dspqueue_t q) { int n = atomic_load(&nq); for (int i = 0; i < n; i++) if (Q[i].q == q) return i; return -1; }
+static int slot_of(dspqueue_t q) { int n = atomic_load_explicit(&nq, memory_order_acquire); for (int i = 0; i < n; i++) if (Q[i].q == q) return i; return -1; }
 
 AEEResult dspqueue_create(int domain, uint32_t flags, uint32_t rqs, uint32_t sqs, dspqueue_callback_t pcb, dspqueue_callback_t ecb, void * ctx, dspqueue_t * queue) {
     AEEResult rc = r_create(domain, flags, rqs, sqs, pcb, ecb, ctx, queue);
-    if (rc == 0) { int i = atomic_fetch_add(&nq, 1); if (i < MAXQ) { Q[i].q = *queue; atomic_store(&Q[i].last_read_ms, now_ms()); } else atomic_store(&nq, MAXQ); }
+    // D125 (Codex review of 892d7b9 finding 2): creation is serialized and a slot is published (nq, release) only after
+    // its handle and clock are set, so the watcher and slot_of() (acquire loads of nq) never see a half-built slot.
+    // Queues beyond MAXQ are not tracked.
+    if (rc == 0) {
+        pthread_mutex_lock(&reg_lock);
+        int i = atomic_load_explicit(&nq, memory_order_relaxed);
+        if (i < MAXQ) { Q[i].q = *queue; atomic_store(&Q[i].last_read_ms, now_ms()); atomic_store_explicit(&nq, i + 1, memory_order_release); }
+        pthread_mutex_unlock(&reg_lock);
+    }
     return rc;
 }
 

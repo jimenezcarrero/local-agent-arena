@@ -1,6 +1,7 @@
-Proposed upstream issue for ggml-org/llama.cpp (NOT filed; the owner decides). Evidence: D122-D124, runs/v0f-hang.
+Proposed upstream issue for ggml-org/llama.cpp (NOT filed; the owner decides). Evidence: D122-D125, runs/v0f-hang.
+Wording narrowed in D125 (Codex review of 892d7b9): only host-side observations are stated as facts.
 
-Title: Hexagon: with 2+ virtual sessions on one NPU, a session's DSP queue consumer stops permanently (host waits forever)
+Title: Hexagon: with 2+ virtual sessions on one NPU, a session's request queue stops being dequeued (host waits forever)
 
 Name and version
   build 11381 (836d57176), release package cross-built with the Snapdragon toolchain (arm64-linux v0.7), Hexagon SDK
@@ -17,33 +18,43 @@ Command (a 4B model needs two virtual sessions because one session cannot map it
   (default split mode: layers; the two sessions alternate per graph split)
 
 Problem
-  At a random request (about 1-2 % of requests on a fresh NPU, much more often after a previous hang), generation stops
-  in prefill or in decode and never resumes. Host threads sit in fastrpc_wait_for_completion; flush_pending() loops on
-  AEE_EEXPIRED forever; there is no kernel message and no abort. Seen with 2, 3 and 4 virtual sessions; we have no
-  single-session data (the models do not fit one session). GGML_HEXAGON_OPQUEUE=1 (verified in the process: opt_opqueue
-  = 1) does not prevent it.
+  At a random request, generation stops in prefill or in decode and does not resume. Host threads sit in
+  fastrpc_wait_for_completion; flush_pending() loops on AEE_EEXPIRED; there is no kernel message and no abort; our
+  watchdog kills the server after 5 minutes. Pooled over our logs: 14 hangs in 898 requests (198 servers; 11/580 with
+  2 sessions, 2/275 with 3, 1/41 with 4), across mixed configurations and with no NPU restart between some runs, so
+  this is not a controlled rate; it looked more frequent shortly after an earlier hang. We have no single-session data
+  (the models do not fit one session). GGML_HEXAGON_OPQUEUE=1 (verified in the process: opt_opqueue = 1) did not
+  prevent it in our run (hang on request 4).
 
 Measurement (an LD_LIBRARY_PATH shim named libcdsprpc.so that wraps dspqueue_create/write/read for counting and
 forwards everything else to the real library; it reads dspqueue_get_stat when a queue makes no progress):
-  - At the hang, queue 0 has 1 request outstanding that the DSP has NOT read (WRITE_QUEUE_PACKETS = 1 at 60, 120 and
-    180 s); every earlier request on that queue was answered. Queue 1 is idle with nothing outstanding.
-  - Writing early-wakeup packets to queue 0 once per second (dspqueue_write_early_wakeup_noblock) does not help: none
-    is consumed, WRITE_QUEUE_PACKETS grows 1, 2, ... 312 over five minutes. (Earlier, during normal operation, a
-    wakeup packet on queue 1 was consumed without harm.)
-  So the DSP-side consumer of that queue stops for good between answering one batch and reading the next.
+  - At the hang, queue 0 has 1 request outstanding that has not been dequeued on the DSP side (WRITE_QUEUE_PACKETS = 1
+    at about 60, 120 and 180 s); every earlier request on that queue was answered. Queue 1 is idle with nothing
+    outstanding. Same pattern in a second hang.
+  - In another hang, an early-wakeup packet was written to queue 0 once per second
+    (dspqueue_write_early_wakeup_noblock): none was dequeued; WRITE_QUEUE_PACKETS grew 1, 2, ... 312 until the kill.
+    (Earlier in that run, during normal operation, a wakeup packet on queue 1 was consumed without harm.)
+  So, from the host side: between answering one batch and dequeuing the next, the DSP side of that session stops
+  making progress for at least the ~5 minutes until the kill. A successful host-side write does not show that the DSP
+  was signalled or that any DSP thread ran; where the DSP side stopped is not known.
 
-Analysis (from the code; not confirmed on the DSP)
-  In that window process_ops() hands the VTCM over: every session allocates the whole VTCM (vtcm_alloc), gives it up
-  when another session asks (vtcm_release_callback -> vtcm_needs_release -> leave the loop -> release_cached) and
-  takes it back with HAP_compute_res_acquire_cached(..., 10 s) on its next callback. We suspect that handoff (or the
-  DSP-side dspqueue callback thread) can block. Note that the 10 s acquire timeout should abort() and no abort is
-  seen, which points to a block before or outside that call. Separately, process_ops() can return with unread packets
-  when it leaves the loop on vtcm_needs_release, which goes against the dspqueue packet-callback contract ("consume
-  each available packet"); a drain-after-yield change is attached as a note, but it does not explain a consumer that
-  ignores new packets.
+Candidates (from reading htp/main.c; none confirmed on the DSP)
+  - Which path runs is itself unknown to us: htp_iface_start first imports the queue with NULL callbacks and starts a
+    dedicated htp-main thread (dspqueue_peek loop); it falls back to the packet callback only on AEE_EBADPARM.
+  - Main-thread path: htp_main_thread leaves its loop on any dspqueue_peek error other than EWOULDBLOCK/EEXPIRED, after
+    which nothing reads the session's queue (it logs FARF(ERROR, "dspqueue_peek failed") first).
+  - VTCM handoff: every session allocates the whole VTCM (vtcm_alloc), gives it up when another session asks
+    (vtcm_release_callback -> vtcm_needs_release -> leave the loop -> release_cached) and takes it back with
+    HAP_compute_res_acquire_cached(..., 10 s) on its next pass. A block there would match the timing, but the 10 s
+    acquire timeout should abort() and no abort is seen, so it would have to be a block outside that call.
+  - Callback path: process_ops() can return with unread packets when it leaves the loop on vtcm_needs_release, which
+    goes against the dspqueue packet-callback contract ("consume each available packet"); a drain-after-yield change
+    is attached as a note (not compiled, not validated); it would not explain packets that are never dequeued.
 
 What would help
-  - DSP-side FARF logs around process_ops entry/exit and vtcm_acquire/release in a session that hangs.
+  - Which import path the release build takes on v75, and DSP-side FARF logs around process_ops entry/exit,
+    htp_main_thread's loop and vtcm_acquire/release in a session that hangs (we are capturing the runtime FARF(ERROR)
+    output of the release build now and will add it).
   - Whether sessions on the same NPU could each claim VTCM/N instead of the whole VTCM, removing the per-batch
-    handoff.
+    handoff (a question, not a verified fix).
 We can run instrumented builds and the shim on the board.

@@ -9,3 +9,21 @@ without (default):            opt_opqueue = 32  opt_opbatch = 1280
 # The session-level log lines ("new session", "allocated opqueue") never reach llama-server's log in this build, even
 # with GGML_HEXAGON_VERBOSE=1 (run v0f-step0-verbose: one request, PASS, server env shows OPQUEUE=1), so the value is
 # checked in the process instead.
+# Raw output as captured (D125). The command ran in the testing agent's shell at 2026-10-10T00:21:50+02:00
+# (22:21:50 UTC), once with GGML_HEXAGON_OPQUEUE=1 and once with a dummy variable instead:
+#   for q in 1 unset; do [ $q = 1 ] && X=GGML_HEXAGON_OPQUEUE=1 || X=GGML_HEXAGON_UNUSED=0
+#     env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$P/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $X timeout 120 gdb -q -batch
+#       -ex "set pagination off" -ex "set breakpoint pending on" -ex "break ggml_hexagon_session::allocate" -ex run
+#       -ex "print (int)'opt_opqueue'" -ex "print (int)'opt_opbatch'" -ex kill --args $P/bin/llama-server
+#       -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 32768 --host 127.0.0.1 --port 8089 --device HTP0:0,HTP0:1 -ngl 99
+#       2>&1 | grep -E " = " | head -3; echo "-- above: OPQUEUE=$q"; done
+# The pipe kept only lines containing " = " (gdb's value prints and one server log line that matched); the unfiltered
+# gdb transcript was not kept. Output, verbatim:
+0.00.064.328 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+$1 = 1
+$2 = 1280
+-- above: OPQUEUE=1
+0.00.059.877 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+$1 = 32
+$2 = 1280
+-- above: OPQUEUE=unset
