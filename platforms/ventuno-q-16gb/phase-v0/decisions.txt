@@ -1620,3 +1620,64 @@ D124 2026-10-10 Queue-state measurements (00:41-01:08): what the hang is and is 
      claiming VTCM/N so they never contend (needs ggml-hexagon to size its scratch to a partial VTCM), which is an
      upstream change; (c) an upstream issue with this evidence (report text in upstream/).
    Recovery probe (probe-recovery-012424, 01:24, after the 15-minute wait): PASS (331.0/9.19 tok/s, health pass).
+D125 2026-10-10 Codex review of #49 at 892d7b9 (four P2 findings) and a declared DSP-log diagnostic (arm F). No root.
+   - Finding 1 (driver recovery predicate): v0f_hang.sh recovered from an apparent load failure or request error even
+     when health or kernel evidence had failed. Now clean_fail(): recovery only when the run's last RESULT line is
+     exactly "RESULT FAIL: load=4" (plus "SERVER EXITED before ready", kernel audit pass or npu_map) or exactly "RESULT
+     FAIL: workload=1" (plus "server still up at the end of the workload", kernel audit pass), and the health verdict
+     passed; anything else stops. Seven new mocked cases (request error with failed/unnamed health, server gone,
+     unknown kernel audit; load failure with failed health or unknown kernel audit; a clean request error continues).
+   - Finding 2 (shim registry race): dspqueue_create now registers under a mutex and publishes the slot (nq, release
+     store) only after its handle and clock are set; readers load nq with acquire; queues past MAXQ are not tracked.
+     Built as a new variant, ~/v0/dspq_probe2; the D123/D124 binaries are left as they were. The D123/D124 snapshots
+     were taken minutes into steady state, long after both queues were registered, so they are not affected.
+   - Finding 3 (claims beyond the evidence): D124's conclusions are narrowed as follows, and this wording replaces
+     D124's where they differ. Observed: at each of three hangs, one session's request queue made no dequeue progress
+     (WRITE_QUEUE_PACKETS > 0, no response) from the stall until the watchdog kill (about 5 minutes), after every
+     earlier request on it had been answered, with the other session idle; in the kick check, 312 early-wakeup
+     packets written to the stuck queue were not dequeued either. Not shown: that the consumer stopped "for good"
+     (only until the kill), that a DSP thread is blocked or gone, that any signal reached the DSP or that a callback
+     ran (a successful host-side write proves neither), or where the DSP side stopped. The VTCM-handoff explanation is
+     a hypothesis, as are a lost signal and a worker-thread exit. OPQUEUE=1 and the kick were ineffective in the
+     observed runs (W-1; the kick check), not proven useless in general; the drain patch is uncompiled and
+     unvalidated. The DSP path is not known either: htp_iface_start first imports the queue with NULL callbacks and
+     runs a dedicated htp-main thread (dspqueue_peek loop), falling back to the callback path only on AEE_EBADPARM
+     (htp/main.c 836d5717 lines 386-393, 598-616); the analysis in D122-D124 assumed the callback path. The main-thread
+     path adds a candidate the earlier analysis missed: htp_main_thread leaves its loop, and the session has no reader
+     any more, on any dspqueue_peek error other than EWOULDBLOCK/EEXPIRED (it logs FARF(ERROR, "dspqueue_peek failed")
+     first). The "1-2 % on a fresh NPU" figure in the upstream report is replaced by the pooled count (14 hangs in 898
+     requests across the committed V0b-V0d logs, mixed configurations and recovery histories; not a controlled rate)
+     and the W/B comparison is described as abandoned. The shim comments and upstream/npu-hang-report.txt are
+     corrected accordingly.
+   - Finding 4 (provenance): tools/shim_manifest.sh writes a build record per shim variant (source hash and the
+     commits it matches, the one build command, a rebuild compared byte for byte with the deployed binary, binary
+     hash, SONAME/NEEDED, the real libcdsprpc hash and package version, and which object provides each of the 19
+     functions ggml-hexagon resolves, via tools/shim_symcheck.c). Records in runs/v0f-hang/shim-builds/: dspq_probe =
+     source of 4b79724 (arm P, shim check), dspq_kick = source of 892d7b9 (kick check), dspq_probe2 = this commit;
+     all three rebuild byte-identically. The gdb record gets the raw lines as captured (the command filtered them
+     with grep " = "; unfiltered output was not kept). A census script reproduces the 14/898 count from the committed
+     logs. The PR description gets the diagnostic commands, arms, thresholds, stop rules and the dated deviations.
+   - New fact (no NPU use): the system FastRPC library (qcom-fastrpc1 1.0.15+repack2) logs to the system journal
+     (readable without root: adm group), and every server last night looked for "llama-server.farf" on
+     ADSP_LIBRARY_PATH to enable DSP-side runtime logging (log_config.c) and did not find it. With that file, DSP
+     messages of the selected levels are forwarded to the host journal under the server's pid (adspmsgd). The release
+     libggml-htp-v75.so has its FARF(HIGH) messages compiled out, but its FARF(ERROR) messages are in the binary
+     ("dspqueue_peek failed: 0x%08x", "ggml-hex: failed to acquire VTCM", "dspqueue_read_noblock failed", ...), and
+     the DSP framework (QuRT, dspqueue, HAP compute_res) logs too. So DSP-side evidence needs neither root nor a
+     rebuild. The host journal of the three hung servers shows nothing between startup and the stall except the
+     repeated 1 s response-wait timeouts.
+   - Declared plan, arm F (v0f_hang.sh, configuration A at -c 32768 as before): the fixed shim (~/v0/dspq_probe2,
+     V0F_STALL_S=60, no kick) plus ~/v0/farf first on ADSP_LIBRARY_PATH holding llama-server.farf = 0x1f (DSP
+     levels LOW..FATAL). After every session the server's journal lines go to <run>/fastrpc-journal.txt.
+     F0 smoke: driver with ARMS=F N_SESS=1 N_REQ=3 (baseline probe first, as always). Go on to F1 only if DSP-origin
+     lines appear in the export, journald reports no suppressed messages for the server, and the three requests'
+     prefill/decode speeds are within 10 % of P-1's requests of the same size; if the volume is the problem, retry F0
+     once with mask 0x1c (HIGH, ERROR, FATAL); otherwise stop and report.
+     F1: ARMS=F N_SESS=6 N_REQ=40 FAULT_CAP=4 (faults.txt already holds 3, so the driver stops at the first new
+     fault); one recovery probe after the 15-minute wait.
+     Readings, declared now: (a) "dspqueue_peek failed" from the stuck session before the stall -> the htp-main thread
+     left its loop (worker-lifecycle defect; the path is the main-thread one); (b) "failed to acquire VTCM" -> the
+     VTCM re-acquire failed (an abort should follow); (c) other DSP framework errors at the stall -> reported as
+     found; (d) no DSP error at all -> consistent with a block without an error (VTCM wait, signalling or other); the
+     location then still needs an instrumented libggml-htp (laptop). Any line that identifies the queue import path
+     (NULL callbacks vs callbacks) is reported either way.
