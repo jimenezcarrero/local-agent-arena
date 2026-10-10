@@ -1699,3 +1699,34 @@ D126 2026-10-10 First F0 launch (07:41) stopped fail-closed at its baseline prob
    Deviation: F1 was launched (07:46:22) while the F0 driver was still in its 60 s post-session pause; F0's driver
    then only printed "v0f hang diagnostic complete: faults 3" (07:46:49) and exited. It started no server, so the two
    drivers did not act on the NPU together, but the status file interleaves that line with F1's start.
+D127 2026-10-10 F1 result: the hang's DSP side is identified (reading (a) of D125). Diagnostic only; no root.
+   - F1 (07:46-08:04): probe-074622 PASS; v0f-F-1 served 29 requests, then HUNG on request 30 (target 1,000 prompt
+     tokens, 300 max) in decode; watchdog kill 08:02:58 (pid 3227371); the driver stopped at the fault cap as declared.
+     Shim snapshots (qstat-3227371-1..3): queue 0 5,172 written / 5,171 answered, WRITE_QUEUE_PACKETS 1; queue 1
+     5,179/5,179 idle: the same pattern as P-1 and the kick check.
+   - DSP log (v0f-F-1/fastrpc-journal.txt), the only DSP lines after loading, all at 07:57:37, from one DSP thread:
+       CDSP0: Error 0x2f: wait_signal_locked failed for queue 01E56910 signal 0
+       CDSP0: wait_signal_locked failed with 0x2f
+       CDSP0: dspqueue_peek failed: 0x0000002f
+     The third line is ggml's FARF(ERROR) in htp_main_thread (htp/main.c 836d5717 line 1363); it exists nowhere else.
+     So (1) this build runs the main-thread path (NULL-callback import succeeded), and (2) that thread left its loop:
+     on any dspqueue_peek error other than EWOULDBLOCK/EEXPIRED it logs and breaks, and nothing else reads that
+     session's queue afterwards. 0x2f is AEE_ENOMORE (AEEStdErr.h), returned by the DSP-side dspqueue's internal
+     signal wait. Timing: request 30 was decoding at 07:57:33 (221 of 300 tokens, server log); the error came at
+     07:57:37; the host then waited on an unread request until the kill. This explains every host-side observation
+     in D123-D124: the previous batch answered, the next request (and the 312 wakeup packets) never dequeued, the other
+     session idle, no abort, no kernel message.
+   - What remains unknown: why the DSP dspqueue's signal wait returns AEE_ENOMORE (closed DSP-side code). It is one
+     capture; the three earlier hangs fit the same mechanism but had no DSP logging.
+   - Fix (upstream/htp-main-thread-retry.patch.txt): do not leave the loop on a peek error; log (rate-limited), sleep
+     1 ms and retry; htp_iface_stop still ends the loop through ctx->killed. Applies to 836d57176 and to master
+     f2918cabb (htp_main_thread unchanged there). Not compiled or tested: the board has no Hexagon toolchain, and
+     installing one would change packages and still lack the Hexagon SDK. Whether a retried peek succeeds after
+     ENOMORE is itself unverified; if it does not, the next step is a fallback (e.g. re-import the queue) and a
+     report to Qualcomm about the signal wait. The drain patch (D124) is unrelated to this path (it changes the
+     callback path, which this build does not use).
+   - The VTCM-handoff hypothesis is not supported by this capture (no VTCM error, and the failure is in the
+     queue wait, not in the acquire). Next: one recovery probe after 15 minutes (declared in D125); then a laptop build
+     of libggml-htp-v75.so with the patch, and a test on the board (A configuration, the v0f driver, arm F logging,
+     a declared request budget) before any V0e run.
+   Recovery probe (probe-recovery-081840, 08:18, after the 15-minute wait): PASS (health pass, kernel evidence).
