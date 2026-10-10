@@ -1,4 +1,4 @@
-Proposed upstream issue for ggml-org/llama.cpp (NOT filed; the owner decides). Evidence: D122-D128, runs/v0f-hang.
+Proposed upstream issue for ggml-org/llama.cpp (NOT filed; the owner decides). Evidence: D122-D133, runs/v0f-hang.
 Wording narrowed in D125 (Codex review of 892d7b9): only host-side observations are stated as facts.
 
 Title: Hexagon: htp_main_thread exits on a dspqueue_peek error (AEE_ENOMORE seen on v75); the session's queue is never read again and the host hangs
@@ -48,9 +48,15 @@ DSP-side log (runtime FARF via llama-server.farf, release build), the only DSP l
   log). 0x2f is AEE_ENOMORE, returned by the DSP dspqueue's internal signal wait in the middle of a decode (one
   capture so far).
 
-Proposed mitigation (attached; not yet built or tested: we have no Hexagon SDK on the board): keep the loop alive on
-peek errors (rate-limited log, 1 ms sleep, retry; htp_iface_stop still ends it via ctx->killed). Why the signal wait
-returns AEE_ENOMORE is a question for the dspqueue owners.
+Proposed change (attached, htp-main-thread-retry.patch.txt, sha256 4b9838df...; the file's own header predates the
+test): keep the loop alive on peek errors (rate-limited log, 1 ms sleep, retry; htp_iface_stop still ends it via
+ctx->killed). Tested on the same board and configuration: the patched libggml-htp-v75.so (Hexagon SDK 6.6.0.0, tools
+19.0.07; the unpatched build with the same toolchain is byte-identical to the release library) served 240/240
+requests in 6 servers with no hang. Its DSP log shows 8 events of the same signature ("Error 0x2f:
+wait_signal_locked failed ... signal 0", then "dspqueue_peek failed: 0x0000002f (1 in a row), retrying"); each was a
+single error and the session went on serving requests afterwards. All servers stopped on SIGTERM within about 1 s.
+Why the signal wait returns AEE_ENOMORE is a question for the dspqueue owners; retrying is a workaround on the ggml
+side, and the persistent-error path (repeated errors) was not exercised.
 
 What would help
   - Whether retrying dspqueue_peek after AEE_ENOMORE is safe and sufficient, or whether the queue must be re-imported.

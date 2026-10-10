@@ -3,7 +3,7 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D132).
+[`decisions.txt`](decisions.txt) (D1–D133).
 
 **Status (2026-10-09 23:10): V0b and V0c complete. V0d admission sets done: the 4B is provisionally eligible in two
 configurations (D90); the 9B is provisionally eligible as H2, which requires a cDSP restart before every load (D109).

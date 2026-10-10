@@ -1844,3 +1844,31 @@ D132 2026-10-10 Owner "ok" (18:2x) to the D131 proposal: validation of the retry
      recovery probe after the usual wait if a fault occurred. Readings (a)-(d) of the plan.
    - V3 (after V2): one R server started by hand under the same environment, one request, then SIGTERM; it must exit
      within 30 s; then a baseline probe must PASS without a restart. Run directory runs/v0f-hang/v3-sigterm.
+D133 2026-10-10 Retry patch validation (D132), V1 and V2 run, V3 met by the same sessions. Diagnostic only; no root.
+   - V1 (18:28-18:32): probe PASS; v0f-R-V1-1 PASS 3/3 (directory renamed from v0f-R-1 before V2's session started;
+     its run window relabelled in the raw run-windows.jsonl, previous file kept in ~/v0-backups). Gate met: CDSP0
+     lines in the journal (156), the same startup error set as F0 (only thread ids/handles differ); speeds against
+     F0's three requests: prefill -1.8 %, -3.1 %, +1.4 %; decode +3.0 %, +4.4 %, +1.4 %; sha256 unchanged.
+   - V2 (18:33-20:03, ARMS=R N_SESS=6 N_REQ=40 FAULT_CAP=6): six sessions, each PASS 40/40 (240/240), every baseline
+     probe before them PASS, no fault (faults.txt still 4), no NPU stall watchdog kill, no queue-stall snapshot.
+   - DSP log: 8 events of the F1 signature ("Error 0x2f: wait_signal_locked failed ... signal 0", then
+     "dspqueue_peek failed: 0x0000002f (1 in a row), retrying"): R-1 18:35:52; R-2 18:50:14, 18:57:03, 18:58:46;
+     R-3 19:16:28; R-4 19:27:18; R-5 19:38:16; R-6 20:00:26. Each was a single error (max 1 in a row); each session
+     kept serving requests after it (1.5-12 min later) to its 40th. Reading (a) of the plan: the logged-and-retried
+     AEE_ENOMORE was followed by continued processing on the same session. Without the patch, htp_main_thread would
+     have left its loop at each of these 8 events (the F1 mechanism, D127); by that mechanism each would have been a
+     hang (an inference: unpatched behaviour after the same event was observed once, in F1).
+   - Host-side "dspqueue_cpu.c:1864 error 0xc: wait_signal_locked(q, DSPQUEUE_SIGNAL_RESP_PACKET, timeout)" lines
+     (20-40 per R session) are the host reader's timed waits; F0, V1 (2 each) and F1 (339) have them too. Not new.
+   - V3 (shutdown): run_v0e.sh already stops every server with SIGTERM to its process group and waits up to 30 s
+     before SIGKILL (logging "ignored SIGTERM" if it escalates); D132's "instead of the driver's SIGKILL" misdescribed
+     this (the driver's killall -KILL runs only afterwards, on anything left). All 7 R servers exited on SIGTERM
+     within about 1 s (workload end to END 1 s, no escalation), and the baseline probe after each of R-V1-1 and
+     R-1..R-5 passed without an NPU restart. That is V3's declared condition, met 6 times; the separate hand run
+     would repeat it, so it was not run. After R-6 no probe was run (the driver ends).
+   - Monitoring published (publish_monitor.py, 20:04); all 14 windows recomputed from the committed export
+     (runs/v0f-hang/monitor-recompute-20261010-R.txt): kernel pass; R sessions min MemAvailable 6.14-6.41 GiB.
+   - Not shown: the persistent-error path (no event repeated); why the DSP signal wait returns AEE_ENOMORE (closed
+     dspqueue code); other models, session counts or configurations. One build, one configuration (A, 2 sessions),
+     one evening. A patched DSP binary is a new runtime cohort: no configuration is qualified by this; V0e with it
+     needs its own owner-approved plan.
