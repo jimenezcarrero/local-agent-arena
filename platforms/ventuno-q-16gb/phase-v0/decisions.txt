@@ -2138,3 +2138,18 @@ D150 2026-10-12 D146 attempts 4-6. kld4: arm MUL_MAT failed to map twice (HTP0:0
    verified). Amendment: arms run on ONE session (DEVS=HTP0:0, same kernels); comparable only if the one-session
    npu arm reproduces the two-session KLD (0.8169 +/- 0.0224 within its error), which is checked first.
    test_v0q_kld.sh 13/13. Attempt 7: runs/v0q-op/kld7.
+D151 2026-10-12 kld7 (one session, DEVS=HTP0:0): the unfiltered npu arm failed to map twice (one session cannot
+   map the whole model) -> STOP; the one-session route is closed. Op-group bisection by OPFILTER is therefore not
+   possible on this board: one session cannot hold the model, two sessions with any filter fail to map.
+   Incident (mine): the disk filled (1.1 MB free, about 00:08) from 7 copies of the CPU logits file cpu.kld (1.52 GB
+   each, one per attempt; the 23:55 evidence backup copied 4 more) plus a llama-eval-callback full tensor dump. All
+   deleted (the logits are deterministic and regenerable; summaries and logs kept): 16 GB free again. The health
+   sampler and watchdog kept running; the monitor export will show whether samples were lost in those minutes.
+   From now on cpu.kld is deleted right after each run.
+   Per-tensor comparison (runs/v0q-op/cb: llama-eval-callback, 309-token prompt from the KLD text, CPU vs NPU two
+   sessions, names and sums only): 1925 tensors, same names; differences of 2-12 % in sums spread over layers 0-5
+   (MUL_MAT, MUL, SWIGLU, conv state), no single op with a gross error. Sums are a weak measure; not conclusive.
+   Next (declared before running): kernel selectors instead of filters (the same two-session layout that loads):
+   arms env:GGML_HEXAGON_MM_SELECT=1 (matmul HMX -> HVX), env:GGML_HEXAGON_FA_SELECT=1 (attention HMX -> HVX),
+   env:GGML_HEXAGON_GDN_SELECT=1, and all three. Reading: an arm that brings the mean KLD from 0.817 to <= 0.16
+   (an 80 % cut) and the NPU PPL back near the CPU's 14.36 names the kernel. test_v0q_kld.sh 14/14. runs/v0q-op/kld8.

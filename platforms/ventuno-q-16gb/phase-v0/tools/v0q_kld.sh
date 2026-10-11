@@ -9,7 +9,7 @@
 # One arm at a time. npu_stall_watchdog.sh only watches llama-server/llama-bench, so each NPU arm has its own stall
 # check with the watchdog's rule: a thread in fastrpc_wait_for_completion and < 0.5 core-s per 10 s for STALL_S
 # (120 s) -> HANG: SIGKILL, thread states saved, STOP. Any other failure or a 1800 s timeout -> STOP.
-# A load that fails with "buffer mapping failed" is reloaded once (D147). Overridable for tests: PPL, ARMS, STALL_S,
+# An arm "env:K=V,K=V" sets environment variables instead of a filter (D151). A load that fails with "buffer mapping failed" is reloaded once (D147). Overridable for tests: PPL, ARMS, STALL_S,
 # ARM_PAUSE, RELOAD_PAUSE.
 set -uo pipefail
 O=$1; TXT=$2; P=~/v0/hexpkg/pkg-linux; M=~/v0/models/q40/NeoHorse-1-4B-q4_0-pure.gguf
@@ -37,7 +37,9 @@ env LD_LIBRARY_PATH=$P/lib timeout 3600 $PPL $COMMON --device none -ngl 0 -t 4 -
 echo "base cpu: $(grep -oE 'Final estimate: PPL = [0-9.]+ \+/- [0-9.]+' $O/cpu.log)" | tee $O/summary.txt
 i=0
 for a in $ARMS; do i=$((i+1)); n=$(printf %02d $i); extra=(); args=()
-  case $a in npu) ;; nofusion) extra=(GGML_HEXAGON_OPFUSION=0);; all) extra=("GGML_HEXAGON_OPFILTER=(?!(NONE|VIEW|RESHAPE|PERMUTE|TRANSPOSE)$).*");; *) extra=("GGML_HEXAGON_OPFILTER=$a");; esac
+  case $a in npu) ;; nofusion) extra=(GGML_HEXAGON_OPFUSION=0);; all) extra=("GGML_HEXAGON_OPFILTER=(?!(NONE|VIEW|RESHAPE|PERMUTE|TRANSPOSE)$).*");;
+    env:*) IFS=, read -ra extra <<< "${a#env:}";;  # D151: kernel selectors, e.g. env:GGML_HEXAGON_MM_SELECT=1
+    *) extra=("GGML_HEXAGON_OPFILTER=$a");; esac
   echo "arm $n $a env ${extra[*]:-none}" > $O/arm$n.log
   rc=$(run_npu $O/arm$n.log "${NPU_ENV[@]}" "${extra[@]}")
   # D147: a load-time "buffer mapping failed" (the intermittent map failure of D90) gets ONE reload after 60 s
