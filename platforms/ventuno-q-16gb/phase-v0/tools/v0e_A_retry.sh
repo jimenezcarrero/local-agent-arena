@@ -1,5 +1,7 @@
 #!/bin/bash
-# v0e_A_retry.sh — V0e qualification of A at window 32768 with the patched DSP library (D136, v0e-plan-A-retry.txt).
+# v0e_A_retry.sh — V0e qualification of A at window 32768 with the patched DSP library (D136, D137, v0e-plan-A-retry.txt).
+# D137: runs only after the patched runtime's own admission passed its 16K gate (v0d_admit.sh AR); recovery needs a normal
+# runner exit (rc 1) with complete evidence; the DSP journal is fail-closed.
 # v0e_A.sh (D118) unchanged except: the server loads ~/v0/htp-retry/libggml-htp-v75.so (the htp_main_thread retry
 # patch, D131; sha256 checked before and after every session, a mismatch stops) and keeps DSP error logging on
 # (~/v0/farf/llama-server.farf, mask 0x1f, D125), whose journal lines are exported after every session; retried
@@ -35,37 +37,67 @@ rsha() { [ "$(sha256sum "$HTPR/libggml-htp-v75.so" 2>/dev/null | cut -d' ' -f1)"
 AW="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$FARF;$HTPR;$P/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 32768 --cache-ram 7942 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0"
 $CHECK_PROC '^/bin/bash /home/arduino/v0/npu_stall_watchdog.sh' > /dev/null || { say "STOP: NPU stall watchdog not running"; exit 6; }
 $CHECK_PROC '^/bin/bash /home/arduino/v0/monitor/health_sampler.sh' > /dev/null || { say "STOP: health sampler not running"; exit 6; }
-# loadfail <dir>: a clean load failure (D114, the admission rule's LOADFAIL): the server exited before ready on an NPU
-# mapping failure, with passing health and a kernel audit of pass or npu_map only.
-loadfail() { grep -q 'SERVER EXITED before ready' $1/run.txt 2>/dev/null && grep -q 'RESULT FAIL: load=4$' $1/run.txt \
+# D137 (Codex review of 6f203ab): eligibility first. The patched runtime's own V0d admission (v0d_admit.sh AR) must
+# have passed its 16K gate (status line "GATE AR: PASS"); otherwise nothing runs.
+ADMIT_ST=${ADMIT_ST:-$BR/v0/v0d/v0d-admit-AR-status.txt}
+grep -q '^[^ ]* GATE AR: PASS' "$ADMIT_ST" 2>/dev/null || { say "STOP: no passing patched-runtime admission (GATE AR: PASS in $ADMIT_ST)"; exit 6; }
+# lastres <dir>: the run's last RESULT line, from "RESULT" on
+lastres() { grep -oE 'RESULT (PASS|FAIL).*' $1/run.txt 2>/dev/null | tail -1; }
+# loadfail <dir>: a clean load failure (D114): the runner exited normally with a completed failure (rc 1; D137: a
+# timeout, kill or other status is EVIDENCE and stops), its last RESULT is exactly "RESULT FAIL: load=4", the server
+# exited before ready on an NPU mapping failure, health passed and the kernel audit is pass or npu_map only.
+loadfail() { [ "$RC" = 1 ] && [ "$(lastres $1)" = "RESULT FAIL: load=4" ] && grep -q 'SERVER EXITED before ready' $1/run.txt \
   && grep -q 'mapping failed' $1/server.log 2>/dev/null && grep -q '^pass' $1/health-verdict.txt 2>/dev/null \
   && { read -r k _ < $1/kernel-audit.txt; [ "$k" = pass ] || [ "$k" = npu_map ]; } 2>/dev/null; }
+# s1clean <dir>: S1 items failed on an otherwise clean session (D137): rc 1, last RESULT exactly "RESULT FAIL:
+# workload=<n>", health passed, kernel audit pass, and the server was still up at the end of the workload.
+s1clean() { [ "$RC" = 1 ] && [[ "$(lastres $1)" =~ ^RESULT\ FAIL:\ workload=[0-9]+$ ]] && grep -q '^pass' $1/health-verdict.txt 2>/dev/null \
+  && [ "$(head -1 $1/kernel-audit.txt 2>/dev/null | cut -d' ' -f1)" = pass ] && grep -q 'server still up at the end of the workload' $1/run.txt; }
 # session <label> <workload> <timeout>: baseline -> A session; sets C (class) and LAB (the run's label). Runs in
 # this shell (not in a command substitution) so that every STOP exits the driver. A clean load failure (D114): recovery
 # (ready wait), then the session once more (its baseline first) as <label>-retry; a second one stops.
-session() { local lab=$1 wl=$2 to=$3 wd0 rc f0 try
+session() { local lab=$1 wl=$2 to=$3 wd0 f0 try
   for try in 1 2; do LAB=$lab; [ $try = 2 ] && LAB=$lab-retry
     f0=$(nfaults); ready now   # a baseline fault is recorded by ready(), which keeps probing until a PASS (recovery)
     [ "$(nfaults)" = "$f0" ] || { say "V0e A-retry: NOT QUALIFIED (fault in the baseline before $LAB; recovered)"; exit 3; }
     rsha || { say "STOP: $HTPR/libggml-htp-v75.so is not sha256 $RETRY_SHA (or the .farf file is not 0x1f)"; exit 2; }
     say "START $LAB"; wd0=$(wdcount)
-    PHASE=$PH timeout -k 60 $to bash $RUN_V0E $LAB $wl -- $AW > /dev/null 2>&1; rc=$?; killall_srv
+    PHASE=$PH timeout -k 60 $to bash $RUN_V0E $LAB $wl -- $AW > /dev/null 2>&1; RC=$?; killall_srv
+    C=$(classify $O/$LAB $RC $wd0); [ "$C" = EVIDENCE ] && loadfail $O/$LAB && C=LOADFAIL
+    say "END $LAB: $C (runner rc $RC) | $(lastres $O/$LAB)"
     rsha || { say "STOP: the patched library or the .farf file changed during $LAB"; exit 2; }
-    journal $LAB
-    C=$(classify $O/$LAB $rc $wd0); [ "$C" = EVIDENCE ] && loadfail $O/$LAB && C=LOADFAIL
-    say "END $LAB: $C | $(grep -h 'RESULT' $O/$LAB/run.txt 2>/dev/null | tail -1)"
+    # DSP evidence (D137): required for a session whose server became ready. A failed capture stops, except that a
+    # real HANG/DEVFAULT keeps its class (the fault path stops anyway, as NOT QUALIFIED).
+    if ! journal $LAB; then
+      if ! grep -q 'ready after' $O/$LAB/run.txt; then say "NOTE $LAB: no complete DSP journal for a server that never became ready (kept)"
+      else case $C in HANG|DEVFAULT) say "NOTE $LAB: DSP journal capture failed; the $C stands";;
+          *) say "STOP: $LAB: DSP journal evidence missing or incomplete ($(cat $O/$LAB/journal-check.txt 2>/dev/null))"; exit 2;; esac; fi
+    fi
     [ "$C" = LOADFAIL ] || return 0
     [ $try = 2 ] && { say "STOP: $lab failed to load twice: V0e A-retry: NOT QUALIFIED (load)"; exit 3; }
     say "LOADFAIL $LAB: recovery, then $lab again (D114 rule)"
     f0=$(nfaults); ready wait
     [ "$(nfaults)" = "$f0" ] || { say "V0e A-retry: NOT QUALIFIED (fault in the recovery after $LAB)"; exit 3; }
   done; }
-# journal <label>: the server's journal lines (FastRPC + DSP) to <run dir>/fastrpc-journal.txt; retried peek errors
-# counted (a repeat, "(N in a row)" with N > 1, is flagged for the owner).
-journal() { local spid n r; spid=$(grep -oE 'server pid [0-9]+' $O/$1/run.txt 2>/dev/null | head -1 | cut -d' ' -f3)
-  [ -n "$spid" ] && $JOURNAL _PID=$spid --no-pager -q -o short-iso > $O/$1/fastrpc-journal.txt 2>&1
-  n=$(grep -c 'retrying' $O/$1/fastrpc-journal.txt 2>/dev/null); r=$(grep -oE '\(([0-9]+) in a row' $O/$1/fastrpc-journal.txt 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
-  say "DSP $1: retried peek errors ${n:-0}, longest run ${r:-0}"; [ "${r:-0}" -gt 1 ] && say "FLAG $1: repeated peek errors (${r} in a row), for the owner"; return 0; }
+# journal <label> (D137, fail-closed): the server's journal lines to <run dir>/fastrpc-journal.txt, bound to the run's
+# server pid, boot and START..END+60 s window. Returns 1 (reason in journal-check.txt) unless: exactly one server pid,
+# the journal command succeeded, the export is non-empty, and it shows the DSP library being opened and DSP-side
+# (CDSP0) lines, i.e. the logging cohort was captured. Logged retry events are counted; the patch rate-limits its
+# messages (first 8 of a run, then every 1000th), so this is a count of logged events, not of all retries.
+journal() { local d=$O/$1 spid boot t0 t1 n r; : > $d/journal-check.txt
+  spid=$(grep -oE 'server pid [0-9]+' $d/run.txt 2>/dev/null | cut -d' ' -f3 | sort -u)
+  [ "$(printf '%s\n' $spid | grep -c .)" = 1 ] || { echo "server pid missing or ambiguous: '${spid}'" > $d/journal-check.txt; return 1; }
+  boot=$(grep -oE ' START .*boot=[^ ]+' $d/run.txt | head -1 | sed 's/.*boot=//'); t0=$(grep -oE '^[^ ]+ START' $d/run.txt | head -1 | cut -d' ' -f1)
+  t1=$(grep -oE '^[^ ]+ END' $d/run.txt | tail -1 | cut -d' ' -f1)
+  [ -n "$boot" ] && [ -n "$t0" ] && [ -n "$t1" ] || { echo "run.txt lacks boot, START or END" > $d/journal-check.txt; return 1; }
+  if ! $JOURNAL _PID=$spid _BOOT_ID=${boot//-/} --since "$(date -d "$t0" '+%Y-%m-%d %H:%M:%S')" --until "$(date -d "$t1 60 seconds" '+%Y-%m-%d %H:%M:%S')" \
+       --no-pager -q -o short-iso > $d/fastrpc-journal.txt 2> $d/journal-err.txt; then echo "journal command failed: $(head -c 200 $d/journal-err.txt)" > $d/journal-check.txt; return 1; fi
+  [ -s $d/fastrpc-journal.txt ] || { echo "empty journal export" > $d/journal-check.txt; return 1; }
+  grep -q 'Successfully opened file libggml-htp-v75.so' $d/fastrpc-journal.txt && grep -q 'CDSP0:' $d/fastrpc-journal.txt \
+    || { echo "export lacks the DSP library open line or CDSP0 lines" > $d/journal-check.txt; return 1; }
+  n=$(grep -c 'retrying' $d/fastrpc-journal.txt); r=$(grep -oE '\(([0-9]+) in a row' $d/fastrpc-journal.txt | grep -oE '[0-9]+' | sort -n | tail -1)
+  echo "ok: pid $spid, $(wc -l < $d/fastrpc-journal.txt) lines" > $d/journal-check.txt
+  say "DSP $1: logged retry events ${n:-0}, longest run ${r:-0}"; [ "${r:-0}" -gt 1 ] && say "FLAG $1: repeated peek errors (${r} in a row), for the owner"; return 0; }
 memcheck() { if python3 $MEMFLOOR --admit 7942 $O/$1 > $O/$1/memfloor-admit.txt 2>&1; then say "MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"
   else say "STOP: MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"; say "V0e A-retry: NOT QUALIFIED (memory)"; exit 3; fi; }
 onfault() { fault $1 $2; ready wait; say "V0e A-retry: NOT QUALIFIED (fault $2 in $1)"; exit 3; }
@@ -75,7 +107,7 @@ session v0e-A-retry-S1 $HOME/v0/v0e_s1.sh 7200
 case $C in
   PASS) memcheck $LAB;;
   HANG|DEVFAULT) onfault $LAB $C;;
-  *) if grep -q 'RESULT FAIL: workload=[0-9]*$' $O/$LAB/run.txt && [ "$(head -1 $O/$LAB/kernel-audit.txt | cut -d' ' -f1)" = pass ]; then
+  *) if s1clean $O/$LAB; then
        s1ok=0; say "S1 FAIL (items: $(grep -c 'rc=[1-9]' $O/$LAB/items.txt) failed; clean session): A not qualified; S2 runs for evidence"
        memcheck $LAB
      else say "STOP: $LAB $C"; exit 2; fi;;
