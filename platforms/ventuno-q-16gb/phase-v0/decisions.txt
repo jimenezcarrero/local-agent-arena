@@ -2110,3 +2110,14 @@ D147 2026-10-11 D146 attempt 1 (runs/v0q-op/kld): CPU base done (PPL 14.3634 +/-
    2: an arm whose load fails with "buffer mapping failed" is reloaded ONCE after 60 s (the failed log kept as
    armNN-loadfail.log); a second failure, a hang or any other error still stops. test_v0q_kld.sh 11/11. Attempt 2 in
    a fresh directory (runs/v0q-op/kld2), same text, arms and readings.
+D148 2026-10-11 D146 attempt 2 (runs/v0q-op/kld2): CPU base PPL 14.3634 +/- 0.879. Arm 01 npu: PPL(Q) 2.2960
+   +/- 0.064, mean KLD 0.8169 +/- 0.0224, median KLD 0.343, same top token 66.0 +/- 0.9 %, RMS dp 36.3 %. Arm 02
+   nofusion: identical to the digit (fusion is not involved). The NPU's perplexity is 6x LOWER than the CPU's on the
+   same text: the NPU predicts the text better than the reference can, the signature of information from later
+   tokens reaching earlier positions in prompt processing (a causal-mask leak). Lead, not yet localized.
+   Arm 03 (control) aborted at load: the regex ".*" also matched NONE, so the scheduler refused NPU-resident caches
+   ("pre-allocated tensor (cache_r_l0) in a buffer (HTP0:0) that cannot run the operation (NONE)"). My error in
+   the control's definition; the last group (with VIEW/RESHAPE/PERMUTE/TRANSPOSE) would have done the same.
+   Fixed: control = every op except NONE/VIEW/RESHAPE/PERMUTE/TRANSPOSE; those five removed from the copies group.
+   test_v0q_kld.sh 11/11. Attempt 3 (runs/v0q-op/kld3) runs the control and the op groups (arms 01-02 are not
+   repeated); same text, CPU base recomputed, same readings.
