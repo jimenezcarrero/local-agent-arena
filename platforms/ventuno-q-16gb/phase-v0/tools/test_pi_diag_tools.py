@@ -20,6 +20,8 @@ class Fake(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         mode = body.get("mode", "tool")
+        usage = mode.endswith("_usage") or bool(body.get("stream_options", {}).get("include_usage"))
+        mode = mode.replace("_usage", "")
         if mode in ("slowstart", "slowhead"):
             time.sleep(6 if mode == "slowstart" else 4); mode = "tool"
         if mode == "malformed":
@@ -51,6 +53,10 @@ class Fake(http.server.BaseHTTPRequestHandler):
             ev += [{"choices": [{"delta": {"content": "The read tool reported an error"}}]}, {"choices": [{"delta": {}, "finish_reason": "stop"}]}]
         for e in ev:
             self.wfile.write(b"data: " + json.dumps(e).encode() + b"\n\n"); self.wfile.flush()
+        if usage and mode in ("tool", "no_tool"):  # llama.cpp 836d57176: an empty-choices usage chunk after the finish chunk
+            self.wfile.write(b"data: " + json.dumps({"choices": [], "usage": {"prompt_tokens": 9, "completion_tokens": 3}}).encode() + b"\n\n")
+        if mode == "errorevent":
+            self.wfile.write(b"data: " + json.dumps({"error": {"message": "x"}}).encode() + b"\n\n")
         if mode == "stall":
             try:
                 for _ in range(100):
@@ -96,6 +102,10 @@ def replay(mode, n=2, extra=None, port=None, out=None):
     return pr.returncode, pr.stdout.strip(), rows
 rc, out, rows = replay("tool", n=1, port=px); check("replay through the proxy (chunked) -> tool, rc 0", rc == 0 and "tool calls 1/1" in out, out)
 p.terminate()
+px2 = free_port(); p2 = subprocess.Popen([sys.executable, os.path.join(D, "pi_capture_proxy.py"), str(px2), str(up), os.path.join(T, "cap2")])
+for _ in range(50):
+    try: urllib.request.urlopen(f"http://127.0.0.1:{px2}/health", timeout=1); break
+    except OSError: time.sleep(0.1)
 rc, out, rows = replay("tool"); check("replay tool -> 2/2, rc 0", rc == 0 and "tool calls 2/2" in out and rows[0]["tool_calls"] == 1, out)
 rc, out, rows = replay("no_tool"); check("replay no_tool -> 0/2, content kept, rc 0", rc == 0 and "tool calls 0/2 (no_tool 2" in out and "reported" in rows[0]["content_head"], out)
 rc, out, rows = replay("stall", n=1); check("replay stall -> timeout, rc 0", rc == 0 and "timeout 1" in out and rows[0]["outcome"] == "timeout", out)
@@ -110,5 +120,13 @@ rc, out, rows = replay("slowhead", n=1); check("deadline (2 s) before headers ->
 rc, out, rows = replay("partial", n=1); check("deadline during SSE -> timeout, partial fragment kept", rc == 0 and "timeout 1" in out and rows[0]["tool_fragments"] == 1 and rows[0]["reasoning_chars"] > 0, out)
 d0 = os.path.join(T, "stale"); os.makedirs(d0)
 rc, out, rows = replay("tool", n=1, out=d0); check("existing output directory -> refused, rc 2", rc == 2 and "refusing" in out, out)
+# D143 (Codex review of 4013a2d): the usage-only chunk is valid (pi sends stream_options.include_usage)
+rc, out, rows = replay("tool_usage", n=1); check("tool reply + usage chunk + [DONE] -> tool, usage recorded", rc == 0 and "tool calls 1/1" in out and rows[0]["usage"], out)
+rc, out, rows = replay("no_tool_usage", n=1); check("no-tool reply + usage chunk + [DONE] -> no_tool", rc == 0 and "no_tool 1" in out, out)
+rq = os.path.join(T, "pi-like.json"); open(rq, "w").write(json.dumps({"mode": "tool", "stream": True, "stream_options": {"include_usage": True}}))
+pr = subprocess.run([sys.executable, os.path.join(D, "replay_first.py"), rq, str(px2), "1", os.path.join(T, "r-pilike"), "pilike"], capture_output=True, text=True, env=dict(os.environ, TIMEOUT_S="5"))
+check("pi-like request (include_usage) through the proxy -> tool", pr.returncode == 0 and "tool calls 1/1" in pr.stdout, pr.stdout.strip())
+rc, out, rows = replay("errorevent", n=1); check("error event in the stream -> error, rc 1", rc == 1 and "error 1" in out, out)
+p2.terminate()
 srv.shutdown()
 print(f"failures: {fails}"); sys.exit(fails)
