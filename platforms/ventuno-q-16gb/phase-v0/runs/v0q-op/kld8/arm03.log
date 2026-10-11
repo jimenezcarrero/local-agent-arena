@@ -1,0 +1,58 @@
+arm 03 env:GGML_HEXAGON_GDN_SELECT=1 env GGML_HEXAGON_GDN_SELECT=1
+0.00.880.275 W common_get_device_memory_data_impl: device HTP0:0 did not report memory; --fit will not use it
+0.00.880.301 W common_get_device_memory_data_impl: device HTP0:1 did not report memory; --fit will not use it
+0.01.029.908 W common_fit_params: failed to fit params to free device memory: n_gpu_layers already set by user to 99, abort
+0.04.342.685 I cmn          init: llama threadpool init, n_threads = 8
+0.04.477.132 I 
+0.04.477.263 I system_info: n_threads = 8 (n_threads_batch = 8) / 8 | CPU : NEON = 1 | ARM_FMA = 1 | FP16_VA = 1 | DOTPROD = 1 | REPACK = 1 | 
+0.04.609.433 I kl_divergence: computing over 6 chunks, n_ctx=1024, batch_size=1024, n_seq=1
+0.10.120.411 I kl_divergence: 5.51 seconds per pass - ETA 0.55 minutes
+
+chunk             PPL               ln(PPL(Q)/PPL(base))          KL Divergence              Δp RMS            Same top p
+   1       2.1929 ±    0.2218      -1.19624 ±    0.11187       0.88515 ±    0.06983    37.220 ±  1.465 %    71.037 ±  2.009 %
+   2       2.1805 ±    0.1387      -1.29129 ±    0.08382       0.79546 ±    0.04636    35.460 ±  1.074 %    73.973 ±  1.373 %
+   3       2.2413 ±    0.1049      -1.55594 ±    0.07084       0.80437 ±    0.03488    36.142 ±  0.829 %    70.776 ±  1.162 %
+   4       2.2397 ±    0.0835      -1.68719 ±    0.06097       0.80786 ±    0.02859    36.337 ±  0.697 %    68.689 ±  1.026 %
+   5       2.2450 ±    0.0710      -1.80530 ±    0.05507       0.82438 ±    0.02522    36.541 ±  0.607 %    66.771 ±  0.932 %
+   6       2.2977 ±    0.0643      -1.82699 ±    0.05032       0.81714 ±    0.02246    36.335 ±  0.546 %    66.014 ±  0.856 %
+
+====== Perplexity statistics ======
+Mean PPL(Q)                   :   2.297705 ±   0.064305
+Mean PPL(base)                :  14.280603 ±   0.867275
+Cor(ln(PPL(Q)), ln(PPL(base))):  57.07%
+Mean ln(PPL(Q)/PPL(base))     :  -1.826992 ±   0.050315
+Mean PPL(Q)/PPL(base)         :   0.160897 ±   0.008096
+Mean PPL(Q)-PPL(base)         : -11.982898 ±   0.832255
+
+====== KL divergence statistics ======
+Mean    KLD:   0.817141 ±   0.022456
+Maximum KLD:  13.371588
+99.9%   KLD:   9.626516
+99.0%   KLD:   5.665655
+95.0%   KLD:   3.416036
+90.0%   KLD:   2.266387
+Median  KLD:   0.342676
+10.0%   KLD:   0.002005
+ 5.0%   KLD:   0.000343
+ 1.0%   KLD:   0.000034
+ 0.1%   KLD:   0.000004
+Minimum KLD:   0.000002
+
+====== Token probability statistics ======
+Mean    Δp: 23.384 ± 0.502 %
+Maximum Δp: 99.857%
+99.9%   Δp: 99.093%
+99.0%   Δp: 95.770%
+95.0%   Δp: 80.952%
+90.0%   Δp: 67.655%
+75.0%   Δp: 38.925%
+Median  Δp: 13.610%
+25.0%   Δp:  1.577%
+10.0%   Δp:  0.014%
+ 5.0%   Δp: -0.055%
+ 1.0%   Δp: -12.151%
+ 0.1%   Δp: -95.253%
+Minimum Δp: -99.010%
+RMS Δp    : 36.335 ± 0.546 %
+Same top p: 66.014 ± 0.856 %
+

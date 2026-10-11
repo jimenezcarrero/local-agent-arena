@@ -1,0 +1,40 @@
+arm 01 all env GGML_HEXAGON_OPFILTER=(?!(NONE|VIEW|RESHAPE|PERMUTE|TRANSPOSE)$).*
+/workspace/ggml/src/ggml-backend.cpp:1081: pre-allocated tensor (cache_r_l0 (reshaped) (view) (view)) in a buffer (HTP0:0) that cannot run the operation (SCALE)
+[New LWP 2647110]
+[New LWP 2647109]
+[New LWP 2647105]
+[New LWP 2647104]
+[New LWP 2647097]
+[New LWP 2647096]
+[New LWP 2647089]
+[New LWP 2647088]
+[New LWP 2646983]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/aarch64-linux-gnu/libthread_db.so.1".
+0x0000ffff7fa87a34 in __GI___wait4 (pid=2647115, stat_loc=0x0, options=0, usage=0x0) at ../sysdeps/unix/sysv/linux/wait4.c:30
+warning: 30	../sysdeps/unix/sysv/linux/wait4.c: No such file or directory
+#0  0x0000ffff7fa87a34 in __GI___wait4 (pid=2647115, stat_loc=0x0, options=0, usage=0x0) at ../sysdeps/unix/sysv/linux/wait4.c:30
+30	in ../sysdeps/unix/sysv/linux/wait4.c
+#1  0x0000ffff7ff00250 in ggml_print_backtrace () from /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-base.so.0
+#2  0x0000ffff7feff5e0 in ggml_abort () from /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-base.so.0
+#3  0x0000ffff7ff1fc5c in ggml_backend_sched_backend_id_from_cur(ggml_backend_sched*, ggml_tensor*) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-base.so.0
+#4  0x0000ffff7ff1cf68 in ggml_backend_sched_split_graph () from /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-base.so.0
+#5  0x0000ffff803a30d0 in llama_context::graph_reserve(unsigned int, unsigned int, unsigned int, llama_memory_context_i const*, bool, unsigned long*) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama.so.0
+#6  0x0000ffff803a3abc in llama_context::resolve_fused_ops(llama_memory_context_i const*, unsigned int)::$_0::operator()(llm_fused_op_probe const&, bool&) const () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama.so.0
+#7  0x0000ffff803a23b8 in llama_context::resolve_fused_ops(llama_memory_context_i const*, unsigned int) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama.so.0
+#8  0x0000ffff803a1114 in llama_context::sched_reserve() () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama.so.0
+#9  0x0000ffff8039fbc8 in llama_context::llama_context(llama_model const&, llama_context_params) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama.so.0
+#10 0x0000ffff803af59c in llama_init_from_model () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama.so.0
+#11 0x0000ffff8075f108 in common_get_device_memory_data_impl(char const*, llama_model_params const*, llama_context_params const*, std::vector<ggml_backend_device*, std::allocator<ggml_backend_device*> >&, unsigned int&, unsigned int&, unsigned int&, ggml_log_level) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-common.so.0
+#12 0x0000ffff80764fb4 in common_params_fit_impl(char const*, llama_model_params*, llama_context_params*, float*, llama_model_tensor_buft_override*, unsigned long*, unsigned int, common_fit_extra_model const*, ggml_log_level) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-common.so.0
+#13 0x0000ffff80764b6c in common_fit_params(char const*, llama_model_params*, llama_context_params*, float*, llama_model_tensor_buft_override*, unsigned long*, unsigned int, common_fit_extra_model const*, ggml_log_level) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-common.so.0
+#14 0x0000ffff8073db5c in common_init_result::common_init_result(common_params&, bool) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-common.so.0
+#15 0x0000ffff8073ffe4 in common_init_from_params(common_params&, bool) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-common.so.0
+#16 0x0000ffff809b41dc in llama_perplexity(int, char**) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-perplexity-impl.so
+#17 0x0000ffff7f9d84c4 in __libc_start_call_main (main=main@entry=0xaaaaafaa0868 <main>, argc=argc@entry=18, argv=argv@entry=0xfffff7de60a8) at ../sysdeps/nptl/libc_start_call_main.h:58
+warning: 58	../sysdeps/nptl/libc_start_call_main.h: No such file or directory
+#18 0x0000ffff7f9d8598 in __libc_start_main_impl (main=0xaaaaafaa0868 <main>, argc=18, argv=0xfffff7de60a8, init=<optimized out>, fini=<optimized out>, rtld_fini=<optimized out>, stack_end=<optimized out>) at ../csu/libc-start.c:360
+warning: 360	../csu/libc-start.c: No such file or directory
+#19 0x0000aaaaafaa0770 in _start ()
+[Inferior 1 (process 2646980) detached]
+timeout: the monitored command dumped core
