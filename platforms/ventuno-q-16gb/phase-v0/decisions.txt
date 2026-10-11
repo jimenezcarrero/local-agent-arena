@@ -1881,3 +1881,50 @@ D134 2026-10-10 Codex review of #49 at dd9d692 (19:16Z): supports the retry miti
    - D133's "met 6 times" is correct; its "All 7 R servers exited on SIGTERM" refers to stops, not pairs.
    - Validation plan: dated results/amendments section appended (declaration unchanged; the pinned patch file keeps
      its historical header).
+D135 2026-10-10 Upstream issue filed by the owner: https://github.com/ggml-org/llama.cpp/issues/30309 (22:20 +02:00,
+   label bug-unconfirmed). Filed from a phone through a pre-filled issue-form link (the text of upstream/
+   npu-hang-report.txt shortened to fit GitHub's URL limit; with the version string, model source and quantization
+   command, the patch, the V2 result, reproduction notes and "first bad commit: unknown, not bisected"). Possible
+   duplicates checked before filing: none; the closest, #24963 (HMX prefill hang), was fixed by #24954, which is in
+   836d57176. The helper page upstream/file-the-issue.md was removed after filing (in git history at 6e5f2e6).
+D136 2026-10-10 Owner "Ok continue" (22:2x) to the recommendation after #30309: declare a V0e of A with the patched DSP
+   library. Declared, not run: v0e-plan-A-retry.txt (needs the owner's approval after review before any run).
+   - Same plan as D118 (v0e-plan-A.txt) except the runtime: release host package + ~/v0/htp-retry/libggml-htp-v75.so
+     (sha256 aa2ae2a9..., D131) first on ADSP_LIBRARY_PATH, with DSP error logging (.farf 0x1f) on as part of the
+     runtime; library sha256 and .farf content checked before and after every session; journal exported per
+     session; retried peek errors counted, not faults; a repeated error (more than 1 in a row) flagged for the owner.
+   - Speed re-check reported, not gated: S2's first 3 cycles at 8K against A's D90 admission medians (345.4/9.80),
+     > 10 % slower flagged.
+   - tools/v0e_A_retry.sh = v0e_A.sh plus those changes (diff checked); tools/test_v0e_A_retry.sh 17/17 (the 13
+     D118 cases plus wrong library, changed .farf, retry counted, repeat flagged). Deployed copies in ~/v0 identical.
+D137 2026-10-11 Codex review of #50 at 6f203ab (07:11Z): three P2 findings and the description. No hardware run.
+   1. v0e_A_retry.sh let abnormal runner exits through: loadfail() ignored rc (rc 124/137 with load=4 evidence led to
+      recovery, retry and QUALIFIED) and the S1 fallback accepted timeout/kill or failed health as a clean item
+      failure. Now both need rc 1 and the exact last RESULT ("RESULT FAIL: load=4" / "RESULT FAIL: workload=<n>"),
+      health pass, the permitted kernel class, and for S1 "server still up at the end of the workload"; anything
+      else stops.
+   2. journal() could not fail. Now fail-closed: exactly one server pid, journalctl bound to that pid, the run's boot id
+      and START..END+60 s, a successful command, a non-empty export showing the library open line and CDSP0 lines;
+      otherwise STOP for a server that became ready, except that a real HANG/DEVFAULT keeps its class. Counts are
+      "logged retry events" (the patch rate-limits its messages).
+   3. Eligibility for the changed runtime: a fresh V0d admission, set AR in v0d_admit.sh (the D85 set unchanged, with
+      the patched library and .farf on the ADSP path; tools/htp_retry_check.sh before anything, before every step and
+      after the set), then tools/admit_gate.py: the frozen 16K gate on the admitted attempt's r1-r3 (one RESULT at
+      16384 each, prompt within +-20 %, median >= 145 prefill and >= 4.4 decode). v0e_A_retry.sh refuses to start
+      without "GATE AR: PASS". The 8K comparison stays diagnostic.
+   Tests: test_v0e_A_retry.sh 28/28 (11 new; the 10 rule cases fail against the 6f203ab driver, checked);
+   test_admit_entry.sh 9/9 (6 new); test_admit_gate.sh 10/10 (reproduces D90's A and AM medians). Plan rewritten as a
+   self-contained execution brief (identities, quoted commands, both stages, items, budgets, sampling, monitoring,
+   stop/recovery policy); the PR description carries it too.
+D138 2026-10-11 Codex review of #50 at 12be36a (07:59Z): D137 confirmed; three P2 and one P3 remaining. No hardware run.
+   1. The admission prerequisite matched any historical "GATE AR: PASS" in the append-only status. Now only the latest
+      attempt counts (after its last "admission AR start": ADMITTED, GATE AR: PASS, done rc=0), and admit_gate.py is
+      re-applied to the current admission evidence before anything runs.
+   2. admit_gate.py read only <step>/probe.txt, so a step that loaded on its allowed second attempt (<step>-retry) gave
+      MISSING. It now reads the one record of <step>, <step>-retry whose last RESULT is PASS (two or none -> MISSING);
+      the failed load stays as evidence; OFF_DEPTH "RETRY" probe lines stay excluded. Integration case through
+      v0d_admit.sh with the real gate.
+   3. The journal exception keyed on a missing "ready after" line; it now applies only to class LOADFAIL (plus the
+      HANG/DEVFAULT rule). A PASS session with a failed capture stops whatever its readiness metadata.
+   P3. Non-finite or non-positive throughput (inf, NaN, 0) is MISSING, not a speed verdict.
+   Tests: test_v0e_A_retry.sh 33/33 (5 new), test_admit_entry.sh 10/10 (1 new), test_admit_gate.sh 16/16 (6 new).

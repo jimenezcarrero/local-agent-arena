@@ -1,0 +1,106 @@
+Plan for configuration A with the patched DSP library ("A-retry"): fresh V0d admission (set AR), then V0e.
+Declared 2026-10-10 (D136), revised 2026-10-11 after the Codex reviews of #50 at 6f203ab (D137) and 12be36a (D138). Nothing runs until the
+owner approves this plan after review. Not a GO: V0d admits, V0e qualifies, GO is the owner's.
+Owner: "Ok continue" (2026-10-10) to declaring a V0e of A with the patched library, after the patch's diagnostic
+validation (D133: 240/240, 8 AEE_ENOMORE events retried) and the upstream issue (ggml-org/llama.cpp#30309).
+
+1. Exact identities
+  Model: NeoHorse-1-4B pure Q4_0, NeoHorse-1-4B-q4_0-pure.gguf, sha256 f822fa2602af45d802e54bac518bab3f62b08943029626114a474afc3d8f3049
+    (from TokenRhythm/NeoHorse-1-4B-GGUF BF16 @3c5d58ca, llama-quantize --pure ... Q4_0 with 836d57176).
+  Host runtime: ggml-hexagon release package at 836d57176 (~/v0/hexpkg/pkg-linux; package sha256 5916fed1...,
+    llama-server sha256 815b22bb99c8f63e..., D40), Hexagon SDK 6.6.0.0, htp-v75.
+  DSP library (new cohort): ~/v0/htp-retry/libggml-htp-v75.so, sha256
+    aa2ae2a978d95935b763234c1a6cefe27f42c1cf98d67f041c17f13210fedde2 (D131: release source + upstream/htp-main-thread-
+    retry.patch.txt, sha256 4b9838df...; built with the measured toolchain; the unpatched rebuild is byte-identical to
+    the release library 1fd898cc...). Selected by search order; FastRPC names only the file it opens, so identity is
+    the search order plus tools/htp_retry_check.sh (sha256 and the .farf content) before and after every step/session.
+  DSP error logging (part of the runtime): ~/v0/farf/llama-server.farf = 0x1f (D125; the release library has only its
+    FARF(ERROR) messages compiled in). No diagnostic shim, no cDSP restart, no root.
+  Measurement commit 7badb21; pi 0.80.10, provider bench, model local32k (contextWindow 32768, maxTokens 8192).
+
+2. Server commands (P=~/v0/hexpkg/pkg-linux, M=~/v0/models/q40). The ADSP path is quoted (it contains semicolons).
+  Admission (AR, as D85/D90's A, -c 40960 so that 32K prompts fit):
+    env LD_LIBRARY_PATH=$P/lib "ADSP_LIBRARY_PATH=$HOME/v0/farf;$HOME/v0/htp-retry;$P/lib" GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1
+      $P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 40960 --cache-ram 7942 -lv 4 --host 127.0.0.1
+      --port 8080 --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0
+  V0e (the suite's window): the same with -c 32768.
+  Baseline probe before steps (NPU health check, unchanged; release library):
+    env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$P/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server
+      -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 40960 --cache-ram 8192 -lv 4 ... -ngl 99 --ctx-checkpoints 0, depth 512.
+
+3. Stage 1: V0d admission of the patched runtime (Codex finding 3: earlier speed evidence does not carry over).
+  Entry: setsid bash ~/v0/v0d_admit.sh AR (from ~/bench-runs). Phase v0d-admit-AR; status
+  ~/bench-runs/v0/v0d/v0d-admit-AR-status.txt. The D68/D85 admission set, unchanged: an initial baseline probe;
+  warm-up (discarded), r1, r2, r3 (speed_probe at 512/8192/16384/32768 each, fresh prefix, 128 tokens), then the tool
+  gates (probe_toolcalls 10/10 and agentic 3/3); every PASS step must pass memfloor --admit 7942. htp_retry_check.sh
+  before anything, before every step's probe and load, and after the set: a mismatch stops (exit 6 / 2).
+  Fault budget (D89): the first fault (HANG, DEVFAULT) in the set ends that attempt; recovery by baseline probing
+  without a restart; the whole set restarts once; a second fault -> NOT ELIGIBLE (exit 3). A clean load failure is
+  retried once after recovery; twice -> stop. Any other non-PASS (missing evidence, memory reject) -> stop.
+  16K gate (frozen, RUNBOOK): tools/admit_gate.py on the admitted attempt's r1-r3, each read from its successful record
+  (r<n>, or r<n>-retry after a clean load failure; exactly one must have "RESULT PASS"; D138): one RESULT at depth 16384
+  each, the actual prompt within +-20 % of 16384, finite positive throughput, median prefill >= 145 and median decode
+  >= 4.4 tok/s. "GATE AR: PASS" ->
+  provisionally eligible (patched runtime); FAIL -> not eligible (exit 3); missing or malformed -> stop (exit 2).
+  Diagnostic, not gated: the per-depth medians against D90's A (16K 317.4/8.22, 8K 345.4/9.80, 32K 282.3/7.21); the
+  FastRPC/DSP journal of each step is exported with the evidence and its logged retry events counted.
+  Estimated: about 50-60 min (D90's A set took 48 min).
+
+4. Stage 2: V0e of A-retry at 32768. The driver starts only if the LATEST admission attempt in the append-only AR
+  status is complete and passing ("SET AR: ADMITTED", "GATE AR: PASS" and "admission AR done rc=0" after its last
+  "admission AR start"; an older PASS followed by a newer failed or unfinished attempt does not count) and the gate,
+  re-applied to the current admission evidence, still passes (D138).
+  Entry: setsid bash ~/v0/v0e_A_retry.sh (from ~/bench-runs). Phase v0e-A-retry; status
+  ~/bench-runs/v0/v0d/v0e-A-retry-status.txt. Each session: htp_retry_check before and after, a passing baseline probe
+  first, run_v0e.sh evidence chain (run window, health check + fail-closed verdict, kernel audit with coverage,
+  NPU stall watchdog), memfloor --admit 7942, DSP journal export (below).
+  S1 (budget 7200 s; tools/v0e_s1.sh, one server): 1a probe_toolcalls --stream 10/10; 1b agentic --stream 3/3;
+    1c pi_smoke.py; 2 v0e_window.py window (n_ctx_train, n_ctx_seq, /props n_ctx and pi's local32k agree == 32768; a
+    prompt >= 95 % of the window with >= 1024 reply tokens producing a bash tool call; the tool result appended and
+    continued); 3 v0e_window.py cache (~8K document, two of the model's own bash calls answered by role "tool" results
+    ~2K tokens with matching tool_call_id; turns 2-3 reuse >= 90 % of the previous prompt by integer timings.cache_n;
+    missing or malformed counters FAIL); 2/3 v0e_compact.sh (three real pi turns past the compaction threshold, every
+    turn exits 0, >= 1 compaction entry, no context-size rejection; recall recorded, not gated).
+  S2 (budget 9000 s; tools/v0e_sustained.sh): one server >= 95 min; each cycle a fresh-prefix 8K speed probe and one pi
+    smoke session; PASS: server stays up, duration reached, every speed probe valid, v0e_sustained_summary.py VALID
+    (>= 6 cycles; first 3 vs last 3; a decline over 10 % flagged for the owner), health and kernel pass, memory ADMIT.
+  Pause between sessions 180 s.
+  DSP journal (Codex finding 2, fail-closed): after each session, the server's journal lines bound to its single pid,
+    its boot id and START..END+60 s; required: the command succeeds, the export is non-empty, it shows the library
+    open line and CDSP0 lines. A failed capture stops, except: a real HANG/DEVFAULT keeps its class, and a confirmed
+    clean load failure (class LOADFAIL) keeps its recovery path (D138; missing readiness metadata is no exception).
+    messages); more than 1 in a row is flagged for the owner, not a fail.
+
+5. Generation sampling: direct probes send no sampling fields, so llama-server defaults apply (no general.sampling.* in
+  the GGUF): temperature 0.8, top_k 40, top_p 0.95, min_p 0.05, presence_penalty 0, no fixed seed; speed_probe adds
+  cache_prompt false, max_tokens 128. pi has no sampling settings; its effective parameters are recorded from -lv 4.
+
+6. Stop and recovery policy (V0e; declared):
+  - HANG or DEVFAULT anywhere (baseline probes included): fault recorded; recovery by baseline probing (every 900 s, up
+    to 13) without a restart; STOP: NOT QUALIFIED.
+  - Recoverable only with the runner's normal completed-failure exit (rc 1) and complete evidence (D137, finding 1):
+    a clean load failure (last RESULT exactly "RESULT FAIL: load=4", server exited before ready on an NPU mapping
+    failure, health pass, kernel pass/npu_map) -> recovery, that session once more; twice -> NOT QUALIFIED (load).
+    S1 items failing on a clean session (last RESULT exactly "RESULT FAIL: workload=<n>", health pass, kernel pass,
+    server still up) -> S1 FAIL recorded, S2 runs for evidence, not qualified.
+  - Anything else (timeout or kill of the runner, failed health, missing evidence or DSP journal, library mismatch,
+    memory REJECT, invalid sustained summary) -> STOP.
+  QUALIFIED only if GATE AR passed, S1 and S2 PASS, memory ADMIT in both, the sustained summary VALID and no fault.
+  Separate statements: "admitted / provisionally eligible (patched runtime)" from stage 1; "V0e qualified" only from
+  stage 2. Neither covers AM, H2, other windows, or explains AEE_ENOMORE. A's D99/D120 hangs (release library) stay on
+  record.
+
+7. Monitoring and preconditions (checked at launch, recorded): no llama-server; NPU stall watchdog and health sampler
+  running; health check pass without package drift; measurement checkout 7badb21 clean; ~/v0 copies identical to
+  tools/. Evidence copied to runs/v0d-admit-AR and runs/v0e-A-retry with the monitoring export; audits recomputed from
+  the committed export.
+
+8. Tests (offline, mocked): test_admit_entry.sh 10/10 (AR: library wrong at start, changed mid-set, changed after the
+  set, gate fail, gate missing, pass, and with the real gate a step that loads on its second attempt); test_admit_gate.sh
+  16/16 (published A and AM medians reproduced; below-gate prefill/decode, off-depth prompt, RETRY-only, duplicate and
+  non-numeric lines, the -retry record used, two or no successful records, inf/NaN/0 throughput);
+  test_v0e_A_retry.sh 33/33 (the 13 D118 policy cases, library/.farf identity, retry counted/flagged, missing
+  admission, a newer failed or unfinished admission after an older PASS, gate re-check failing, rc 124/137 on load and
+  S1 records, failed health on an S1 record, journal failed/empty/no DSP lines/no pid, journal failure under a HANG,
+  under a PASS without a readiness line, and under a clean load failure).
+  Estimated total NPU time if everything passes: about 4-5.5 hours (stage 1 about 1 h; stage 2 about 3-4.5 h).
