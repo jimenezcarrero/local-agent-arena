@@ -1,0 +1,20 @@
+# D140: pi smoke outcomes in v0e-A-retry-S2 (56 cycles) by class, from smoke-c<n>.txt; timeouts correlated with server.log
+# Classes: PASS (7/7); NO_TOOL (pi rc 0, no tool call in order); WRONG_ORDER (pi rc 0, some tool activity, required order not met);
+# TIMEOUT (pi rc 124: pi_smoke.py's `timeout 600 pi ...`).
+counts: {'NO_TOOL': 46, 'WRONG_ORDER': 1, 'PASS': 5, 'TIMEOUT': 4} of 56
+per cycle: c1:NO_TOOL c2:NO_TOOL c3:WRONG_ORDER c4:NO_TOOL c5:NO_TOOL c6:NO_TOOL c7:NO_TOOL c8:NO_TOOL c9:NO_TOOL c10:NO_TOOL c11:PASS c12:NO_TOOL c13:PASS c14:NO_TOOL c15:NO_TOOL c16:NO_TOOL c17:NO_TOOL c18:NO_TOOL c19:NO_TOOL c20:NO_TOOL c21:NO_TOOL c22:NO_TOOL c23:TIMEOUT c24:NO_TOOL c25:NO_TOOL c26:NO_TOOL c27:NO_TOOL c28:NO_TOOL c29:NO_TOOL c30:NO_TOOL c31:NO_TOOL c32:NO_TOOL c33:NO_TOOL c34:NO_TOOL c35:NO_TOOL c36:NO_TOOL c37:NO_TOOL c38:NO_TOOL c39:NO_TOOL c40:NO_TOOL c41:NO_TOOL c42:NO_TOOL c43:TIMEOUT c44:PASS c45:PASS c46:NO_TOOL c47:TIMEOUT c48:NO_TOOL c49:NO_TOOL c50:NO_TOOL c51:PASS c52:NO_TOOL c53:NO_TOOL c54:NO_TOOL c55:NO_TOOL c56:TIMEOUT
+
+Timeouts (server side; server.log times are relative to start, server pid line 13:39:27):
+  c23: task 8469 started 14:05:39, prompt 1647 tokens, cancelled 14:15:37 (598 s) at n_tokens 7422: about 5775 generated tokens, 9.7 tok/s; no NPU stall watchdog action
+  c43: task 20760 started 14:36:34, prompt 1647 tokens, cancelled 14:46:32 (598 s) at n_tokens 7464: about 5817 generated tokens, 9.7 tok/s; no NPU stall watchdog action
+  c47: task 28641 started 14:52:16, prompt 1647 tokens, cancelled 15:02:14 (598 s) at n_tokens 7400: about 5753 generated tokens, 9.6 tok/s; no NPU stall watchdog action
+  c56: task 37715 started 15:12:28, prompt 1647 tokens, cancelled 15:22:26 (598 s) at n_tokens 7407: about 5760 generated tokens, 9.6 tok/s; no NPU stall watchdog action
+
+Reading and limits: in each timeout the server decoded at its normal rate (about 9.7 tok/s, the same as the cycle's
+speed probes) for the whole 598 s until pi's timeout cancelled the request: a long generation that never stopped, not
+an NPU stall. The generated text was not captured (pi was killed before writing its session file and its log is empty),
+so whether it was looping reasoning or something else is not shown; the server log at -lv 4 does not hold the text.
+No tool call came out of these 4 requests. The denominator stays 56: PASS 5, NO_TOOL 46, WRONG_ORDER 1 (c3), TIMEOUT 4.
+Also seen for every pi request in this server log: "forcing full prompt re-processing due to lack of cache data (likely
+due to SWA or hybrid/recurrent memory)" (the model is a qwen35 hybrid; the server runs --ctx-checkpoints 0). This is an
+observation about how the prompt cache served these requests, not a test of cache reuse (S1 item 3 never got past turn 1).

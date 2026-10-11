@@ -1928,3 +1928,66 @@ D138 2026-10-11 Codex review of #50 at 12be36a (07:59Z): D137 confirmed; three P
       HANG/DEVFAULT rule). A PASS session with a failed capture stops whatever its readiness metadata.
    P3. Non-finite or non-positive throughput (inf, NaN, 0) is MISSING, not a speed verdict.
    Tests: test_v0e_A_retry.sh 33/33 (5 new), test_admit_entry.sh 10/10 (1 new), test_admit_gate.sh 16/16 (6 new).
+D139 2026-10-11 Owner: "I going to merge, continue with you stage 1 and 2". Results. [Chronology corrected in D140: run
+   from the reviewed d05255f before #50's merge (12:55:41 UTC); launch checks are a testing-agent report.]
+   Launch checks (12:33): the 18 deployed scripts identical to the reviewed d05255f; no llama-server; watchdog and
+   sampler running; measurement checkout 7badb21 clean; htp_retry_check OK; health check pass, no package drift.
+   Stage 1, v0d_admit.sh AR (12:33-13:24): ADMITTED in attempt 1, 0 faults. warm-up, r1-r3 and tools PASS; every step
+     memfloor ADMIT (lowest margin the tool gate, 101,343 kB). GATE AR: PASS, 16K medians 318.4/8.40 (r1-r3 prompts
+     18,025-18,026; D90 release library: 317.4/8.22); 8K 9.34, 32K 7.03 decode medians. Tools 10/10, agentic 3/3.
+     One AEE_ENOMORE in the tool step (13:17:35, "1 in a row, retrying"); the step passed. The patched runtime is
+     provisionally eligible (V0d) at the admission settings.
+   Stage 2, v0e_A_retry.sh (13:24-15:23): prerequisite accepted the latest admission and re-applied the gate.
+     S1 (13:26-13:35, rc 1, clean session): 1a streaming tool probe 10/10, 1b streaming agentic 3/3; FAILED 1c pi smoke
+       (1/7: pi exited 0 with no tool call; the reply text holds a stray "</think>" after the reasoning), 2 window
+       (window agreement and the 96.3 % near-limit prompt pass; the near-limit tool call and continuation fail: the
+       model stopped without a bash call, twice), 3 cache (no tool call in turn 1), 2/3 compaction (0/3 pi turns made
+       progress). S1 FAIL recorded; S2 ran for evidence, as declared. DSP: 0 logged retries.
+     S2 (13:39-15:22, 103 min, 56 cycles, rc 1): sustained summary VALID (8K prefill 346.4 -> 346.7, decode 9.5 ->
+       9.5, NSP max 47.9 -> 49.0 C, no decline); every speed probe valid; pi smoke 5 of 56 passed. DSP: 12 logged
+       retry events, each 1 in a row; no hang, no fault. Health verdict FAILED: MemAvailable fell to 1.06 GiB (floor
+       1.5 GiB) at 15:22:30, the end of the run: the prompt cache grew to 25 prompts, 7.7 GB of its 7,942 MiB cap,
+       and llama-server's RSS reached 8.67 GB (VmHWM 8.80 GB); swap 0, PSI full max 0.29, no OOM. memfloor --admit 7942
+       still ADMITs (min of MemAvailable + cache 9,006,909 kB vs 8,478,638 required). [D140: separate requirements,
+       both must pass; not a contradiction.] STOP: EVIDENCE -> V0e A-retry: NOT QUALIFIED (S2 health). [D140: the workload completed
+       (rc 0, 15:22:31); the post-run health verdict (15:23:06) stopped the driver.]
+   Recomputed from the committed export (runs/v0e-A-retry/recompute-20261011.txt): every kernel audit pass, every
+   memfloor ADMIT, the gate reproduces.
+   Reading:
+   - NPU: the mitigation held: about 3 h of NPU use, 7 patched-library servers (AR warm-up, r1-r3, tools; S1; S2),
+     13 AEE_ENOMORE events, each retried once, no hang; the 3 baseline probes ran on the release library and
+     passed. (Release library: D120 hung on pi's first request.)
+   - Not qualified for two reasons, neither showing the D127 hang signature (no stall watchdog action; every peek error
+     retried once) [D140: the 4 pi timeouts were active long generations whose content is unknown]:
+     (1) Model/pi: A rarely issues tool calls under pi's prompts (S1 1/7; S2 5/56), while the direct streaming tool
+         gates pass. Whether this is the model, its chat template/reasoning handling (the stray "</think>"), the q4_0
+         quantization or the NPU backend is not known from this run.
+     (2) Memory: with --cache-ram 7942 a long session fills the prompt cache and leaves MemAvailable below the 1.5 GiB
+         health floor; the D67 cap was sized by memfloor, which counts the cache as available. Any fix is a
+         configuration change (a smaller cap) and needs its own plan.
+   Evidence: runs/v0d-admit-AR, runs/v0e-A-retry (with the pi and compaction sessions and per-session FastRPC/DSP
+   journals); monitor/ and env/ re-exported (no package change; holds snapshot 2026-10-11).
+D140 2026-10-11 Codex review of #51 at 3172fb7 (15:47Z): verdicts supported; two P2 and one P3 on the record. No hardware run.
+   1. pi failure classes (runs/v0e-A-retry/pi-smoke-audit.txt): S2's 56 cycles are PASS 5, NO_TOOL 46 (pi rc 0, no tool
+      call), WRONG_ORDER 1 (c3, some tool activity, order not met), TIMEOUT 4 (c23, c43, c47, c56: pi rc 124 from
+      pi_smoke.py's 600 s timeout; empty pi logs, no session file). Server side, each timed-out request (prompt 1,647
+      tokens) was decoding at about 9.7 tok/s for 598 s until pi's timeout cancelled it (n_tokens 7,400-7,464 at
+      cancel, about 5,750-5,820 generated tokens); no NPU stall watchdog action on 2026-10-11. So these are long
+      generations that never stopped, not NPU stalls; their text was not captured, so their content is unknown.
+      S1: the near-limit tool call failed and the continuation was NOT RUN; cache reuse was NOT EXERCISED beyond turn 1
+      (no tool call in turn 1); compaction was NOT REACHED (no pi turn made the required tool-driven progress). These
+      qualification items fail; this does not show that cache reuse or compaction is broken. Observation: every pi
+      request in S2's server log was fully re-processed ("lack of cache data (likely due to SWA or hybrid/recurrent
+      memory)"; qwen35 hybrid with --ctx-checkpoints 0); recorded for the next plan, not a cache-reuse result.
+   2. Chronology: the owner's go-ahead came before 12:33 +02:00; stages 1 and 2 ran from 12:33 +02:00 (10:33 UTC) on
+      the reviewed revision d05255f, i.e. BEFORE #50's merge at 12:55:41 UTC (14:55 +02:00); the merge 9dd33a8 changed
+      no tools/ file. D139's "(#50 merged 12:55Z)" in its header implied the reverse (marked). The launch checks
+      (18-script equality, clean checkout, health, library) were not saved at launch; their outputs are copied verbatim
+      from the session transcript into runs/v0e-A-retry/launch-checks-20261011.txt, labelled as a testing-agent report,
+      not re-run. Contemporaneous: the AR status's own library check at 12:33:29 and run.txt's measure=7badb21 guard.
+      The PR description now carries the full executed brief (the plan at d05255f) and the deviations.
+   3. Wording: S2's workload completed (rc 0, 15:22:31, server up, END 15:22:34); the post-run health verdict
+      (MemAvailable 1.06 GiB < 1.5 GiB floor) stopped the driver at 15:23:06. memfloor counts the prompt cache as
+      reclaimable and the health floor tests MemAvailable: separate requirements, both must pass, so ADMIT plus health
+      FAIL is not a contradiction. The health floor stays. The cache grew near its cap (last log line 7,710.8 MiB of
+      7,942 MiB, 25 prompts); "7.7 GB" was a rounding, not a measurement of exact occupancy. D139 marked; README fixed.

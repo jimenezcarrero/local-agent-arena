@@ -1,0 +1,46 @@
+# Launch checks before stage 1 (2026-10-11, about 12:33 +02:00 = 10:33 UTC), D140.
+# Provenance: these are the testing agent's command outputs, copied verbatim from the session transcript on
+# 2026-10-11 (Codex review of #51, finding 2). They were not written to a file at launch time, so they are a testing-agent
+# report, not independently verifiable launch evidence. Nothing here was re-run later.
+# The deployed copies were compared with the reviewed revision d05255f (#50 head before its merge; the merge 9dd33a8 at
+# 14:55:41 +02:00 = 12:55:41 UTC changed no file under tools/).
+
+## 1. ~/v0 copies against `git show d05255f:platforms/ventuno-q-16gb/phase-v0/tools/<file>` (cmp), and origin/ventuno-q
+origin/ventuno-q head: d05255f; local branch in sync
+      1 same v0e_window.py
+      1 same v0e_sustained_summary.py
+      1 same v0e_sustained.sh
+      1 same v0e_s1.sh
+      1 same v0e_compact.sh
+      1 same v0e_A_retry.sh
+      1 same v0d_runner.sh
+      1 same v0d_lib.sh
+      1 same v0d_admit.sh
+      1 same run_v0e.sh
+      1 same run_v0c.sh
+      1 same run_route.sh
+      1 same npu_stall_watchdog.sh
+      1 same memfloor.py
+      1 same kernel_audit.py
+      1 same htp_retry_check.sh
+      1 same health_verdict.py
+      1 same admit_gate.py
+      1 not-in-tools speed_probe.py   (lives in the measurement checkout ~/v0/measure, suite/tools)
+
+## 2. Runtime preconditions (one command, output as printed)
+2043 /bin/bash /home/arduino/v0/monitor/health_sampler.sh
+536683 /bin/bash /home/arduino/v0/npu_stall_watchdog.sh
+no llama-server
+7badb21                     (git -C ~/v0/measure rev-parse --short HEAD)
+0                           (git -C ~/v0/measure status --porcelain | wc -l)
+OK htp-retry sha256 aa2ae2a978d95935..., farf 0x1f
+health_rc=0                 (health_check.py 5; no ALERT or drift line)
+Mem:              14           1           7           0           6          13
+/dev/mmcblk0p71   55G   44G  9.4G  83% /
+Sun Oct 11 12:33:23 CEST 2026
+
+## 3. Contemporaneous records that do exist
+- runs/v0e-A-retry/v0d-admit-AR-status.txt, first line 12:33:29: "AR library: OK htp-retry sha256 aa2ae2a978d95935...,
+  farf 0x1f" (v0d_admit.sh's own check), then a PRE-LOAD check line before every step.
+- Every run directory's run.txt START line records measure=7badb21 and the boot id; run_v0e.sh / run_route.sh abort if
+  the measurement checkout is moved or dirty.
