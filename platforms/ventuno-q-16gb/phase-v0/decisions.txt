@@ -2103,3 +2103,10 @@ D146 2026-10-11 D5 result: the HMX GATED_DELTA_NET kernel is NOT what breaks pi'
    anything is concluded. Own stall check per arm (the NPU stall watchdog watches only llama-server/llama-bench):
    a hang is killed, recorded and stops the run. Note: the test-backend-ops runs of D145 also ran outside the
    watchdog's scope; they finished without a stall.
+D147 2026-10-11 D146 attempt 1 (runs/v0q-op/kld): CPU base done (PPL 14.3634 +/- 0.879), then arm 01 (npu) aborted
+   at load: "HTP0:1 buffer mapping failed : size 1072078848 ... error 0x00000001", fastrpc_mmap exception (rc 134),
+   before any NPU compute. No stall, no leftover process, MemAvailable 13.8 GiB after. The intermittent mapping
+   failure of D90 (H: 3 of 6 loads), here on A's two-session layout with llama-perplexity. Amendment before attempt
+   2: an arm whose load fails with "buffer mapping failed" is reloaded ONCE after 60 s (the failed log kept as
+   armNN-loadfail.log); a second failure, a hang or any other error still stops. test_v0q_kld.sh 11/11. Attempt 2 in
+   a fresh directory (runs/v0q-op/kld2), same text, arms and readings.

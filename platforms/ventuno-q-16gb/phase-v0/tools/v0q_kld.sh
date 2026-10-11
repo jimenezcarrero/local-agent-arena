@@ -8,7 +8,8 @@
 # One arm at a time. npu_stall_watchdog.sh only watches llama-server/llama-bench, so each NPU arm has its own stall
 # check with the watchdog's rule: a thread in fastrpc_wait_for_completion and < 0.5 core-s per 10 s for STALL_S
 # (120 s) -> HANG: SIGKILL, thread states saved, STOP. Any other failure or a 1800 s timeout -> STOP.
-# Overridable for tests: PPL, ARMS, STALL_S, ARM_PAUSE.
+# A load that fails with "buffer mapping failed" is reloaded once (D147). Overridable for tests: PPL, ARMS, STALL_S,
+# ARM_PAUSE, RELOAD_PAUSE.
 set -uo pipefail
 O=$1; TXT=$2; P=~/v0/hexpkg/pkg-linux; M=~/v0/models/q40/NeoHorse-1-4B-q4_0-pure.gguf
 PPL=${PPL:-$P/bin/llama-perplexity}; STALL_S=${STALL_S:-120}
@@ -37,6 +38,10 @@ for a in $ARMS; do i=$((i+1)); n=$(printf %02d $i); extra=(); args=()
   case $a in npu) ;; nofusion) extra=(GGML_HEXAGON_OPFUSION=0);; all) extra=("GGML_HEXAGON_OPFILTER=.*");; *) extra=("GGML_HEXAGON_OPFILTER=$a");; esac
   echo "arm $n $a env ${extra[*]:-none}" > $O/arm$n.log
   rc=$(run_npu $O/arm$n.log "${NPU_ENV[@]}" "${extra[@]}")
+  # D147: a load-time "buffer mapping failed" (the intermittent map failure of D90) gets ONE reload after 60 s
+  if [ "$rc" != 0 ] && [ "$rc" != HANG ] && grep -q 'buffer mapping failed' $O/arm$n.log; then
+    mv $O/arm$n.log $O/arm$n-loadfail.log; echo "arm $n $a LOADFAIL (buffer mapping failed, rc $rc): one reload after ${RELOAD_PAUSE:-60} s" | tee -a $O/summary.txt
+    sleep ${RELOAD_PAUSE:-60}; echo "arm $n $a env ${extra[*]:-none} (reload)" > $O/arm$n.log; rc=$(run_npu $O/arm$n.log "${NPU_ENV[@]}" "${extra[@]}"); fi
   echo "arm $n $a rc $rc | $(summ $O/arm$n.log)" | tee -a $O/summary.txt
   [ "$rc" = HANG ] && { echo "STOP: NPU stall in arm $n ($a); threads in arm$n.log.stall" | tee -a $O/summary.txt; exit 3; }
   [ $rc = 0 ] || { echo "STOP: arm $n rc $rc" | tee -a $O/summary.txt; exit 2; }
