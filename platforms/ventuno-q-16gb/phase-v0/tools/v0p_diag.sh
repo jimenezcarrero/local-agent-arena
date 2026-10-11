@@ -9,9 +9,12 @@
 #       10 pi smoke sessions, 20 replays of D1's first request
 #   D3  CPU, same binary and the same pure Q4_0 file (--device none -ngl 0, 4 big-core threads): 20 replays
 #   D4  CPU, the publisher's Q4_K_M file (sha256 7da8ac62...): 20 replays
-# NPU steps: a passing baseline probe first and htp_retry_check.sh before and after. Policy: HANG or DEVFAULT anywhere ->
-# fault recorded, recovery by probing, STOP. A workload that ran (rc 0, its RESULT lines present) is a result whatever
-# its pass rate. Anything else (missing evidence, failed health, a replay error, a missing file) -> STOP.
+# NPU steps: a passing baseline probe first and htp_retry_check.sh before and after. Policy (D142): HANG or DEVFAULT
+# anywhere -> fault recorded FIRST, recovery by probing, the post-run library check kept as extra evidence, STOP. A step
+# must start from a fresh run directory, and a PASS needs the workload's complete evidence (its "WORKLOAD" line with
+# all PI_N pi results and REPLAY_N replays, and the replay RESULT line); then any pass rate is a result. Steps D2-D4
+# replay D1's request, bound by its sha256. Anything else (missing evidence, failed health, a replay error, a client
+# crash, a stale directory, a library or file mismatch) -> STOP.
 # Overridable for tests: BR, CHECK_PROC, RUN_V0E, HTPR_CHECK, STEP_PAUSE, STEPS + the runner's variables.
 set -uo pipefail
 source ~/v0/v0d_lib.sh
@@ -36,7 +39,8 @@ case " $STEPS " in *" D4 "*) [ "$(sha256sum "$QKM" 2>/dev/null | cut -d' ' -f1)"
 lastres() { grep -oE 'RESULT (PASS|FAIL).*' $1/run.txt 2>/dev/null | tail -1; }
 # step <label> <npu|cpu> <timeout s> <env for the workload...> -- <server command...>
 step() { local lab=$1 kind=$2 to=$3; shift 3; local wenv=(); while [ "$1" != -- ]; do wenv+=("$1"); shift; done; shift
-  local f0 wd0 rc C
+  local f0 wd0 rc C pn rn lc=ok
+  [ -e $O/$lab ] && { say "STOP: $O/$lab already exists (a fresh run directory is required)"; exit 2; }
   if [ $kind = npu ]; then f0=$(nfaults); ready now
     [ "$(nfaults)" = "$f0" ] || { say "STOP: fault in the baseline before $lab (recovered)"; exit 3; }
     c=$($HTPR_CHECK 2>&1) || { say "STOP: before $lab: $c"; exit 2; }; fi
@@ -44,19 +48,32 @@ step() { local lab=$1 kind=$2 to=$3; shift 3; local wenv=(); while [ "$1" != -- 
   env "${wenv[@]}" CAP_DIR=$O/$lab/capture PHASE=$PH timeout -k 60 $to bash $RUN_V0E $lab $HOME/v0/v0p_workload.sh -- $W "$@" > /dev/null 2>&1; rc=$?; killall_srv
   C=$(classify $O/$lab $rc $wd0)
   say "END $lab: $C (runner rc $rc) | $(lastres $O/$lab) | $(grep -h "RESULT $lab:" $O/$lab/workload.txt 2>/dev/null | tail -1)"
-  [ $kind = npu ] && { c=$($HTPR_CHECK 2>&1) || { say "STOP: after $lab: $c"; exit 2; }; }
+  [ $kind = npu ] && { c=$($HTPR_CHECK 2>&1) || lc="FAILED: $c"; }
   case $C in
-    PASS) ;;
-    HANG|DEVFAULT) fault $lab $C; ready wait; say "STOP: $C in $lab (recovered)"; exit 3;;
-    *) say "STOP: $lab $C"; exit 2;;
+    HANG|DEVFAULT) fault $lab $C; [ "$lc" = ok ] || say "NOTE $lab: post-run library check $lc (kept as evidence)"
+      ready wait; say "STOP: $C in $lab (recovered)"; exit 3;;
   esac
+  [ "$lc" = ok ] || { say "STOP: after $lab: library check $lc"; exit 2; }
+  [ $C = PASS ] || { say "STOP: $lab $C"; exit 2; }
+  for e in "${wenv[@]}"; do case $e in PI_N=*) pn=${e#*=};; REPLAY_N=*) rn=${e#*=};; esac; done
+  grep -qE "^WORKLOAD $lab: pi results $pn/$pn, replays $rn/$rn, request sha256 [0-9a-f]{64}$" $O/$lab/workload.txt 2>/dev/null \
+    && grep -qE "^RESULT $lab: first-reply tool calls [0-9]+/$rn " $O/$lab/workload.txt \
+    || { say "STOP: $lab: workload evidence incomplete (WORKLOAD/RESULT lines)"; exit 2; }
+  [ $lab = v0p-D1 ] && { sha256sum $O/$lab/first-request.json 2>/dev/null | cut -d' ' -f1 > $O/$lab/first-request.sha256; [ -s $O/$lab/first-request.sha256 ] \
+    || { say "STOP: D1 left no first-request.json"; exit 2; }; }
   sleep $STEP_PAUSE; }
 say "v0p pi diagnostic start (pid $$): steps $STEPS, no root"
+# Step caps cover the worst case of the declared work: NPU 10 pi sessions + 20 replays at 600 s each (18,000 s) plus
+# load: 19,000 s; CPU 20 replays at 600 s (12,000 s) plus load: 13,000 s.
+D1R="REPLAY_REQ=$O/v0p-D1/first-request.json"
+d1sha() { local h; h=$(cat $O/v0p-D1/first-request.sha256 2>/dev/null)
+  [[ "$h" =~ ^[0-9a-f]{64}$ ]] && [ "$(sha256sum $O/v0p-D1/first-request.json 2>/dev/null | cut -d' ' -f1)" = "$h" ] \
+    || { say "STOP: D1's first request and its sha256 are missing or do not match"; exit 2; }; echo $h; }
 for s in $STEPS; do case $s in
-  D1) step v0p-D1 npu 7200 PI_N=10 REPLAY_N=20 PI_MODEL=local32k -- $NPU;;
-  D2) step v0p-D2 npu 7200 PI_N=10 REPLAY_N=20 PI_MODEL=local32k REPLAY_REQ=$O/v0p-D1/first-request.json -- $NPU $VENDOR;;
-  D3) step v0p-D3 cpu 10800 PI_N=0 REPLAY_N=20 REPLAY_REQ=$O/v0p-D1/first-request.json -- $CPU -m $M/q40/NeoHorse-1-4B-q4_0-pure.gguf;;
-  D4) step v0p-D4 cpu 10800 PI_N=0 REPLAY_N=20 REPLAY_REQ=$O/v0p-D1/first-request.json -- $CPU -m $QKM;;
+  D1) step v0p-D1 npu 19000 PI_N=10 REPLAY_N=20 PI_MODEL=local32k -- $NPU;;
+  D2) h=$(d1sha) || exit 2; step v0p-D2 npu 19000 PI_N=10 REPLAY_N=20 PI_MODEL=local32k $D1R REPLAY_SHA=$h -- $NPU $VENDOR;;
+  D3) h=$(d1sha) || exit 2; step v0p-D3 cpu 13000 PI_N=0 REPLAY_N=20 $D1R REPLAY_SHA=$h -- $CPU -m $M/q40/NeoHorse-1-4B-q4_0-pure.gguf;;
+  D4) h=$(d1sha) || exit 2; step v0p-D4 cpu 13000 PI_N=0 REPLAY_N=20 $D1R REPLAY_SHA=$h -- $CPU -m $QKM;;
   *) say "STOP: unknown step $s"; exit 2;;
 esac; done
 say "v0p pi diagnostic complete (faults $(nfaults))"

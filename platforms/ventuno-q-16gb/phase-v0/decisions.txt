@@ -2003,3 +2003,28 @@ D141 2026-10-11 Owner: "yes, diagnose pi" (and #51 to be merged). Diagnostic pla
    measure first-reply tool calls k/20; declared readings and a ">= 8/20 vs <= 3/20" difference rule.
    New tools: pi_capture_proxy.py, replay_first.py, v0p_serve.sh, v0p_workload.sh, v0p_diag.sh; tests
    test_pi_diag_tools.py 10/10, test_v0p_diag.sh 14/14. Owner approval needed for the Q4_K_M download and the run.
+D142 2026-10-11 Codex review of #52 at 15c6fa6 (16:37Z): four P2 findings and the readings; owner: fix them, and free disk
+   by removing models and tools already used (keep Docker and the Arduino software). No hardware run.
+   Disk (env/cleanup-20261011.txt, every file hashed before removal): removed Ornith-1.0-9B-MTP-IQ3_M (and its GenieX
+   hard link), the DFlash drafts for 9B and 4B and the Qwen3.5-0.8B draft (speculative-decoding experiments, done),
+   qwen2.5-1.5b-instruct pure Q4_0 (all three hard links, one in ~/.cache/geniex), and the Vulkan, OpenCL (two) and
+   build-dl llama.cpp build trees (GPU routes, done). Kept: the NeoHorse and Ornith Q4_0 files and their links,
+   drafts/Qwen3.5-4B-Q4_0 (AM's draft), the CPU builds, llama.cpp-hex, Docker, Arduino, Codex, the backups. Free space
+   9.3 GB -> 18 GB.
+   1. replay_first.py counted a tool-call fragment without a finished reply and returned rc 0 for malformed HTTP-200
+      bodies. Now: a complete reply is required (SSE finish_reason and [DONE]; JSON finish_reason), tool calls are
+      assembled and valid only with a name and JSON-object arguments, and every error outcome (HTTP, transport,
+      malformed, truncated, unassembled call) gives rc 1; partial fragments are recorded separately.
+   2. The 5 s socket timeout cut quiet periods and left an unreadable buffered response. Now one monotonic 600 s
+      deadline per try over connect, headers and body, read with a raw socket and select (no buffered reader to
+      reuse); on expiry the socket is closed and the partial bytes are kept.
+   3. Workload and driver accepted missing evidence. Now: pi_smoke must end rc 0 or 1 with its own RESULT line, the
+      replay must make exactly REPLAY_N tries without error, /props is saved, the workload prints a WORKLOAD line the
+      driver requires, each step needs a fresh run directory, D2-D4 replay D1's request checked by sha256 (and stop if
+      it is missing).
+   4. A HANG/DEVFAULT is recorded before the post-run library check can stop the driver; a failing check is kept as
+      extra evidence.
+   Readings narrowed to diagnostic leads for one request (plan section 4); /props and GGUF metadata compared before
+   attributing a difference; budget corrected: step caps now cover the declared worst case (19,000 s NPU, 13,000 s
+   CPU; 64,000 s in all), expected 2-3 h. Tests: test_pi_diag_tools.py 18/18, test_v0p_workload.sh 8/8,
+   test_v0p_diag.sh 19/19.
