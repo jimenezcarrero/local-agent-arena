@@ -2063,3 +2063,24 @@ D144 2026-10-11 pi tool-call diagnostic run (v0p-plan.txt, tools/v0p_diag.sh at 
    No configuration changes. Possible next steps (owner decisions, each its own plan): locate the NPU op (e.g. per-op
    CPU fallback or a logits comparison of D1 vs D3 on this request), add the lead to the upstream report, or a CPU
    route for pi work.
+D145 2026-10-11 NPU fault located at op level (owner: "Find th NPU fault, if it is related to #30309 add the info").
+   Tools from the release package 836d57176 (no build, no root), patched DSP library (as D1), one NPU session
+   (GGML_HEXAGON_DEVICES=HTP0:0), 0 faults. Evidence: runs/v0q-op.
+   1. test-export-graph-ops on NeoHorse-1-4B-q4_0-pure.gguf (-c 4096 -ub 512): 87 distinct ops and shapes of the
+      prompt (512-token) and decode (1-token) graphs. test-backend-ops -b HTP0:0 --test-file: 86 OK, 1 FAIL:
+      GATED_DELTA_NET at the 512-token shape (HTP0 0 vs CPU inf on the generic random inputs). The 1-token shape,
+      MUL_MAT, FLASH_ATTN_EXT and every other op pass.
+   2. Built-in cases (valid inputs), test-backend-ops -o GATED_DELTA_NET: default GGML_HEXAGON_GDN_SELECT=2 -> 9 FAIL
+      of 38: every case that takes the HMX kernel (scalar gate per head, kda=0, K=1, head size % 64 == 0, >= 64
+      tokens: 64, 65, 100, 127, 200, 256 tokens, 1-2 seqs), NMSE 3e-6 to 2e-3 against a 1e-7 limit. GDN_SELECT=1
+      (HVX kernel only): 38/38 OK. GDN_SELECT=0 (CPU): OK. NeoHorse (qwen35 hybrid, head size 128, scalar gate)
+      takes the HMX kernel for every prompt batch of >= 8 tokens (HTP_GDN_MIN_TOKENS 8, chunk 64).
+   Relation to #30309: none shown. #30309 is a hang (htp_main_thread exits on dspqueue_peek AEE_ENOMORE); this is a
+   numerical error in one kernel with no fault or retry. Upstream #29473 (SM7750, v73 without FP16 HMX) reports
+   GATED_DELTA_NET failures too, but there every HMX op fails; here MUL_MAT and FLASH_ATTN on HMX pass. No upstream
+   commit has changed gated-delta-net-ops.c since 836d57176 (checked 2026-10-11).
+   Declared before running: v0p_diag.sh step D5 (STEPS=D5), D1's runtime and request plus GGML_HEXAGON_GDN_SELECT=1,
+   10 pi sessions and 20 replays, same policy and readings as v0p-plan.txt. Reading: D5 >= 17/20 (D3's level within
+   noise) and Fisher vs D1 p < 0.01 -> the HMX GDN kernel accounts for this request's NPU failures; D5 <= 8/20 ->
+   it does not by itself. Prefill speed with the HVX kernel is read from the replay times, as a lead only.
+   Test: test_v0p_diag.sh + d5-gdn-hvx (D5 settings).

@@ -33,6 +33,8 @@ case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
   else echo "FAIL $name (rc $rc want $want_rc; seq '$seq' want '$want_seq')"; sed 's/^/     /' $T/out.txt | tail -6; fails=$((fails+1)); fi
   if [ $name = hang-plus-library-change-keeps-fault ]; then grep -q "v0p-D1 HANG" $BR/v0/v0p-pi/faults.txt 2>/dev/null && grep -q "NOTE v0p-D1: post-run library check FAILED" $BR/v0/v0d/v0p-pi-status.txt \
       && echo "ok   fault recorded and library mismatch kept as evidence" || { echo "FAIL fault/library evidence"; fails=$((fails+1)); }; fi
+  if [ $name = d5-gdn-hvx ]; then grep -q "^D5 10 20 $BR/v0/v0p-pi/v0p-D1/first-request.json SHA=[0-9a-f]\{64\} CAP=$BR/v0/v0p-pi/v0p-D5/capture :: v0p-D5 .*v0p_serve.sh env GGML_HEXAGON_GDN_SELECT=1 env .*ADSP_LIBRARY_PATH=/home/arduino/v0/farf;/home/arduino/v0/htp-retry;.*-c 32768 .*--port 8090 .*--ctx-checkpoints 0$" $T/args \
+      && echo "ok   D5 settings: D1's runtime and request plus GDN_SELECT=1, pi 10, replay 20" || { echo "FAIL D5 settings: $(cat $T/args)"; fails=$((fails+1)); }; fi
   if [ $name = all-pass ]; then a=$T/args
     chk() { grep -q -- "$2" <(grep "^$1 " $a) && echo "ok   $1 settings: $3" || { echo "FAIL $1 settings: $3"; fails=$((fails+1)); }; }
     chk D1 "^D1 10 20 none SHA=none CAP=$BR/v0/v0p-pi/v0p-D1/capture :: v0p-D1 /home/arduino/v0/v0p_workload.sh -- bash /home/arduino/v0/v0p_serve.sh env .*ADSP_LIBRARY_PATH=/home/arduino/v0/farf;/home/arduino/v0/htp-retry;" "pi 10, replay 20, capture dir, patched library via the wrapper"
@@ -52,6 +54,7 @@ case1 library-changes-during-d1 2 "probe D1" LIBFAIL_AT=3
 case1 q4km-missing 6 "" noq4km
 case1 cpu-steps-only 0 "D3 D4" "STEPS=D3 D4" d1done
 case1 cpu-steps-without-d1-stops 2 "" "STEPS=D3 D4"
+case1 d5-gdn-hvx 0 "probe D5" "STEPS=D5" d1done
 case1 missing-workload-summary-stops 2 "probe D1" mode-D1=nosummary
 case1 stale-run-directory-stops 2 "" stale
 case1 hang-plus-library-change-keeps-fault 3 "probe D1 probe" mode-D1=hang LIBFAIL_AT=3
