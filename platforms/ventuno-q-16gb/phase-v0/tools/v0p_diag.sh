@@ -11,6 +11,7 @@
 #   D4  CPU, the publisher's Q4_K_M file (sha256 7da8ac62...): 20 replays
 #   D5  (D145, run alone: STEPS=D5) as D1 with GGML_HEXAGON_GDN_SELECT=1 (GATED_DELTA_NET on the HVX kernel instead
 #       of the HMX one, which fails test-backend-ops for >= 64-token batches): 10 pi sessions, 20 replays of D1's request
+#   D6  (D154, STEPS=D6) as D1 with -ngl 32: the 32 blocks on the NPU, the output layer on the CPU
 # NPU steps: a passing baseline probe first and htp_retry_check.sh before and after. Policy (D142): HANG or DEVFAULT
 # anywhere -> fault recorded FIRST, recovery by probing, the post-run library check kept as extra evidence, STOP. A step
 # must start from a fresh run directory, and a PASS needs the workload's complete evidence (its "WORKLOAD" line with
@@ -76,6 +77,7 @@ for s in $STEPS; do case $s in
   D2) h=$(d1sha) || exit 2; step v0p-D2 npu 19000 PI_N=10 REPLAY_N=20 PI_MODEL=local32k $D1R REPLAY_SHA=$h -- $NPU $VENDOR;;
   D3) h=$(d1sha) || exit 2; step v0p-D3 cpu 13000 PI_N=0 REPLAY_N=20 $D1R REPLAY_SHA=$h -- $CPU -m $M/q40/NeoHorse-1-4B-q4_0-pure.gguf;;
   D4) h=$(d1sha) || exit 2; step v0p-D4 cpu 13000 PI_N=0 REPLAY_N=20 $D1R REPLAY_SHA=$h -- $CPU -m $QKM;;
+  D6) h=$(d1sha) || exit 2; step v0p-D6 npu 19000 PI_N=10 REPLAY_N=20 PI_MODEL=local32k $D1R REPLAY_SHA=$h -- $NPU -ngl 32;;
   D5) h=$(d1sha) || exit 2; step v0p-D5 npu 19000 PI_N=10 REPLAY_N=20 PI_MODEL=local32k $D1R REPLAY_SHA=$h -- env GGML_HEXAGON_GDN_SELECT=1 $NPU;;
   *) say "STOP: unknown step $s"; exit 2;;
 esac; done
