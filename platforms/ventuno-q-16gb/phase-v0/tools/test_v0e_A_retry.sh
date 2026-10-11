@@ -18,6 +18,8 @@ R="2026-10-11T10:00:30+02:00 ready after 29s\n"; E="2026-10-11T10:30:00+02:00 EN
 case $m in
   pass|nosummary) [ $k = S2 ] && [ $m = pass ] && echo "RESULT summary: VALID (6 cycles)" > $o/sustained-summary.txt
     printf "$S$R$U${E}t RESULT PASS (workload, health: pass, kernel evidence)\n" > $o/run.txt; exit 0;;
+  pass-noready) printf "$S$U${E}t RESULT PASS (workload, health: pass, kernel evidence)\n" > $o/run.txt
+    [ $k = S2 ] && echo "RESULT summary: VALID (6 cycles)" > $o/sustained-summary.txt; exit 0;;
   pass-nopid) printf "2026-10-11T10:00:00+02:00 START label=$lab boot=b00t-1\n$R$U${E}t RESULT PASS (workload, health: pass, kernel evidence)\n" > $o/run.txt; exit 0;;
   fail) printf "$S$R$U${E}t RESULT FAIL: workload=1\n" > $o/run.txt; echo "t x: rc=1" > $o/items.txt; exit 1;;
   fail-timeout) printf "$S$R$U${E}t RESULT FAIL: workload=1\n" > $o/run.txt; echo "t x: rc=1" > $o/items.txt; exit 124;;
@@ -36,15 +38,23 @@ case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
   echo "$FAKE" > $T/run.sh; printf '#!/bin/bash\necho pass; exit 0\n' > $T/ka.sh; printf 'import os, sys\nsys.exit(2 if os.path.exists(os.environ["T"] + "/mem-reject") else 0)\n' > $T/mem.py
   chmod +x $T/run.sh $T/ka.sh
   mkdir -p $T/htpr $T/farf; echo lib > $T/htpr/libggml-htp-v75.so; echo 0x1f > $T/farf/llama-server.farf; local rs=$(sha256sum $T/htpr/libggml-htp-v75.so | cut -d' ' -f1)
-  echo "2026-10-11T09:00:00+02:00 GATE AR: PASS (median 16K 317.4/8.22)" > $BR/v0/v0d/v0d-admit-AR-status.txt
+  A1="2026-10-11T08:00:00+02:00 admission AR start (pid 1)
+2026-10-11T08:50:00+02:00 SET AR: ADMITTED in attempt 1 (set faults: 0)
+2026-10-11T08:50:01+02:00 GATE AR: PASS median 16K prefill 317.4 (>= 145), decode 8.22 (>= 4.4)
+2026-10-11T08:50:02+02:00 admission AR done rc=0 (faults 0)"
+  echo "$A1" > $BR/v0/v0d/v0d-admit-AR-status.txt
+  printf '#!/bin/bash\necho "$*" > $T/gate-args; [ -f $T/gate-fail ] && { echo "GATE AR: FAIL"; exit 3; }; echo "GATE AR: PASS median 16K prefill 317.4"\n' > $T/gate.sh; chmod +x $T/gate.sh
   local jmode=ok jextra=""; local kv
   for kv in "$@"; do case $kv in RETRY_SHA=*) rs=${kv#*=};; farf=*) echo ${kv#*=} > $T/farf/llama-server.farf;; jextra=*) jextra=${kv#*=};; jmode=*) jmode=${kv#*=};;
-    noadmit) : > $BR/v0/v0d/v0d-admit-AR-status.txt;; mem=reject) : > $T/mem-reject;; mode-*) echo "${kv#*=}" | tr , '\n' > $T/${kv%%=*};; esac; done
+    noadmit) : > $BR/v0/v0d/v0d-admit-AR-status.txt;;
+    admit-newer-fail) printf '%s\n' "2026-10-11T09:00:00+02:00 admission AR start (pid 2)" "2026-10-11T09:50:00+02:00 SET AR: ADMITTED in attempt 1 (set faults: 0)" "2026-10-11T09:50:01+02:00 GATE AR: FAIL median 16K prefill 120.0" "2026-10-11T09:50:02+02:00 admission AR done rc=3 (faults 0)" >> $BR/v0/v0d/v0d-admit-AR-status.txt;;
+    admit-newer-unfinished) echo "2026-10-11T09:00:00+02:00 admission AR start (pid 2)" >> $BR/v0/v0d/v0d-admit-AR-status.txt;;
+    gate-fail) : > $T/gate-fail;; mem=reject) : > $T/mem-reject;; mode-*) echo "${kv#*=}" | tr , '\n' > $T/${kv%%=*};; esac; done
   printf '%s\n%s\n' "$JOK" "$jextra" > $T/journal-ok.txt; echo $jmode > $T/jmode
   # fake journalctl: records its arguments; ok | fail (rc 1) | empty | nocdsp (no DSP lines)
-  printf '#!/bin/bash\necho "$*" >> $T/jargs\ncase $(cat $T/jmode) in ok) cat $T/journal-ok.txt;; fail) echo "journal error" >&2; exit 1;; empty) :;; nocdsp) grep -v CDSP0 $T/journal-ok.txt;; esac\n' > $T/jc.sh; chmod +x $T/jc.sh
+  printf '#!/bin/bash\necho "$*" >> $T/jargs\nm=$(cat $T/jmode); [ "$m" = fail-first ] && { [ -f $T/jfirst ] && m=ok || { : > $T/jfirst; m=fail; }; }\ncase $m in ok) cat $T/journal-ok.txt;; fail) echo "journal error" >&2; exit 1;; empty) :;; nocdsp) grep -v CDSP0 $T/journal-ok.txt;; esac\n' > $T/jc.sh; chmod +x $T/jc.sh
   env RUN_ROUTE=$T/run.sh RUN_V0E=$T/run.sh MEMFLOOR=$T/mem.py KAUDIT=$T/ka.sh PROBE_WAIT=0 SESS_PAUSE=0 CHECK_PROC=true \
-      HTPR=$T/htpr FARF=$T/farf RETRY_SHA=$rs JOURNAL=$T/jc.sh bash ~/v0/v0e_A_retry.sh > $T/out.txt 2>&1; local rc=$?
+      HTPR=$T/htpr FARF=$T/farf RETRY_SHA=$rs JOURNAL=$T/jc.sh GATE=$T/gate.sh bash ~/v0/v0e_A_retry.sh > $T/out.txt 2>&1; local rc=$?
   local seq=$(paste -sd' ' $T/calls 2>/dev/null) st=$BR/v0/v0d/v0e-A-retry-status.txt
   if [ $rc = $want_rc ] && [ "$seq" = "$want_seq" ]; then echo "ok   $name (rc $rc: $seq)"
   else echo "FAIL $name (rc $rc want $want_rc; seq '$seq' want '$want_seq')"; sed 's/^/     /' $T/out.txt | tail -8; fails=$((fails+1)); fi
@@ -52,7 +62,8 @@ case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
   case $name in
     retry-logged) chk "DSP v0e-A-retry-S1: logged retry events 1, longest run 1" $st;;
     retry-repeated) chk "FLAG v0e-A-retry-S1: repeated peek errors (3 in a row)" $st;;
-    all-pass) chk "_PID=4242 _BOOT_ID=b00t1 --since 2026-10-11 10:00:00 --until 2026-10-11 10:31:00" $T/jargs;;
+    no-admission-stops) [ ! -s $T/gate-args ] || { echo "FAIL $name: gate ran"; fails=$((fails+1)); };;
+    all-pass) chk "$BR/v0/v0d-admit-AR AR 1" $T/gate-args; chk "_PID=4242 _BOOT_ID=b00t1 --since 2026-10-11 10:00:00 --until 2026-10-11 10:31:00" $T/jargs;;
     journal-fail-hang-stands) chk "NOT QUALIFIED (fault HANG" $st;;
   esac
   rm -rf $T; }
@@ -88,4 +99,11 @@ case1 journal-empty-stops 2 "probe S1" jmode=empty
 case1 journal-no-dsp-lines-stops 2 "probe S1" jmode=nocdsp
 case1 journal-no-pid-stops 2 "probe S1" mode-S1=pass-nopid
 case1 journal-fail-hang-stands 3 "probe S1 probe" jmode=fail mode-S1=hang
+# D138 (Codex review of 12be36a): only the latest, completed admission counts, and its gate is re-checked on the
+# current evidence; a failed journal is excused only for a confirmed clean load failure
+case1 admission-newer-fail-stops 6 "" admit-newer-fail
+case1 admission-newer-unfinished-stops 6 "" admit-newer-unfinished
+case1 admission-gate-recheck-fails-stops 6 "" gate-fail
+case1 pass-without-ready-line-journal-fail-stops 2 "probe S1" mode-S1=pass-noready jmode=fail
+case1 loadfail-journal-fail-recovers 0 "probe S1 probe probe S1 probe S2" mode-S1=loadfail,pass jmode=fail-first
 echo "failures: $fails"; exit $fails

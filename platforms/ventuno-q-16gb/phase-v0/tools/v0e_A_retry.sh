@@ -37,10 +37,18 @@ rsha() { [ "$(sha256sum "$HTPR/libggml-htp-v75.so" 2>/dev/null | cut -d' ' -f1)"
 AW="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$FARF;$HTPR;$P/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 32768 --cache-ram 7942 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0"
 $CHECK_PROC '^/bin/bash /home/arduino/v0/npu_stall_watchdog.sh' > /dev/null || { say "STOP: NPU stall watchdog not running"; exit 6; }
 $CHECK_PROC '^/bin/bash /home/arduino/v0/monitor/health_sampler.sh' > /dev/null || { say "STOP: health sampler not running"; exit 6; }
-# D137 (Codex review of 6f203ab): eligibility first. The patched runtime's own V0d admission (v0d_admit.sh AR) must
-# have passed its 16K gate (status line "GATE AR: PASS"); otherwise nothing runs.
-ADMIT_ST=${ADMIT_ST:-$BR/v0/v0d/v0d-admit-AR-status.txt}
-grep -q '^[^ ]* GATE AR: PASS' "$ADMIT_ST" 2>/dev/null || { say "STOP: no passing patched-runtime admission (GATE AR: PASS in $ADMIT_ST)"; exit 6; }
+# D137/D138 (Codex reviews of 6f203ab and 12be36a): eligibility first. The LATEST admission attempt of the patched
+# runtime (v0d_admit.sh AR; the status file is append-only) must be complete and passing: after its last "admission AR
+# start" line, "SET AR: ADMITTED in attempt <n>", "GATE AR: PASS" and "admission AR done rc=0". An older PASS followed
+# by a newer failed or unfinished attempt does not count. The gate is then re-applied to the current evidence.
+ADMIT_ST=${ADMIT_ST:-$BR/v0/v0d/v0d-admit-AR-status.txt}; ADMIT_O=${ADMIT_O:-$BR/v0/v0d-admit-AR}; GATE=${GATE:-python3 $HOME/v0/admit_gate.py}
+ablk=$(awk '/ admission AR start /{b=""} {b=b $0 "\n"} END{printf "%s", b}' "$ADMIT_ST" 2>/dev/null)
+aatt=$(printf '%s' "$ablk" | grep -oE 'SET AR: ADMITTED in attempt [12]' | tail -1 | grep -oE '[12]$')
+{ printf '%s' "$ablk" | grep -q ' admission AR start ' && [ -n "$aatt" ] && printf '%s' "$ablk" | grep -q ' GATE AR: PASS ' \
+  && printf '%s' "$ablk" | grep -q ' admission AR done rc=0 '; } \
+  || { say "STOP: the latest patched-runtime admission ($ADMIT_ST) is not complete and passing"; exit 6; }
+g=$($GATE $ADMIT_O AR $aatt 2>&1) || { say "STOP: the 16K gate no longer passes on the current admission evidence: $g"; exit 6; }
+say "admission AR (attempt $aatt): $g"
 # lastres <dir>: the run's last RESULT line, from "RESULT" on
 lastres() { grep -oE 'RESULT (PASS|FAIL).*' $1/run.txt 2>/dev/null | tail -1; }
 # loadfail <dir>: a clean load failure (D114): the runner exited normally with a completed failure (rc 1; D137: a
@@ -66,12 +74,13 @@ session() { local lab=$1 wl=$2 to=$3 wd0 f0 try
     C=$(classify $O/$LAB $RC $wd0); [ "$C" = EVIDENCE ] && loadfail $O/$LAB && C=LOADFAIL
     say "END $LAB: $C (runner rc $RC) | $(lastres $O/$LAB)"
     rsha || { say "STOP: the patched library or the .farf file changed during $LAB"; exit 2; }
-    # DSP evidence (D137): required for a session whose server became ready. A failed capture stops, except that a
-    # real HANG/DEVFAULT keeps its class (the fault path stops anyway, as NOT QUALIFIED).
+    # DSP evidence (D137): required. A failed capture stops, except that a real HANG/DEVFAULT keeps its class (the
+    # fault path stops anyway, as NOT QUALIFIED).
+    # D138: the only exception is a confirmed clean load failure (class LOADFAIL); missing readiness metadata is not one.
     if ! journal $LAB; then
-      if ! grep -q 'ready after' $O/$LAB/run.txt; then say "NOTE $LAB: no complete DSP journal for a server that never became ready (kept)"
-      else case $C in HANG|DEVFAULT) say "NOTE $LAB: DSP journal capture failed; the $C stands";;
-          *) say "STOP: $LAB: DSP journal evidence missing or incomplete ($(cat $O/$LAB/journal-check.txt 2>/dev/null))"; exit 2;; esac; fi
+      case $C in LOADFAIL) say "NOTE $LAB: no complete DSP journal for a clean load failure (kept)";;
+        HANG|DEVFAULT) say "NOTE $LAB: DSP journal capture failed; the $C stands";;
+        *) say "STOP: $LAB: DSP journal evidence missing or incomplete ($(cat $O/$LAB/journal-check.txt 2>/dev/null))"; exit 2;; esac
     fi
     [ "$C" = LOADFAIL ] || return 0
     [ $try = 2 ] && { say "STOP: $lab failed to load twice: V0e A-retry: NOT QUALIFIED (load)"; exit 3; }
