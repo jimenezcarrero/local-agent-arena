@@ -2165,3 +2165,11 @@ D152 2026-10-12 kld8 (kernel selectors, two sessions): MM_SELECT=1 KLD 0.8101, F
    layers); --device HTP0:0 -ngl 16 (one session, half the layers); -ub 1 (every token alone, the decode path).
    Readings: -ub 1 near 0 and -ub 512 at 0.82 -> the multi-token path (batching or the recurrent state between
    ubatches); one-session -ngl 16 near 0 while two-session -ngl 16 is high -> the two-session split.
+D153 2026-10-12 kld9 (-ub 512 unless stated; KLD / same top / PPL): -ub 64 0.1762 / 86.0 % / 12.45; -ngl 16 two
+   sessions 0.00028 / 99.1 % / 14.35; -ngl 16 one session identical to the digit; -ub 1 0.0179 / 95.2 % / 14.37
+   (full offload, npu 0.8169 / 66.0 % / 2.30). Readings: the session split is not involved; the fault needs
+   multi-token ubatches and grows with their size; it is absent when the last 16 blocks AND NOT the output layer
+   are on the NPU (with -ngl 16 the output norm and the 248,320-row output projection stay on the CPU). A row
+   misplacement in the output projection for multi-token batches would give exactly the low PPL (logits of token t
+   computed from a later token's state). Declared before running (kld10): -ngl 32 (all 32 blocks on the NPU, output
+   layer on the CPU) and -ngl 33 (output layer too). Reading: 32 near 0 and 33 at ~0.8 -> the output layer.
