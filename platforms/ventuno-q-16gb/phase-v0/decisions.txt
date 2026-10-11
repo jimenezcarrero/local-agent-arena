@@ -1991,3 +1991,15 @@ D140 2026-10-11 Codex review of #51 at 3172fb7 (15:47Z): verdicts supported; two
       reclaimable and the health floor tests MemAvailable: separate requirements, both must pass, so ADMIT plus health
       FAIL is not a contradiction. The health floor stays. The cache grew near its cap (last log line 7,710.8 MiB of
       7,942 MiB, 25 prompts); "7.7 GB" was a rounding, not a measurement of exact occupancy. D139 marked; README fixed.
+D141 2026-10-11 Owner: "yes, diagnose pi" (and #51 to be merged). Diagnostic plan declared, not run: v0p-plan.txt.
+   Offline findings first (committed sessions): pi's first reply had a tool call in 6 of 53 V0e sessions; the failed
+   first replies narrate and invent tool results or end after a stray "</think>"; no reply contains unparsed tool-call
+   markup. The suite's own references (suite/OPERATING.md item 7, sampling-reference.md) record NeoHorse's card profile
+   (presence_penalty 1.5) and that the Jetson ran pi with this model fine on the publisher's Q4_K_M under CUDA, at
+   defaults and at the card profile. The BF16 GGUF is no longer on the board; the pinned revision's Q4_K_M
+   (2.7 GB, sha256 7da8ac62...) is the comparison file.
+   Plan: four steps behind a capture proxy (exact requests and raw replies kept): D1 NPU baseline (10 pi sessions,
+   20 replays of pi's first request), D2 NPU with the card's sampling, D3 CPU same Q4_0 file, D4 CPU Q4_K_M; primary
+   measure first-reply tool calls k/20; declared readings and a ">= 8/20 vs <= 3/20" difference rule.
+   New tools: pi_capture_proxy.py, replay_first.py, v0p_serve.sh, v0p_workload.sh, v0p_diag.sh; tests
+   test_pi_diag_tools.py 10/10, test_v0p_diag.sh 14/14. Owner approval needed for the Q4_K_M download and the run.
