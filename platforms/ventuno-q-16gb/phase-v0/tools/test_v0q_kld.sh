@@ -24,4 +24,5 @@ PPL=$T/ppl ARMS=npu bash ./v0q_kld.sh $T/o1 /dev/null > /dev/null 2>&1; ck "exis
 ck "load failure kept" "$(ls $T/o3 | grep -c loadfail)" 1
 : > $T_LOG; PPL=$T/ppl ARMS="MAPFAIL ROPE" bash ./v0q_kld.sh $T/o4 /dev/null > $T/out4 2>&1; ck "second map failure stops" "$?:$(grep -c 'OPFILTER=MAPFAIL' $T_LOG):$(grep -c 'OPFILTER=ROPE' $T_LOG)" "2:2:0"
 : > $T_LOG; PPL=$T/ppl ARMS="CACHEOP ROPE" bash ./v0q_kld.sh $T/o5 /dev/null > $T/out5 2>&1; ck "scheduler refusal: not runnable, next arm runs" "$?:$(grep -c 'NOT RUNNABLE' $T/o5/summary.txt):$(grep -c 'OPFILTER=ROPE' $T_LOG)" "0:1:1"
+: > $T_LOG; DEVS=HTP0:0 PPL=$T/ppl ARMS="npu" bash ./v0q_kld.sh $T/o6 /dev/null > /dev/null 2>&1; ck "DEVS=HTP0:0: one session" "$?:$(grep -c -- '--device HTP0:0 -ngl 99' $T_LOG)" "0:1"
 rm -rf $T; echo "failures: $fails"; exit $fails
