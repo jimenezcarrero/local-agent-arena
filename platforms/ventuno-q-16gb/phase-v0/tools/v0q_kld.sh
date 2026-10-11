@@ -17,7 +17,7 @@ PPL=${PPL:-$P/bin/llama-perplexity}; STALL_S=${STALL_S:-120}
 [ -e "$O" ] && { echo "$O exists; a fresh directory is required"; exit 2; }; mkdir -p "$O"
 COMMON="-m $M -f $TXT -c 1024 -b 1024 -ub 512"
 NPU_ENV=(LD_LIBRARY_PATH=$P/lib "ADSP_LIBRARY_PATH=$HOME/v0/htp-retry;$P/lib" GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1)
-ARMS=${ARMS:-"npu nofusion all MUL_MAT|MUL_MAT_ID FLASH_ATTN_EXT|SOFT_MAX GATED_DELTA_NET SSM_CONV RMS_NORM|NORM|L2_NORM ROPE SWIGLU|GEGLU|REGLU|GLU SILU|SIGMOID|SOFTPLUS|EXP|NEG|GELU|TANH|ABS|RELU ADD|ADD_ID|MUL|SUB|DIV|SCALE|SQR|SQRT|CLAMP|SUM|SUM_ROWS|CUMSUM|TRI|SOLVE_TRI|FILL|DIAG CPY|CONT|DUP|SET_ROWS|GET_ROWS|CONCAT|PAD|REPEAT|ROLL"}
+ARMS=${ARMS:-"npu nofusion MUL_MAT|MUL_MAT_ID FLASH_ATTN_EXT|SOFT_MAX GATED_DELTA_NET SSM_CONV RMS_NORM|NORM|L2_NORM ROPE SWIGLU|GEGLU|REGLU|GLU SILU|SIGMOID|SOFTPLUS|EXP|NEG|GELU|TANH|ABS|RELU ADD|ADD_ID|MUL|SUB|DIV|SCALE|SQR|SQRT|CLAMP|SUM|SUM_ROWS|CUMSUM|TRI|SOLVE_TRI|FILL|DIAG CPY|CONT|DUP|SET_ROWS|GET_ROWS|CONCAT|PAD|REPEAT|ROLL"}
 summ() { grep -E '^(Mean +KLD|Maximum KLD|99.9% +KLD|Median +KLD|Same top p|Mean PPL\(Q\)|RMS Δp)' "$1" | tr -s ' ' | paste -sd'|' -; }
 # run_npu <log> <env...>: runs one NPU arm in the background with the stall check; echoes rc, or HANG
 run_npu() { local log=$1; shift; local pid st=0 c0 c1 t
@@ -45,6 +45,10 @@ for a in $ARMS; do i=$((i+1)); n=$(printf %02d $i); extra=(); args=()
     sleep ${RELOAD_PAUSE:-60}; echo "arm $n $a env ${extra[*]:-none} (reload)" > $O/arm$n.log; rc=$(run_npu $O/arm$n.log "${NPU_ENV[@]}" "${extra[@]}"); fi
   echo "arm $n $a rc $rc | $(summ $O/arm$n.log)" | tee -a $O/summary.txt
   [ "$rc" = HANG ] && { echo "STOP: NPU stall in arm $n ($a); threads in arm$n.log.stall" | tee -a $O/summary.txt; exit 3; }
+  # D149: the scheduler refuses at load a filter that would move an op on an NPU-resident cache view to the CPU;
+  # nothing ran on the NPU, so the arm is recorded NOT RUNNABLE and the next one runs
+  if [ $rc != 0 ] && grep -q 'that cannot run the operation' $O/arm$n.log; then
+    echo "arm $n $a NOT RUNNABLE: $(grep -om1 'pre-allocated tensor.*' $O/arm$n.log)" | tee -a $O/summary.txt; sleep ${ARM_PAUSE:-20}; continue; fi
   [ $rc = 0 ] || { echo "STOP: arm $n rc $rc" | tee -a $O/summary.txt; exit 2; }
   sleep ${ARM_PAUSE:-20}
 done

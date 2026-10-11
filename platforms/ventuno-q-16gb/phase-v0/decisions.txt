@@ -2121,3 +2121,10 @@ D148 2026-10-11 D146 attempt 2 (runs/v0q-op/kld2): CPU base PPL 14.3634 +/- 0.87
    Fixed: control = every op except NONE/VIEW/RESHAPE/PERMUTE/TRANSPOSE; those five removed from the copies group.
    test_v0q_kld.sh 11/11. Attempt 3 (runs/v0q-op/kld3) runs the control and the op groups (arms 01-02 are not
    repeated); same text, CPU base recomputed, same readings.
+D149 2026-10-11 D146 attempt 3 (runs/v0q-op/kld3): the fixed control also aborted at load: "pre-allocated tensor
+   (cache_r_l0 (reshaped) (view) (view)) in a buffer (HTP0:0) that cannot run the operation (SCALE)". With -ngl 99
+   the recurrent-state cache lives in the NPU's buffers and the scheduler requires ops on its views to run there, so
+   an "everything on the CPU" arm cannot be built on this layout. Dropped: the CPU base is the reference (KLD 0 by
+   definition). Op groups that would move such an op are likewise refused at load before any NPU compute: such an
+   arm is now recorded NOT RUNNABLE and the next arm runs (a hang, a second map failure or any other error still
+   stops). test_v0q_kld.sh 12/12. Attempt 4 (runs/v0q-op/kld4): the op-group arms only.
