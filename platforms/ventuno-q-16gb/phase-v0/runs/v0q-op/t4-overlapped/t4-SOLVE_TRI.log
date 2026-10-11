@@ -1,0 +1,36 @@
+ggml-hex: Loading driver libcdsprpc.so
+ggml-hex: FASTRPC_GET_DOMAINS query failed (0x6c), using static CDSP domains
+ggml-hex: Hexagon backend (experimental) : allocating new registry : ndev 1
+ggml-hex: Hexagon Arch version v75, DMA64 disabled
+ggml-hex: device 0: HTP0:0 (phys=0, virt=0, domain=cdsp:3)
+ggml-hex: HTP0:0 allocating new session : domain 3 phys-idx 0 virt-idx 0
+ggml-hex: HTP0:0 hwinfo: threads 4, hvx 4, hmx 1, vtcm 8 MB
+ggml-hex: HTP0:0 new session : session-id 0 domain-id 3 uri file:///libggml-htp-v75.so?htp_iface_skel_handle_invoke&_modver=1.0&_dom=cdsp&_session=0 handle 0xaaaade5ceb00
+ggml-hex: HTP0:0 op batching: n-bufs 16 n-tensors 8192 n-ops 1280 vmem 3311845376
+Testing 2 devices
+
+Backend 1/2: HTP0:0
+  Device description: Hexagon
+  Device memory: 0 MB (0 MB free)
+
+  SOLVE_TRI(type=f32,ne_lhs=[10,10,4,3],ne_rhs=[3,10,4,3]): [1;32mOK[0m
+/workspace/ggml/src/ggml-hexagon/ggml-hexagon.cpp:4036: ggml-hex: dspqueue_read failed: 0x0000002e
+
+[New LWP 2698633]
+[New LWP 2698630]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/aarch64-linux-gnu/libthread_db.so.1".
+0x0000ffff8f167a34 in __GI___wait4 (pid=2698894, stat_loc=0x0, options=0, usage=0x0) at ../sysdeps/unix/sysv/linux/wait4.c:30
+warning: 30	../sysdeps/unix/sysv/linux/wait4.c: No such file or directory
+#0  0x0000ffff8f167a34 in __GI___wait4 (pid=2698894, stat_loc=0x0, options=0, usage=0x0) at ../sysdeps/unix/sysv/linux/wait4.c:30
+30	in ../sysdeps/unix/sysv/linux/wait4.c
+#1  0x0000ffff8f5e0250 in ggml_print_backtrace () from /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-base.so.0
+#2  0x0000ffff8f5df5e0 in ggml_abort () from /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-base.so.0
+#3  0x0000ffff8f6cb8c0 in ggml_hexagon_session::flush_pending(bool) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-hexagon.so.0
+#4  0x0000ffff8f6e0750 in ggml_backend_hexagon_synchronize(ggml_backend*) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-hexagon.so.0
+#5  0x0000ffff8f6034c4 in ggml_backend_compare_graph_backend () from /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-base.so.0
+#6  0x0000aaaad9e50534 in test_case::eval(ggml_backend*, ggml_backend*, char const*, printer*) ()
+#7  0x0000aaaad9e4e8e8 in test_backend(ggml_backend*, ggml_backend_device*, test_mode, char const*, char const*, printer*, char const*, int)::$_5::operator()(ggml_backend*, ggml_backend*) const ()
+#8  0x0000aaaad9e021c4 in main ()
+[Inferior 1 (process 2698628) detached]
+timeout: the monitored command dumped core

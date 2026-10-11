@@ -9,7 +9,8 @@
 # One arm at a time. npu_stall_watchdog.sh only watches llama-server/llama-bench, so each NPU arm has its own stall
 # check with the watchdog's rule: a thread in fastrpc_wait_for_completion and < 0.5 core-s per 10 s for STALL_S
 # (120 s) -> HANG: SIGKILL, thread states saved, STOP. Any other failure or a 1800 s timeout -> STOP.
-# An arm "env:K=V,K=V" sets environment variables instead of a filter (D151). A load that fails with "buffer mapping failed" is reloaded once (D147). Overridable for tests: PPL, ARMS, STALL_S,
+# An arm "env:K=V,K=V" sets environment variables instead of a filter (D151); an arm
+# "args:F,V,..." appends flags to the NPU command, which override the defaults (D152). A load that fails with "buffer mapping failed" is reloaded once (D147). Overridable for tests: PPL, ARMS, STALL_S,
 # ARM_PAUSE, RELOAD_PAUSE.
 set -uo pipefail
 O=$1; TXT=$2; P=~/v0/hexpkg/pkg-linux; M=~/v0/models/q40/NeoHorse-1-4B-q4_0-pure.gguf
@@ -19,10 +20,11 @@ COMMON="-m $M -f $TXT -c 1024 -b 1024 -ub 512"
 DEVS=${DEVS:-HTP0:0,HTP0:1}  # D150: DEVS=HTP0:0 runs the arms on one session
 NPU_ENV=(LD_LIBRARY_PATH=$P/lib "ADSP_LIBRARY_PATH=$HOME/v0/htp-retry;$P/lib" GGML_HEXAGON_DEVICES=$DEVS)
 ARMS=${ARMS:-"npu nofusion MUL_MAT|MUL_MAT_ID FLASH_ATTN_EXT|SOFT_MAX GATED_DELTA_NET SSM_CONV RMS_NORM|NORM|L2_NORM ROPE SWIGLU|GEGLU|REGLU|GLU SILU|SIGMOID|SOFTPLUS|EXP|NEG|GELU|TANH|ABS|RELU ADD|ADD_ID|MUL|SUB|DIV|SCALE|SQR|SQRT|CLAMP|SUM|SUM_ROWS|CUMSUM|TRI|SOLVE_TRI|FILL|DIAG CPY|CONT|DUP|SET_ROWS|GET_ROWS|CONCAT|PAD|REPEAT|ROLL"}
+xargs=()
 summ() { grep -E '^(Mean +KLD|Maximum KLD|99.9% +KLD|Median +KLD|Same top p|Mean PPL\(Q\)|RMS Δp)' "$1" | tr -s ' ' | paste -sd'|' -; }
 # run_npu <log> <env...>: runs one NPU arm in the background with the stall check; echoes rc, or HANG
 run_npu() { local log=$1; shift; local pid st=0 c0 c1 t
-  env "$@" timeout 1800 $PPL $COMMON --device $DEVS -ngl 99 --kl-divergence-base $O/cpu.kld --kl-divergence >> $log 2>&1 & pid=$!
+  env "$@" timeout 1800 $PPL $COMMON --device $DEVS -ngl 99 "${xargs[@]}" --kl-divergence-base $O/cpu.kld --kl-divergence >> $log 2>&1 & pid=$!
   sleep 5; c0=$(cpu_ticks $pid)
   while kill -0 $pid 2>/dev/null; do sleep 10; c1=$(cpu_ticks $pid)
     if grep -qs fastrpc_wait_for_completion /proc/$pid/task/*/wchan $(pgrep -P $pid | sed 's|.*|/proc/&/task/*/wchan|') && [ $(( c1 - c0 )) -lt 50 ]; then st=$((st+10)); else st=0; fi
@@ -36,9 +38,10 @@ env LD_LIBRARY_PATH=$P/lib timeout 3600 $PPL $COMMON --device none -ngl 0 -t 4 -
   || { echo "CPU base failed (rc $?)"; exit 1; }
 echo "base cpu: $(grep -oE 'Final estimate: PPL = [0-9.]+ \+/- [0-9.]+' $O/cpu.log)" | tee $O/summary.txt
 i=0
-for a in $ARMS; do i=$((i+1)); n=$(printf %02d $i); extra=(); args=()
+for a in $ARMS; do i=$((i+1)); n=$(printf %02d $i); extra=(); xargs=()
   case $a in npu) ;; nofusion) extra=(GGML_HEXAGON_OPFUSION=0);; all) extra=("GGML_HEXAGON_OPFILTER=(?!(NONE|VIEW|RESHAPE|PERMUTE|TRANSPOSE)$).*");;
     env:*) IFS=, read -ra extra <<< "${a#env:}";;  # D151: kernel selectors, e.g. env:GGML_HEXAGON_MM_SELECT=1
+    args:*) IFS=, read -ra xargs <<< "${a#args:}";;  # D152: flags after the defaults (later ones win), e.g. args:-ub,1
     *) extra=("GGML_HEXAGON_OPFILTER=$a");; esac
   echo "arm $n $a env ${extra[*]:-none}" > $O/arm$n.log
   rc=$(run_npu $O/arm$n.log "${NPU_ENV[@]}" "${extra[@]}")
