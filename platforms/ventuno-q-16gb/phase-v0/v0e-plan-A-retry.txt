@@ -1,5 +1,5 @@
 Plan for configuration A with the patched DSP library ("A-retry"): fresh V0d admission (set AR), then V0e.
-Declared 2026-10-10 (D136), revised 2026-10-11 after the Codex review of #50 at 6f203ab (D137). Nothing runs until the
+Declared 2026-10-10 (D136), revised 2026-10-11 after the Codex reviews of #50 at 6f203ab (D137) and 12be36a (D138). Nothing runs until the
 owner approves this plan after review. Not a GO: V0d admits, V0e qualifies, GO is the owner's.
 Owner: "Ok continue" (2026-10-10) to declaring a V0e of A with the patched library, after the patch's diagnostic
 validation (D133: 240/240, 8 AEE_ENOMORE events retried) and the upstream issue (ggml-org/llama.cpp#30309).
@@ -37,14 +37,19 @@ validation (D133: 240/240, 8 AEE_ENOMORE events retried) and the upstream issue 
   Fault budget (D89): the first fault (HANG, DEVFAULT) in the set ends that attempt; recovery by baseline probing
   without a restart; the whole set restarts once; a second fault -> NOT ELIGIBLE (exit 3). A clean load failure is
   retried once after recovery; twice -> stop. Any other non-PASS (missing evidence, memory reject) -> stop.
-  16K gate (frozen, RUNBOOK): tools/admit_gate.py on the admitted attempt's r1-r3: one RESULT at depth 16384 each, the
-  actual prompt within +-20 % of 16384, median prefill >= 145 and median decode >= 4.4 tok/s. "GATE AR: PASS" ->
+  16K gate (frozen, RUNBOOK): tools/admit_gate.py on the admitted attempt's r1-r3, each read from its successful record
+  (r<n>, or r<n>-retry after a clean load failure; exactly one must have "RESULT PASS"; D138): one RESULT at depth 16384
+  each, the actual prompt within +-20 % of 16384, finite positive throughput, median prefill >= 145 and median decode
+  >= 4.4 tok/s. "GATE AR: PASS" ->
   provisionally eligible (patched runtime); FAIL -> not eligible (exit 3); missing or malformed -> stop (exit 2).
   Diagnostic, not gated: the per-depth medians against D90's A (16K 317.4/8.22, 8K 345.4/9.80, 32K 282.3/7.21); the
   FastRPC/DSP journal of each step is exported with the evidence and its logged retry events counted.
   Estimated: about 50-60 min (D90's A set took 48 min).
 
-4. Stage 2: V0e of A-retry at 32768 (only after "GATE AR: PASS"; the driver refuses to start otherwise).
+4. Stage 2: V0e of A-retry at 32768. The driver starts only if the LATEST admission attempt in the append-only AR
+  status is complete and passing ("SET AR: ADMITTED", "GATE AR: PASS" and "admission AR done rc=0" after its last
+  "admission AR start"; an older PASS followed by a newer failed or unfinished attempt does not count) and the gate,
+  re-applied to the current admission evidence, still passes (D138).
   Entry: setsid bash ~/v0/v0e_A_retry.sh (from ~/bench-runs). Phase v0e-A-retry; status
   ~/bench-runs/v0/v0d/v0e-A-retry-status.txt. Each session: htp_retry_check before and after, a passing baseline probe
   first, run_v0e.sh evidence chain (run window, health check + fail-closed verdict, kernel audit with coverage,
@@ -62,8 +67,8 @@ validation (D133: 240/240, 8 AEE_ENOMORE events retried) and the upstream issue 
   Pause between sessions 180 s.
   DSP journal (Codex finding 2, fail-closed): after each session, the server's journal lines bound to its single pid,
     its boot id and START..END+60 s; required: the command succeeds, the export is non-empty, it shows the library
-    open line and CDSP0 lines. A failed capture stops (EVIDENCE) for a server that became ready, except that a real
-    HANG/DEVFAULT keeps its class. Logged retry events are counted ("logged", because the patch rate-limits its
+    open line and CDSP0 lines. A failed capture stops, except: a real HANG/DEVFAULT keeps its class, and a confirmed
+    clean load failure (class LOADFAIL) keeps its recovery path (D138; missing readiness metadata is no exception).
     messages); more than 1 in a row is flagged for the owner, not a fail.
 
 5. Generation sampling: direct probes send no sampling fields, so llama-server defaults apply (no general.sampling.* in
@@ -90,9 +95,12 @@ validation (D133: 240/240, 8 AEE_ENOMORE events retried) and the upstream issue 
   tools/. Evidence copied to runs/v0d-admit-AR and runs/v0e-A-retry with the monitoring export; audits recomputed from
   the committed export.
 
-8. Tests (offline, mocked): test_admit_entry.sh 9/9 (AR: library wrong at start, changed mid-set, changed after the
-  set, gate fail, gate missing, pass); test_admit_gate.sh 10/10 (published A and AM medians reproduced; below-gate
-  prefill/decode, off-depth prompt, RETRY-only, duplicate and non-numeric lines); test_v0e_A_retry.sh 28/28 (the 13
-  D118 policy cases, library/.farf identity, retry counted/flagged, missing admission, rc 124/137 on load and S1
-  records, failed health on an S1 record, journal failed/empty/no DSP lines/no pid, journal failure under a HANG).
+8. Tests (offline, mocked): test_admit_entry.sh 10/10 (AR: library wrong at start, changed mid-set, changed after the
+  set, gate fail, gate missing, pass, and with the real gate a step that loads on its second attempt); test_admit_gate.sh
+  16/16 (published A and AM medians reproduced; below-gate prefill/decode, off-depth prompt, RETRY-only, duplicate and
+  non-numeric lines, the -retry record used, two or no successful records, inf/NaN/0 throughput);
+  test_v0e_A_retry.sh 33/33 (the 13 D118 policy cases, library/.farf identity, retry counted/flagged, missing
+  admission, a newer failed or unfinished admission after an older PASS, gate re-check failing, rc 124/137 on load and
+  S1 records, failed health on an S1 record, journal failed/empty/no DSP lines/no pid, journal failure under a HANG,
+  under a PASS without a readiness line, and under a clean load failure).
   Estimated total NPU time if everything passes: about 4-5.5 hours (stage 1 about 1 h; stage 2 about 3-4.5 h).

@@ -1916,3 +1916,15 @@ D137 2026-10-11 Codex review of #50 at 6f203ab (07:11Z): three P2 findings and t
    test_admit_entry.sh 9/9 (6 new); test_admit_gate.sh 10/10 (reproduces D90's A and AM medians). Plan rewritten as a
    self-contained execution brief (identities, quoted commands, both stages, items, budgets, sampling, monitoring,
    stop/recovery policy); the PR description carries it too.
+D138 2026-10-11 Codex review of #50 at 12be36a (07:59Z): D137 confirmed; three P2 and one P3 remaining. No hardware run.
+   1. The admission prerequisite matched any historical "GATE AR: PASS" in the append-only status. Now only the latest
+      attempt counts (after its last "admission AR start": ADMITTED, GATE AR: PASS, done rc=0), and admit_gate.py is
+      re-applied to the current admission evidence before anything runs.
+   2. admit_gate.py read only <step>/probe.txt, so a step that loaded on its allowed second attempt (<step>-retry) gave
+      MISSING. It now reads the one record of <step>, <step>-retry whose last RESULT is PASS (two or none -> MISSING);
+      the failed load stays as evidence; OFF_DEPTH "RETRY" probe lines stay excluded. Integration case through
+      v0d_admit.sh with the real gate.
+   3. The journal exception keyed on a missing "ready after" line; it now applies only to class LOADFAIL (plus the
+      HANG/DEVFAULT rule). A PASS session with a failed capture stops whatever its readiness metadata.
+   P3. Non-finite or non-positive throughput (inf, NaN, 0) is MISSING, not a speed verdict.
+   Tests: test_v0e_A_retry.sh 33/33 (5 new), test_admit_entry.sh 10/10 (1 new), test_admit_gate.sh 16/16 (6 new).
