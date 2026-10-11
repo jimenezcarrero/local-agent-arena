@@ -2128,3 +2128,13 @@ D149 2026-10-11 D146 attempt 3 (runs/v0q-op/kld3): the fixed control also aborte
    definition). Op groups that would move such an op are likewise refused at load before any NPU compute: such an
    arm is now recorded NOT RUNNABLE and the next arm runs (a hang, a second map failure or any other error still
    stops). test_v0q_kld.sh 12/12. Attempt 4 (runs/v0q-op/kld4): the op-group arms only.
+D150 2026-10-12 D146 attempts 4-6. kld4: arm MUL_MAT failed to map twice (HTP0:0 buffer mapping failed, size
+   1,072,320,512) -> STOP. kld5-check (npu arm only): loads, and reproduces D148 to every digit (mean KLD 0.816929):
+   the NPU result is deterministic and the NPU state is fine. kld6 (groups without MUL_MAT): FLASH_ATTN/SOFT_MAX also
+   failed to map twice (HTP0:1, 508,563,456) -> STOP. Reading: any OPFILTER on the two-session layout fails to map,
+   the unfiltered layout never did in these runs. ggml-hexagon maps a buffer lazily per session and clones other
+   sessions' buffers when a split needs them (ggml_hexagon_session::clone_buffer); with ops moved to the CPU the
+   graph splits differently and a session maps more than its DSP address space holds (a reading of the source, not
+   verified). Amendment: arms run on ONE session (DEVS=HTP0:0, same kernels); comparable only if the one-session
+   npu arm reproduces the two-session KLD (0.8169 +/- 0.0224 within its error), which is checked first.
+   test_v0q_kld.sh 13/13. Attempt 7: runs/v0q-op/kld7.

@@ -16,12 +16,13 @@ O=$1; TXT=$2; P=~/v0/hexpkg/pkg-linux; M=~/v0/models/q40/NeoHorse-1-4B-q4_0-pure
 PPL=${PPL:-$P/bin/llama-perplexity}; STALL_S=${STALL_S:-120}
 [ -e "$O" ] && { echo "$O exists; a fresh directory is required"; exit 2; }; mkdir -p "$O"
 COMMON="-m $M -f $TXT -c 1024 -b 1024 -ub 512"
-NPU_ENV=(LD_LIBRARY_PATH=$P/lib "ADSP_LIBRARY_PATH=$HOME/v0/htp-retry;$P/lib" GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1)
+DEVS=${DEVS:-HTP0:0,HTP0:1}  # D150: DEVS=HTP0:0 runs the arms on one session
+NPU_ENV=(LD_LIBRARY_PATH=$P/lib "ADSP_LIBRARY_PATH=$HOME/v0/htp-retry;$P/lib" GGML_HEXAGON_DEVICES=$DEVS)
 ARMS=${ARMS:-"npu nofusion MUL_MAT|MUL_MAT_ID FLASH_ATTN_EXT|SOFT_MAX GATED_DELTA_NET SSM_CONV RMS_NORM|NORM|L2_NORM ROPE SWIGLU|GEGLU|REGLU|GLU SILU|SIGMOID|SOFTPLUS|EXP|NEG|GELU|TANH|ABS|RELU ADD|ADD_ID|MUL|SUB|DIV|SCALE|SQR|SQRT|CLAMP|SUM|SUM_ROWS|CUMSUM|TRI|SOLVE_TRI|FILL|DIAG CPY|CONT|DUP|SET_ROWS|GET_ROWS|CONCAT|PAD|REPEAT|ROLL"}
 summ() { grep -E '^(Mean +KLD|Maximum KLD|99.9% +KLD|Median +KLD|Same top p|Mean PPL\(Q\)|RMS Δp)' "$1" | tr -s ' ' | paste -sd'|' -; }
 # run_npu <log> <env...>: runs one NPU arm in the background with the stall check; echoes rc, or HANG
 run_npu() { local log=$1; shift; local pid st=0 c0 c1 t
-  env "$@" timeout 1800 $PPL $COMMON --device HTP0:0,HTP0:1 -ngl 99 --kl-divergence-base $O/cpu.kld --kl-divergence >> $log 2>&1 & pid=$!
+  env "$@" timeout 1800 $PPL $COMMON --device $DEVS -ngl 99 --kl-divergence-base $O/cpu.kld --kl-divergence >> $log 2>&1 & pid=$!
   sleep 5; c0=$(cpu_ticks $pid)
   while kill -0 $pid 2>/dev/null; do sleep 10; c1=$(cpu_ticks $pid)
     if grep -qs fastrpc_wait_for_completion /proc/$pid/task/*/wchan $(pgrep -P $pid | sed 's|.*|/proc/&/task/*/wchan|') && [ $(( c1 - c0 )) -lt 50 ]; then st=$((st+10)); else st=0; fi
