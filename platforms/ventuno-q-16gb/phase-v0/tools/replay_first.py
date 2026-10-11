@@ -17,7 +17,9 @@ Outcomes (D142, Codex review of 15c6fa6):
            missing finish/[DONE], bad JSON), or a tool call that does not assemble (no name, arguments not a JSON object)
 Per try: <out dir>/try-NN.txt (raw body bytes as received) and one line in <out dir>/replay.jsonl. <out dir> must not
 exist yet (no stale tries can mix in). Prints "RESULT <label>: first-reply tool calls k/n (no_tool a, timeout b,
-error c)". Exit 0 only if no try is an error (timeouts are results); 1 if any try is an error; 2 on bad arguments."""
+error c)". The usage-only SSE event that llama.cpp sends after the finish chunk when the request asks for
+stream_options.include_usage (pi does) is accepted and recorded (D143); an event with an "error" key, or one with
+neither choices nor usage, is malformed. Exit 0 only if no try is an error (timeouts are results); 1 if any try is an error; 2 on bad arguments."""
 import json, os, select, socket, sys, time
 
 
@@ -84,7 +86,7 @@ def http_post(port, body, deadline):
 
 def parse(raw):
     """-> dict(valid, complete, calls (assembled, valid), fragments, finish, content, reasoning, problem)."""
-    out = {"valid": True, "complete": False, "calls": 0, "fragments": 0, "finish": None, "content": "", "reasoning": "", "problem": ""}
+    out = {"valid": True, "complete": False, "calls": 0, "fragments": 0, "finish": None, "content": "", "reasoning": "", "problem": "", "usage": None}
     text = raw.decode("utf-8", "replace")
     acc = {}
     if text.lstrip().startswith("{"):
@@ -105,9 +107,17 @@ def parse(raw):
             if d == "[DONE]":
                 done = True; continue
             try:
-                ch = json.loads(d)["choices"][0]
-            except (ValueError, KeyError, IndexError, TypeError):
+                ev = json.loads(d); chs = ev["choices"]
+            except (ValueError, KeyError, TypeError):
                 out.update(valid=False, problem="bad SSE event"); return out
+            if "error" in ev:
+                out.update(valid=False, problem="error event"); return out
+            if chs == [] and isinstance(ev.get("usage"), dict):  # D143: the usage-only chunk (stream_options.include_usage)
+                out["usage"] = ev["usage"]; continue
+            try:
+                ch = chs[0]
+            except (IndexError, TypeError):
+                out.update(valid=False, problem="SSE event without choices or usage"); return out
             dl = ch.get("delta", {}) or {}
             for tc in dl.get("tool_calls") or []:
                 k = tc.get("index", 0); a = acc.setdefault(k, {"name": "", "args": ""}); f = tc.get("function", {}) or {}
@@ -150,7 +160,7 @@ def main(req, port, n, out, label):
             f.write(json.dumps({"try": i, "http": status, "outcome": outcome, "tool_calls": p["calls"],
                                 "tool_fragments": p["fragments"], "finish": p["finish"], "complete": complete and p["complete"],
                                 "problem": note or p["problem"], "content_chars": len(p["content"]),
-                                "reasoning_chars": len(p["reasoning"]), "content_head": p["content"][:200],
+                                "reasoning_chars": len(p["reasoning"]), "content_head": p["content"][:200], "usage": p["usage"],
                                 "seconds": round(time.monotonic() - t0, 1)}) + "\n")
     print(f"RESULT {label}: first-reply tool calls {cnt['tool']}/{n} (no_tool {cnt['no_tool']}, timeout {cnt['timeout']}, error {cnt['error']})")
     return 1 if cnt["error"] else 0

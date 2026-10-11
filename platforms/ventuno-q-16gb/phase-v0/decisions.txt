@@ -2028,3 +2028,13 @@ D142 2026-10-11 Codex review of #52 at 15c6fa6 (16:37Z): four P2 findings and th
    attributing a difference; budget corrected: step caps now cover the declared worst case (19,000 s NPU, 13,000 s
    CPU; 64,000 s in all), expected 2-3 h. Tests: test_pi_diag_tools.py 18/18, test_v0p_workload.sh 8/8,
    test_v0p_diag.sh 19/19.
+D143 2026-10-11 Codex review of #52 at 4013a2d (17:03Z): D142 confirmed; one P2. Owner: "Ok do it" (download and run).
+   replay_first.py rejected the usage-only SSE event ({"choices": [], "usage": {...}}) that llama.cpp 836d57176 sends
+   after the finish chunk when a request sets stream_options.include_usage, which pi 0.80.10 does: every replay of
+   pi's request would have been an error and stopped D1. Now accepted and recorded (finish and [DONE] still
+   required); an event with an "error" key or with neither choices nor usage is malformed. Regressions: tool and
+   no-tool replies with the usage chunk, a pi-like include_usage request through the proxy, an error event;
+   test_pi_diag_tools.py 22/22.
+   Deviation (declared before running): this fix runs without a further Codex review; the owner's approval came after
+   the review that found it, and the fix is limited to that event type with its regressions. Codex reviews the run's
+   PR afterwards.
