@@ -1,0 +1,68 @@
+Plan: pi tool-call diagnostic for NeoHorse-1-4B on the VENTUNO Q (D141). Declared 2026-10-11 before running.
+Owner: "yes, diagnose pi" (after #51's review). Diagnostic only: nothing here admits, qualifies or changes a
+configuration; any configuration it points to needs its own plan, admission and V0e. Nothing runs before the owner
+approves this plan after review.
+
+1. Question and what is already known (offline, from committed evidence; D140, pi-smoke-audit.txt)
+  In V0e A-retry (D139) pi got a tool call in the model's FIRST reply in 6 of 53 sessions (11 %). Failed first replies
+  narrate the steps and invent tool results ("The read tool reported an error: missing.txt does not exist") or end
+  after a stray "</think>"; no reply holds tool-call markup that the server failed to parse (peg-native parser, the
+  GGUF's template opens <think>). 4 sessions were long generations (~5,800 tokens) cut by pi's 600 s timeout. The
+  direct streaming tool gates pass (10/10, 3/3).
+  Differences from the Jetson, where pi worked with this model (README: arenas 1-2 3/3 at llama.cpp defaults):
+  (a) file: pure Q4_0 (required by the NPU) vs the publisher's Q4_K_M; (b) backend: Hexagon NPU vs CUDA;
+  (c) sampling: llama.cpp defaults here; the model card's profile (temp 1.0, top_p 0.95, top_k 20, min_p 0,
+  presence_penalty 1.5, repeat 1.0) is in suite/sampling-reference.md, and OPERATING.md item 7 says to measure both;
+  (d) server flags: here auto slots (4), flash attention and KV type at their defaults; Jetson -np 1, -fa on,
+  q4_0 KV, --jinja explicit.
+  This plan isolates (a), (b) and (c). (d) is not varied here.
+
+2. Steps (tools/v0p_diag.sh; phase v0p-pi; each step one fresh server through run_v0e.sh's evidence chain)
+  Every server listens on :8090 behind tools/pi_capture_proxy.py on :8080 (tools/v0p_serve.sh), which records every
+  chat request (exact body) and raw response; pi and the probes are unchanged (pi's provider "bench" is :8080).
+  Primary measure: replays of ONE captured request, pi's first request from D1, sent byte for byte REPLAY_N=20 times
+  straight to the server (tools/replay_first.py): k/20 first replies with a tool call; outcomes tool / no_tool /
+  timeout (600 s, as pi) / error, with each raw reply kept. Secondary: full pi smoke pass rate (pi_smoke.py, as V0e).
+  D1  NPU, the D139 A-retry runtime at -c 32768 (release host, patched DSP library, .farf), llama.cpp default
+      sampling: 10 pi smoke sessions, then 20 replays.                                     isolates nothing (baseline)
+  D2  D1 + the card's sampling as server flags (--temp 1.0 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 1.5
+      --repeat-penalty 1.0): 10 pi smoke sessions, 20 replays of D1's request.                       (c) sampling
+  D3  CPU, the same release binary and the same pure Q4_0 file (--device none -ngl 0 -t 4 --cpu-mask 0xF
+      --cpu-strict 1), defaults: 20 replays of D1's request.                                          (b) backend
+  D4  CPU, the publisher's NeoHorse-1-4B-Q4_K_M.gguf (TokenRhythm/NeoHorse-1-4B-GGUF @3c5d58ca, sha256
+      7da8ac6219b0aaa21b58cb26c1ec6826b478449215a3b0448742e1cda60fa2b4, 2,708,804,352 bytes), defaults: 20 replays.
+                                                                                                  (a) file/quant
+  All other flags as A: -c 32768 --cache-ram 7942 -lv 4 --ctx-checkpoints 0, auto slots. NPU steps: a passing
+  baseline probe first, htp_retry_check.sh before and after. Pause 120 s between steps.
+
+3. Before running (owner-approved with this plan): download the Q4_K_M file to ~/v0/models/neohorse-q4km/ with its
+  sha256 checked (recorded in model-sources.txt); disk after: about 6.6 GB free. Launch checks saved to a file at
+  launch this time (runs/v0p-pi/launch-checks.txt): deployed copies identical to the reviewed revision, no
+  llama-server, watchdog and sampler running, measurement checkout 7badb21 clean, health pass without package drift.
+  Entry: setsid bash ~/v0/v0p_diag.sh from ~/bench-runs.
+
+4. Readings (declared; small samples, so only large differences count): "differs" = at least 8/20 first-reply tool
+  calls where the comparison has at most 3/20 (or the reverse); Fisher exact p is reported with each comparison.
+  - D1 near the V0e rate (<= 3/20): the replay reproduces the problem; otherwise the problem depends on context that
+    one replay does not hold (recorded; the comparisons below are then read only between steps).
+  - D3 >> D1 (CPU fine, NPU not, same file): the Hexagon backend's numerics are implicated -> upstream question.
+  - D3 ~ D1 low, D4 >> D3: the pure Q4_0 quantization is implicated -> the NPU route cannot serve this model well
+    for agents unless a better NPU-compatible file exists.
+  - D2 >> D1: the card's sampling fixes it on the NPU -> a configuration change for a new plan (A with that profile).
+  - All low: none of (a)-(c); next candidates are (d) (slots, flash attention, KV type) or pi's request itself.
+  The captured requests and replies are kept for offline reading in every case.
+
+5. Policy: HANG or DEVFAULT anywhere (probes included) -> fault recorded, recovery by probing without a restart,
+  STOP. A workload that ran (its RESULT line present, rc 0) is a result whatever its rate. Anything else (missing
+  evidence, failed health, a replay HTTP error, no request captured, library or file mismatch) -> STOP. Memory: these
+  servers are short-lived; the health floor applies as in every run.
+
+6. Budget: D1 and D2 about 15-25 min each (10 pi sessions of 20-60 s, plus 20 replays); D3 and D4 about 40-70 min
+  each (CPU: a 1.6K-token prompt at ~24 tok/s plus reasoning at ~5 tok/s per replay); worst case capped by the step
+  timeouts (7,200 s NPU, 10,800 s CPU). Total expected about 2-3 h, at most 8 h.
+
+7. Tests (offline, mocked or local): tools/test_pi_diag_tools.py 10/10 (proxy relays /health and SSE, records only
+  chat calls byte for byte; replay classes tool / no_tool / timeout / HTTP error / plain JSON); tools/test_v0p_diag.sh
+  14/14 (sequence, each step's server and workload settings, HANG and baseline-HANG stop, evidence stop, library
+  wrong at start or changed during D1, Q4_K_M missing, CPU-only steps). Not tested: the proxy in front of a real
+  llama-server (first exercised by D1; a failure there is EVIDENCE and stops).
