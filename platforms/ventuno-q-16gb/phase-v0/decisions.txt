@@ -2173,3 +2173,12 @@ D153 2026-10-12 kld9 (-ub 512 unless stated; KLD / same top / PPL): -ub 64 0.176
    misplacement in the output projection for multi-token batches would give exactly the low PPL (logits of token t
    computed from a later token's state). Declared before running (kld10): -ngl 32 (all 32 blocks on the NPU, output
    layer on the CPU) and -ngl 33 (output layer too). Reading: 32 near 0 and 33 at ~0.8 -> the output layer.
+D154 2026-10-12 kld10: -ngl 32 (all blocks on the NPU, output layer on the CPU) KLD 0.0024 / same top 97.9 % / PPL
+   14.43; -ngl 33 (output layer on the NPU) 0.8169 / 66.0 % / 2.30, identical to full offload. The NPU's departure
+   from the CPU in prompt batches is entirely in the output layer (output norm + 248,320-row output projection) when
+   it runs on the NPU; the 32 blocks match the CPU closely even at -ub 512. Not yet shown: that this is what breaks
+   pi (the server computes logits for the last prompt token only; a wrong row there would make the FIRST generated
+   token come from the wrong position, which fits replies that narrate instead of opening a tool call).
+   Declared before running: v0p_diag.sh step D6 (STEPS=D6) = D1's runtime and request plus -ngl 32 (later flag
+   wins), 10 pi sessions and 20 replays. Reading: D6 >= 17/20 and Fisher vs D1 p < 0.01 -> the output layer on the
+   NPU accounts for this request's failures; <= 8/20 -> it does not by itself. test_v0p_diag.sh 23/23.
