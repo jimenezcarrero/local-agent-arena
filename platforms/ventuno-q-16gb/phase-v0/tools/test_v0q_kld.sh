@@ -3,7 +3,7 @@
 fails=0; T=$(mktemp -d)
 cat > $T/ppl <<'F'
 #!/bin/bash
-echo "env OPFILTER=${GGML_HEXAGON_OPFILTER:-none} FUSION=${GGML_HEXAGON_OPFUSION:-none} args: $*" >> $T_LOG
+echo "env OPFILTER=${GGML_HEXAGON_OPFILTER:-none} FUSION=${GGML_HEXAGON_OPFUSION:-none} MM=${GGML_HEXAGON_MM_SELECT:-none} FA=${GGML_HEXAGON_FA_SELECT:-none} args: $*" >> $T_LOG
 case " $* " in *" --kl-divergence "*) [ "${GGML_HEXAGON_OPFILTER:-}" = BAD ] && exit 7
   [ "${GGML_HEXAGON_OPFILTER:-}" = CACHEOP ] && { echo "ggml-backend.cpp:1081: pre-allocated tensor (cache_r_l0) in a buffer (HTP0:0) that cannot run the operation (SCALE)"; exit 134; }
   if [ "${GGML_HEXAGON_OPFILTER:-}" = MAPFAIL ] || { [ "${GGML_HEXAGON_OPFILTER:-}" = MAPONCE ] && [ ! -e $T_LOG.once ]; }; then
@@ -25,4 +25,5 @@ ck "load failure kept" "$(ls $T/o3 | grep -c loadfail)" 1
 : > $T_LOG; PPL=$T/ppl ARMS="MAPFAIL ROPE" bash ./v0q_kld.sh $T/o4 /dev/null > $T/out4 2>&1; ck "second map failure stops" "$?:$(grep -c 'OPFILTER=MAPFAIL' $T_LOG):$(grep -c 'OPFILTER=ROPE' $T_LOG)" "2:2:0"
 : > $T_LOG; PPL=$T/ppl ARMS="CACHEOP ROPE" bash ./v0q_kld.sh $T/o5 /dev/null > $T/out5 2>&1; ck "scheduler refusal: not runnable, next arm runs" "$?:$(grep -c 'NOT RUNNABLE' $T/o5/summary.txt):$(grep -c 'OPFILTER=ROPE' $T_LOG)" "0:1:1"
 : > $T_LOG; DEVS=HTP0:0 PPL=$T/ppl ARMS="npu" bash ./v0q_kld.sh $T/o6 /dev/null > /dev/null 2>&1; ck "DEVS=HTP0:0: one session" "$?:$(grep -c -- '--device HTP0:0 -ngl 99' $T_LOG)" "0:1"
+: > $T_LOG; PPL=$T/ppl ARMS="env:GGML_HEXAGON_MM_SELECT=1 env:GGML_HEXAGON_MM_SELECT=1,GGML_HEXAGON_FA_SELECT=1" bash ./v0q_kld.sh $T/o7 /dev/null > /dev/null 2>&1; ck "env arms set selectors, no filter" "$?:$(grep -- '--kl-divergence$' $T_LOG | awk '{print $2,$4,$5}' | paste -sd, -)" "0:OPFILTER=none MM=1 FA=none,OPFILTER=none MM=1 FA=1"
 rm -rf $T; echo "failures: $fails"; exit $fails
