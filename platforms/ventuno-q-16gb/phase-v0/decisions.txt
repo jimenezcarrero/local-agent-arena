@@ -2038,3 +2038,28 @@ D143 2026-10-11 Codex review of #52 at 4013a2d (17:03Z): D142 confirmed; one P2.
    Deviation (declared before running): this fix runs without a further Codex review; the owner's approval came after
    the review that found it, and the fix is limited to that event type with its regressions. Codex reviews the run's
    PR afterwards.
+D144 2026-10-11 pi tool-call diagnostic run (v0p-plan.txt, tools/v0p_diag.sh at af92724; 20:00-22:06, 0 faults,
+   every step PASS: health, kernel evidence, library check before and after both NPU steps). Evidence: runs/v0p-pi
+   (launch-checks.txt, driver.log, per step: props.json, capture/, first-request.json, replay/ with every raw reply,
+   pi-smoke.txt, server.log; pi-smoke/ sessions), monitor/ and env/ republished.
+   Replayed request: pi's first chat request from D1, sha256 43047176...3458, sent byte for byte 20 times per step.
+     step  conditions                                  first-reply tool calls      pi smoke (7 checks)
+     D1    NPU, llama.cpp default sampling             3/20 (15 no_tool, 2 timeout)  2 PASS, 8 FAIL 1/7
+     D2    NPU, the card's sampling                    2/20 (17 no_tool, 1 timeout)  0 PASS (9 FAIL 1/7, 1 FAIL 0/7)
+     D3    CPU, the same pure Q4_0 file                20/20                         not run (PI_N=0)
+     D4    CPU, the publisher's Q4_K_M file            20/20                         not run (PI_N=0)
+   Fisher exact (two-sided): D1 vs D3 p = 2.6e-8; D2 vs D3 p = 3.4e-9; D1 vs D2 p = 1.0; D3 vs D4 p = 1.0.
+   Checked before reading (plan section 4): /props shows the same chat template in all four steps (sha256 prefix
+   a4aee8afcf2e) and the same effective sampling in D1, D3 and D4 (temp 0.8, top_k 40, top_p 0.95, min_p 0.05,
+   presence 0, repeat 1.0); D2 shows the card's values. The server logs show the GGUF the step names (D1-D3 file type
+   Q4_0, D4 Q4_K - Medium). Same binary in every step.
+   Readings (declared leads, for this one request): D1 3/20 is at the V0e rate, so the replay reproduces the problem.
+   D3 >> D1 with the same file, template and sampling: a lead that the Hexagon backend's numerics matter for this
+   request. D2 ~ D1: the card's sampling is not shown to help on the NPU. D4 = D3: no effect of the file/quant is shown
+   on the CPU. Not shown: that the NPU cannot serve agents, which NPU op is responsible, or the pi workflow on the CPU.
+   NPU failures read as in D140: the reply narrates the steps and invents the tool result ("The file missing.txt does
+   not exist. Error noted"), sometimes after a stray "</think>"; 3 timeouts were long generations (1 with a partial
+   tool fragment). CPU replies took a median 67 s (D3) and 84 s (D4) vs about 20 s on the NPU.
+   No configuration changes. Possible next steps (owner decisions, each its own plan): locate the NPU op (e.g. per-op
+   CPU fallback or a logits comparison of D1 vs D3 on this request), add the lead to the upstream report, or a CPU
+   route for pi work.

@@ -1,0 +1,31 @@
+# v0p launch checks, 2026-10-11T20:00:12+02:00, written at launch by the testing agent (D143)
+repo HEAD af9272487e5b3d156b6481d5fcc71fd9698d661b (origin/ventuno-q af9272487e5b3d156b6481d5fcc71fd9698d661b)
+same v0p_diag.sh
+same v0p_workload.sh
+same v0p_serve.sh
+same pi_capture_proxy.py
+same replay_first.py
+same htp_retry_check.sh
+same run_v0e.sh
+same run_route.sh
+same v0d_runner.sh
+same v0d_lib.sh
+same kernel_audit.py
+same health_verdict.py
+same memfloor.py
+same npu_stall_watchdog.sh
+llama-server running: none
+proxy running: 2282494
+2376488
+2376525
+2043 /bin/bash /home/arduino/v0/monitor/health_sampler.sh
+536683 /bin/bash /home/arduino/v0/npu_stall_watchdog.sh
+measure: 7badb21, dirty files 0
+OK htp-retry sha256 aa2ae2a978d95935..., farf 0x1f
+q4km: 7da8ac6219b0aaa21b58cb26c1ec6826b478449215a3b0448742e1cda60fa2b4
+health_check rc=0 0 ALERT lines
+Mem:           15284        1559        9000          27        5007       13725
+/dev/mmcblk0p71   55G   38G   16G  71% /
+listeners on 8080/8090: 0
+note 2026-10-11T20:00:29+02:00: 'proxy running' above matched a leftover test proxy (pid 2282494, ports 53377->48147, started ~18:43 by the first test_pi_diag_tools.py run, which crashed before terminating it) and this shell's own command line (2376488, 2376525); the leftover was killed before launch: 3 proxy processes remain
+correction 2026-10-11T20:00:35+02:00: the '3 proxy processes remain' above counted the check's own shell; ps shows 0 python3 pi_capture_proxy.py processes running
