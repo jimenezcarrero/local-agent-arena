@@ -2153,3 +2153,15 @@ D151 2026-10-12 kld7 (one session, DEVS=HTP0:0): the unfiltered npu arm failed t
    arms env:GGML_HEXAGON_MM_SELECT=1 (matmul HMX -> HVX), env:GGML_HEXAGON_FA_SELECT=1 (attention HMX -> HVX),
    env:GGML_HEXAGON_GDN_SELECT=1, and all three. Reading: an arm that brings the mean KLD from 0.817 to <= 0.16
    (an 80 % cut) and the NPU PPL back near the CPU's 14.36 names the kernel. test_v0q_kld.sh 14/14. runs/v0q-op/kld8.
+D152 2026-10-12 kld8 (kernel selectors, two sessions): MM_SELECT=1 KLD 0.8101, FA_SELECT=1 0.8178, GDN_SELECT=1
+   0.8171, all three 0.8164 (PPL 2.29-2.30 in every arm, npu 0.8169): no HMX kernel accounts for the difference.
+   Incident (mine): I started test-backend-ops for 10 token-mixing ops while kld8 arm 04 was still on the NPU; 8 of
+   them aborted with "dspqueue_read failed: 0x2e" (two processes on the cDSP). Arm 04 completed (rc 0) with values
+   in line with arms 01-03; no watchdog event; the overlapped logs are kept in runs/v0q-op/t4-overlapped and not used.
+   Rerun alone: SSM_CONV 47/47, CONCAT 50/50, TRI 6/6, SOLVE_TRI 26/26, SET_ROWS 57/57, GET_ROWS 46/46, CPY 140/140,
+   FILL 6/6, CUMSUM 17/17, L2_NORM 22/22 OK. Every op NeoHorse uses passes on the NPU except the HMX GDN kernel
+   (D145), and that kernel is not the cause. The fault is at the graph level.
+   Declared before running (kld9; args arms, test_v0q_kld.sh 15/15): -ub 64; -ngl 16 (two sessions, half the
+   layers); --device HTP0:0 -ngl 16 (one session, half the layers); -ub 1 (every token alone, the decode path).
+   Readings: -ub 1 near 0 and -ub 512 at 0.82 -> the multi-token path (batching or the recurrent state between
+   ubatches); one-session -ngl 16 near 0 while two-session -ngl 16 is high -> the two-session split.

@@ -26,4 +26,5 @@ ck "load failure kept" "$(ls $T/o3 | grep -c loadfail)" 1
 : > $T_LOG; PPL=$T/ppl ARMS="CACHEOP ROPE" bash ./v0q_kld.sh $T/o5 /dev/null > $T/out5 2>&1; ck "scheduler refusal: not runnable, next arm runs" "$?:$(grep -c 'NOT RUNNABLE' $T/o5/summary.txt):$(grep -c 'OPFILTER=ROPE' $T_LOG)" "0:1:1"
 : > $T_LOG; DEVS=HTP0:0 PPL=$T/ppl ARMS="npu" bash ./v0q_kld.sh $T/o6 /dev/null > /dev/null 2>&1; ck "DEVS=HTP0:0: one session" "$?:$(grep -c -- '--device HTP0:0 -ngl 99' $T_LOG)" "0:1"
 : > $T_LOG; PPL=$T/ppl ARMS="env:GGML_HEXAGON_MM_SELECT=1 env:GGML_HEXAGON_MM_SELECT=1,GGML_HEXAGON_FA_SELECT=1" bash ./v0q_kld.sh $T/o7 /dev/null > /dev/null 2>&1; ck "env arms set selectors, no filter" "$?:$(grep -- '--kl-divergence$' $T_LOG | awk '{print $2,$4,$5}' | paste -sd, -)" "0:OPFILTER=none MM=1 FA=none,OPFILTER=none MM=1 FA=1"
+: > $T_LOG; PPL=$T/ppl ARMS="args:-ub,1 npu" bash ./v0q_kld.sh $T/o8 /dev/null > /dev/null 2>&1; ck "args arm appends flags, next arm without them" "$?:$(grep -c -- '-ngl 99 -ub 1 --kl-divergence-base' $T_LOG):$(grep -- '--kl-divergence$' $T_LOG | grep -c -- '-ngl 99 --kl-divergence-base')" "0:1:1"
 rm -rf $T; echo "failures: $fails"; exit $fails
