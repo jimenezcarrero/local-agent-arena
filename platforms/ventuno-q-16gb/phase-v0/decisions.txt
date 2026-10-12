@@ -2258,3 +2258,51 @@ D158 (2026-10-12) Codex review of 4e1be6e (PR #53): ready to merge as a declared
    the review, for the run: publish launch provenance, actual placement and settings, all repeat/prompt/tool evidence
    and raw monitoring for both stages; keep S2's pi smoke count and any throughput-decline flag visible (reported,
    not gated). A32 is still unmeasured; GO stays the owner's.
+
+D159 (2026-10-12) A32 run (owner: "merged you can start A32 plan", after #53's merge as 1ae79c8): admitted, gate PASS;
+   V0e at 32768 NOT QUALIFIED (S1 failed two items on a clean session; the baseline probe before S2 hung).
+   Launch: stage 1 12:14:29, stage 2 13:17:06 (+02:00), each after launch checks written at launch time
+   (runs/v0d-admit-A32/launch-checks.txt, runs/v0e-A32/launch-checks.txt): measurement checkout 7badb21 clean,
+   patched library OK, health rc 0 without drift, sampler and watchdog running, no llama process, 15 GB free. Two
+   deployed copies (make_manifest.py, test_v0e_H2.sh) were older than 882a431; neither is called by the A32 drivers;
+   replaced before launch, recorded; then all 88 copies identical.
+   Stage 1 (v0d_admit.sh A32, 12:14-13:16): attempt 1, 0 faults. 16K r1/r2/r3 prefill 235.8/223.2/235.7, decode
+     5.25/5.29/5.20; GATE A32: PASS, median 235.7/5.25 (AR 318.4/8.40: prefill -26 %, decode -37 %). Medians 8K
+     decode 5.73, 32K decode 4.72 (r1-r3 4.87/4.72/4.63; not gated). Tools 10/10, 3/3. memfloor --admit 5120 ADMIT
+     on every step, lowest margin 2,978,227 kB (warm-up). Library checks: 7 ran; the status shows 6, because the
+     after-set check (v0d_admit.sh) logs only a failure; the admission ended rc 0 after it, so it passed (logging gap).
+   Stage 2 (v0e_A_retry.sh A32): it re-applied the gate to the A32 evidence (PASS) and started. Baseline probe PASS.
+     S1 (13:18-13:40, clean: health pass, kernel audit pass, 0 DSP retry events, memory ADMIT, lowest MemAvailable
+     8.53 GiB): streaming probe 10/10 PASS, agentic 3/3 PASS, pi smoke 7/7 PASS (A-retry failed pi), window 4/4 PASS,
+     cache FAIL, compaction FAIL -> S1 FAIL; S2 to run for evidence.
+     - Cache (item 3): turn 1 (8,411-token prompt) returned finish_reason "length" after 512 tokens, all reasoning
+       content, no tool call. A model result under the item's 512-token limit; recorded as it is.
+     - Compaction (item 2-3, v0e_compact.sh, D112): all 3 pi turns exited 0 and both code words were recalled, but pi
+       never compacted. Cause, from pi 0.80.10's own code, replayed offline on the recorded session
+       (runs/v0e-A32/pi_compaction_replay.mjs, pi-compaction-replay.txt): the threshold is crossed (27,152 > 32,768 -
+       16,384), but prepareCompaction keeps the newest keepRecentTokens = 20,000 by a chars/4 estimate, and the two
+       38,000-character file reads estimate at 9,515 and 9,513 (session 19,340), so there is nothing older to
+       summarize and auto-compaction returns without an event. The item cannot pass with these files on any model:
+       a test design defect (D112), which also accounts for the 4 earlier compaction FAILs. Not changed mid-run; the
+       frozen S1 verdict stands. A corrected item (enough content for pi's estimate to exceed 20,000 before the cut)
+       would be a plan change for the owner and review.
+     Baseline probe before S2 (probe-134304, 13:43, the unchanged NPU health check: release library, -ngl 99,
+       --cache-ram 8192): the first request (383 tokens, off depth) completed; the retry (484 tokens) stalled in
+       decode after ~100-119 tokens; the watchdog killed the server at 13:48:59 (300 s with 4 threads in
+       fastrpc_wait_for_completion; runs/v0e-A32/npu-stalls/). FAULT HANG; recovery: the next baseline probe
+       (14:04:27) PASS without a restart. "V0e A32: NOT QUALIFIED (fault in the baseline before v0e-A32-S2;
+       recovered)". S2 did not run. The hang is in the release library the baseline uses, consistent with the D127
+       hang mode (A, D118-D120); not shown, since that library has no DSP error logging. It is not an A32 server.
+   Recomputed from the committed monitor export (runs/v0e-A32/recompute-20261012.txt): every kernel audit pass, every
+   memfloor --admit 5120 ADMIT, gate reproduced.
+   Gaps: (1) both drivers were launched with output to /dev/null, so there is no *-driver.log (A-retry had one); the
+   status files hold every line the drivers write. (2) The driver's S1 line says "A not qualified", fixed text
+   from the A-retry driver; it refers to A32. (3) The after-set library check is not logged on success.
+   (4) Publishing: ~/v0/monitor/publish_monitor.py was a copy older than D111 (no USB serial redaction); the launch
+   checks compared ~/v0/ only, not ~/v0/monitor/. The first publish put the USB serial back into the four committed
+   kernel exports (2026-10-04/07/08/10). Caught before any commit: the four files restored from git, tools/
+   publish_monitor.py deployed (the other ~/v0/monitor scripts identical), re-published; no unredacted serial in
+   platforms/ (checked without printing it); the recompute, rerun on this export, is identical. Future launch checks
+   compare ~/v0/monitor/ too.
+   Not shown: S2 (sustained, memory floor at the 5120 cap); whether A32 would pass a corrected compaction item; the
+   cause of the release-library hang. Nothing is GO.
