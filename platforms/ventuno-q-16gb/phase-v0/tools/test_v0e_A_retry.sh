@@ -3,7 +3,10 @@
 # exit status and fail-closed DSP journal cases): fake run_v0e/run_route/kernel audit/memfloor/journalctl under a temp
 # dir; checks the exit code and the sequence of actions for each declared policy branch. Refuses to run while a
 # llama-server is up.
+# D157: SET=A32 runs the same cases against "v0e_A_retry.sh A32" (its own admission status and phase), plus the A32
+# command/cap checks; SET=AR (default) as before plus AR's command/cap check.
 pgrep -x llama-server > /dev/null && { echo "a llama-server is running; not testing"; exit 9; }
+SET=${SET:-AR}; case $SET in AR) NAME=A-retry;; A32) NAME=A32;; *) echo "SET must be AR or A32"; exit 9;; esac
 fails=0
 # fake run_route (baseline probes) and run_v0e (sessions); behaviour per label from $T/mode-<S1|S2|probe>:
 #   pass (S2 also writes a VALID sustained summary) | nosummary | fail (S1 items failed, clean, rc 1) | hang (watchdog
@@ -11,7 +14,7 @@ fails=0
 #   records with rc 124 / rc 137 / a failed health verdict) | loadfail-timeout / loadfail-killed (load=4 with rc 124/137)
 FAKE='#!/bin/bash
 lab=$1; ph=${PHASE:-$2}; o=$BR/v0/$ph/$lab; mkdir -p $o; k=probe; case $lab in *S1|*S1-retry) k=S1;; *S2|*S2-retry) k=S2;; esac
-echo "$k" >> $T/calls; m=$(head -1 $T/mode-$k 2>/dev/null); m=${m:-pass}; sed -i 1d $T/mode-$k 2>/dev/null
+echo "$k" >> $T/calls; echo "$k $*" >> $T/cmds; m=$(head -1 $T/mode-$k 2>/dev/null); m=${m:-pass}; sed -i 1d $T/mode-$k 2>/dev/null
 echo pass > $o/health-verdict.txt; : > $o/server.log; echo "pass" > $o/kernel-audit.txt
 S="2026-10-11T10:00:00+02:00 START label=$lab boot=b00t-1\n2026-10-11T10:00:01+02:00 server pid 4242\n"
 R="2026-10-11T10:00:30+02:00 ready after 29s\n"; E="2026-10-11T10:30:00+02:00 END load=0\n"; U="t server still up at the end of the workload\n"
@@ -35,35 +38,42 @@ JOK='2026-10-11T10:00:02+02:00 ventunoq llama-server[4242]: ./src/apps_std_imp.c
 2026-10-11T10:00:02+02:00 ventunoq llama-server[4242]: adsprpc 2;479d:786: CDSP0: PERF: name:./libggml-htp-v75.so'
 case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
   T=$(mktemp -d); export T BR=$T/br WD_LOG=$T/wd.txt; echo x > $WD_LOG; mkdir -p $BR/v0/v0d
-  echo "$FAKE" > $T/run.sh; printf '#!/bin/bash\necho pass; exit 0\n' > $T/ka.sh; printf 'import os, sys\nsys.exit(2 if os.path.exists(os.environ["T"] + "/mem-reject") else 0)\n' > $T/mem.py
+  echo "$FAKE" > $T/run.sh; printf '#!/bin/bash\necho pass; exit 0\n' > $T/ka.sh; printf 'import os, sys\nopen(os.environ["T"] + "/caps", "a").write(sys.argv[2] + "\\n")\nsys.exit(2 if os.path.exists(os.environ["T"] + "/mem-reject") else 0)\n' > $T/mem.py
   chmod +x $T/run.sh $T/ka.sh
   mkdir -p $T/htpr $T/farf; echo lib > $T/htpr/libggml-htp-v75.so; echo 0x1f > $T/farf/llama-server.farf; local rs=$(sha256sum $T/htpr/libggml-htp-v75.so | cut -d' ' -f1)
-  A1="2026-10-11T08:00:00+02:00 admission AR start (pid 1)
-2026-10-11T08:50:00+02:00 SET AR: ADMITTED in attempt 1 (set faults: 0)
-2026-10-11T08:50:01+02:00 GATE AR: PASS median 16K prefill 317.4 (>= 145), decode 8.22 (>= 4.4)
-2026-10-11T08:50:02+02:00 admission AR done rc=0 (faults 0)"
-  echo "$A1" > $BR/v0/v0d/v0d-admit-AR-status.txt
+  A1="2026-10-11T08:00:00+02:00 admission $SET start (pid 1)
+2026-10-11T08:50:00+02:00 SET $SET: ADMITTED in attempt 1 (set faults: 0)
+2026-10-11T08:50:01+02:00 GATE $SET: PASS median 16K prefill 317.4 (>= 145), decode 8.22 (>= 4.4)
+2026-10-11T08:50:02+02:00 admission $SET done rc=0 (faults 0)"
+  echo "$A1" > $BR/v0/v0d/v0d-admit-$SET-status.txt
   printf '#!/bin/bash\necho "$*" > $T/gate-args; [ -f $T/gate-fail ] && { echo "GATE AR: FAIL"; exit 3; }; echo "GATE AR: PASS median 16K prefill 317.4"\n' > $T/gate.sh; chmod +x $T/gate.sh
   local jmode=ok jextra=""; local kv
   for kv in "$@"; do case $kv in RETRY_SHA=*) rs=${kv#*=};; farf=*) echo ${kv#*=} > $T/farf/llama-server.farf;; jextra=*) jextra=${kv#*=};; jmode=*) jmode=${kv#*=};;
-    noadmit) : > $BR/v0/v0d/v0d-admit-AR-status.txt;;
-    admit-newer-fail) printf '%s\n' "2026-10-11T09:00:00+02:00 admission AR start (pid 2)" "2026-10-11T09:50:00+02:00 SET AR: ADMITTED in attempt 1 (set faults: 0)" "2026-10-11T09:50:01+02:00 GATE AR: FAIL median 16K prefill 120.0" "2026-10-11T09:50:02+02:00 admission AR done rc=3 (faults 0)" >> $BR/v0/v0d/v0d-admit-AR-status.txt;;
-    admit-newer-unfinished) echo "2026-10-11T09:00:00+02:00 admission AR start (pid 2)" >> $BR/v0/v0d/v0d-admit-AR-status.txt;;
-    gate-fail) : > $T/gate-fail;; mem=reject) : > $T/mem-reject;; mode-*) echo "${kv#*=}" | tr , '\n' > $T/${kv%%=*};; esac; done
+    noadmit) : > $BR/v0/v0d/v0d-admit-$SET-status.txt;;
+    admit-newer-fail) printf '%s\n' "2026-10-11T09:00:00+02:00 admission $SET start (pid 2)" "2026-10-11T09:50:00+02:00 SET $SET: ADMITTED in attempt 1 (set faults: 0)" "2026-10-11T09:50:01+02:00 GATE $SET: FAIL median 16K prefill 120.0" "2026-10-11T09:50:02+02:00 admission $SET done rc=3 (faults 0)" >> $BR/v0/v0d/v0d-admit-$SET-status.txt;;
+    admit-newer-unfinished) echo "2026-10-11T09:00:00+02:00 admission $SET start (pid 2)" >> $BR/v0/v0d/v0d-admit-$SET-status.txt;;
+    gate-fail) : > $T/gate-fail;;
+    other-set-admission) mv $BR/v0/v0d/v0d-admit-$SET-status.txt $BR/v0/v0d/v0d-admit-AR-status.txt;; mem=reject) : > $T/mem-reject;; mode-*) echo "${kv#*=}" | tr , '\n' > $T/${kv%%=*};; esac; done
   printf '%s\n%s\n' "$JOK" "$jextra" > $T/journal-ok.txt; echo $jmode > $T/jmode
   # fake journalctl: records its arguments; ok | fail (rc 1) | empty | nocdsp (no DSP lines)
   printf '#!/bin/bash\necho "$*" >> $T/jargs\nm=$(cat $T/jmode); [ "$m" = fail-first ] && { [ -f $T/jfirst ] && m=ok || { : > $T/jfirst; m=fail; }; }\ncase $m in ok) cat $T/journal-ok.txt;; fail) echo "journal error" >&2; exit 1;; empty) :;; nocdsp) grep -v CDSP0 $T/journal-ok.txt;; esac\n' > $T/jc.sh; chmod +x $T/jc.sh
   env RUN_ROUTE=$T/run.sh RUN_V0E=$T/run.sh MEMFLOOR=$T/mem.py KAUDIT=$T/ka.sh PROBE_WAIT=0 SESS_PAUSE=0 CHECK_PROC=true \
-      HTPR=$T/htpr FARF=$T/farf RETRY_SHA=$rs JOURNAL=$T/jc.sh GATE=$T/gate.sh bash ~/v0/v0e_A_retry.sh > $T/out.txt 2>&1; local rc=$?
-  local seq=$(paste -sd' ' $T/calls 2>/dev/null) st=$BR/v0/v0d/v0e-A-retry-status.txt
+      HTPR=$T/htpr FARF=$T/farf RETRY_SHA=$rs JOURNAL=$T/jc.sh GATE=$T/gate.sh bash ~/v0/v0e_A_retry.sh $SET > $T/out.txt 2>&1; local rc=$?
+  local seq=$(paste -sd' ' $T/calls 2>/dev/null) st=$BR/v0/v0d/v0e-$NAME-status.txt
   if [ $rc = $want_rc ] && [ "$seq" = "$want_seq" ]; then echo "ok   $name (rc $rc: $seq)"
   else echo "FAIL $name (rc $rc want $want_rc; seq '$seq' want '$want_seq')"; sed 's/^/     /' $T/out.txt | tail -8; fails=$((fails+1)); fi
   chk() { grep -q -- "$1" "$2" || { echo "FAIL $name: no '$1' in $(basename $2)"; fails=$((fails+1)); }; }
   case $name in
-    retry-logged) chk "DSP v0e-A-retry-S1: logged retry events 1, longest run 1" $st;;
-    retry-repeated) chk "FLAG v0e-A-retry-S1: repeated peek errors (3 in a row)" $st;;
+    retry-logged) chk "DSP v0e-$NAME-S1: logged retry events 1, longest run 1" $st;;
+    retry-repeated) chk "FLAG v0e-$NAME-S1: repeated peek errors (3 in a row)" $st;;
     no-admission-stops) [ ! -s $T/gate-args ] || { echo "FAIL $name: gate ran"; fails=$((fails+1)); };;
-    all-pass) chk "$BR/v0/v0d-admit-AR AR 1" $T/gate-args; chk "_PID=4242 _BOOT_ID=b00t1 --since 2026-10-11 10:00:00 --until 2026-10-11 10:31:00" $T/jargs;;
+    all-pass) chk "$BR/v0/v0d-admit-$SET $SET 1" $T/gate-args; chk "_PID=4242 _BOOT_ID=b00t1 --since 2026-10-11 10:00:00 --until 2026-10-11 10:31:00" $T/jargs
+      # D157: the session server command and the memory cap of each set
+      c=$(grep '^S1 ' $T/cmds); case $SET in AR) w="--cache-ram 7942 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0"; cap=7942;;
+        A32) w="--cache-ram 5120 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 32 --ctx-checkpoints 0"; cap=5120;; esac
+      [[ "$c" == *"ADSP_LIBRARY_PATH=$T/farf;$T/htpr;"*" -c 32768 $w"* ]] && [ "$(sort -u $T/caps)" = $cap ] && [ "$(wc -l < $T/caps)" = 2 ] \
+        || { echo "FAIL $name: $SET session command or memfloor cap ($(sort -u $T/caps | paste -sd,)): $c"; fails=$((fails+1)); }
+      chk "V0e $NAME: QUALIFIED at window 32768" $st;;
     journal-fail-hang-stands) chk "NOT QUALIFIED (fault HANG" $st;;
   esac
   rm -rf $T; }
@@ -106,4 +116,6 @@ case1 admission-newer-unfinished-stops 6 "" admit-newer-unfinished
 case1 admission-gate-recheck-fails-stops 6 "" gate-fail
 case1 pass-without-ready-line-journal-fail-stops 2 "probe S1" mode-S1=pass-noready jmode=fail
 case1 loadfail-journal-fail-recovers 0 "probe S1 probe probe S1 probe S2" mode-S1=loadfail,pass jmode=fail-first
+# D157: an admission of the other set does not count
+if [ $SET = A32 ]; then case1 a32-with-only-an-ar-admission-stops 6 "" other-set-admission; fi
 echo "failures: $fails"; exit $fails
