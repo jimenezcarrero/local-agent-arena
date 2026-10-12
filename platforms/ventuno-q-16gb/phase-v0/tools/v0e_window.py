@@ -132,6 +132,11 @@ def counters(d):
             pps if isinstance(pps, (int, float)) and not isinstance(pps, bool) and pps > 0 else None)
 
 
+# D161 (v0e-plan-A32-2.txt): the two turns that must produce a tool call get 4096 completion tokens (512 before; A32
+# attempt 1 spent all 512 on reasoning, D159). Turn 3 and the fresh request only measure prompt reuse: 512 as before.
+CACHE_TOOL_MAX = 4096
+
+
 def cache():
     nonce = uuid.uuid4()
     msg = [{"role": "user", "content": f"Run {nonce}. Here is a project document.\n\n" + text_of(8000)
@@ -141,7 +146,7 @@ def cache():
     prev = final = None
     for turn in (1, 2, 3):
         sent = [dict(m) for m in msg]
-        code, d, dt = chat(msg, 512, TOOLS)
+        code, d, dt = chat(msg, CACHE_TOOL_MAX if turn < 3 else 512, TOOLS)
         p, cn, _ = counters(d)
         print(f"turn {turn}: http={code} {summary(d)} {dt:.0f}s")
         if code != 200 or p is None:

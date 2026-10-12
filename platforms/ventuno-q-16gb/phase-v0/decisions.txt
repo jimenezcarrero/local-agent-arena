@@ -2337,3 +2337,36 @@ D160 (2026-10-12) Codex review of 78d70fb (PR #54): outcome confirmed (A32 admit
    policy for the release-library hang (not a silent switch to the patched route). Any new attempt keeps these
    failed results as their own attempt; full S1 and sustained S2 at the exact configuration and window remain
    required.
+
+D161 (2026-10-12) A32's second V0e attempt declared (v0e-plan-A32-2.txt), after the Codex review of #54 (D160) and
+   the owner's "Yes" to drafting it. Nothing runs until the owner approves it after review. Attempt 1 stays NOT
+   QUALIFIED as its own attempt; A32's configuration and admission are unchanged (no new admission).
+   1. Compaction item (tools/v0e_compact.sh): the trigger no longer depends on the model's output. Files of 46,000
+      characters of English licence text each (a: GPL-3 + GFDL-1.3, b: LGPL-2.1 + MPL-1.1, /usr/share/common-licenses,
+      truncated; body sha256 7175b3f0... and 0c9374db..., checked), under pi's read limit (50 KB, 2,000 lines). pi's
+      estimate of the two tool results alone: 11,511-11,515 each (1-5 digit code word), at least 23,022 together, so prepareCompaction's
+      20,000-token keep leaves something to summarize whatever the model writes. Offline check with pi 0.80.10's own
+      code on attempt 1's session with these files and the model output reduced to a minimum: estimate 23,120,
+      preparation returned (split turn: turn 1's prompt, read call and a.txt result summarized);
+      runs/v0e-A32-2-offline/. Precondition measured on the running server (/tokenize) before pi starts: the two
+      files' real token count in [16,500, 28,000] (pi's threshold crossed once its ~1.6K system prompt is added; room
+      in the 32,768 window at the end of turn 2, where the context peaks). Not met, bodies changed or no count ->
+      "compaction INVALID (precondition: ...)", rc 1, pi not run. The real count is not known in advance (no
+      CPU-only tokenizer on the board; the package tokenizer links the NPU backend, so it was not used); about 21,000
+      expected for prose. PASS criteria unchanged. test_v0e_compact.sh (new) 10/10.
+   2. Cache item (tools/v0e_window.py): the two turns that must produce a tool call get 4,096 completion tokens
+      (512 before; pi itself sends 8,192, the window item 1,024). Turn 3 and the fresh request keep 512. Checks
+      unchanged. Declared as a test change motivated by attempt 1's failure; it applies to every later V0e.
+      test_v0e_window.py 12/12 (all-good checks the budgets).
+   3. Baseline probe policy, options (a) unchanged release library, (b) the same health-check command on the patched
+      library, (c) the A32 command at depth 512. Recommended and implemented: (b), for "v0e_A_retry.sh A32 2" only
+      (phase v0e-A32-2); the library identity is checked before every baseline too. A baseline fault is still a fault.
+      AR and A32 attempt 1 unchanged. The owner chooses; (a) or (c) would change the driver before any run.
+   Also: the driver's S1 failure line names the set ("$NAME not qualified", was "A not qualified", D159 gap 2); the
+   entry command keeps the driver's output in v0e-A32-2-driver.log (D159 gap 1); launch checks compare ~/v0/monitor
+   too (D159 gap 4).
+   Tests: test_v0e_A_retry.sh SET=AR 34/34, SET=A32 35/35, SET=A32 ATT=2 35/35 (runs/v0e-A32-2-offline/tests-D161.txt).
+   Upstream texts prepared, NOT filed (the owner's decision): upstream/output-layer-report.txt (the output-layer
+   fault, D145-D156, scoped as D156), upstream/gdn-hmx-report.txt (GATED_DELTA_NET HMX 7/36, D145/D156),
+   upstream/30309-comment-20261012.txt (the release-library hang of D159). The output-layer runs used the retry
+   build of the DSP library; that is stated in the text.

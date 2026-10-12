@@ -1,0 +1,21 @@
+NOT FILED. Prepared 2026-10-12 for the owner (D161); filing is the owner's decision. Evidence: D145, corrected in
+D156 (runs/v0q-op/t2-gdn.log, t3-gdn-sel1.log). Could be its own issue or a section of output-layer-report.txt.
+
+Title: Hexagon: GATED_DELTA_NET HMX kernel fails test-backend-ops for >= 64 tokens (kda=0, K=1) on v75
+
+Name and version / hardware: as output-layer-report.txt (836d57176, htp-v75, QCS8275; DSP library with the
+  dspqueue_peek retry only).
+
+Problem
+  test-backend-ops -b HTP0:0 -o GATED_DELTA_NET (built-in cases), default kernel selection
+  (GGML_HEXAGON_GDN_SELECT=2): 29/36 OK, 7 FAIL. The failing cases are those that take the HMX kernel: scalar gate
+  per head (kda=0), K=1, head size a multiple of 64, >= 64 tokens: 64, 65, 100, 127, 200, 256 tokens with 1 sequence
+  and 127 tokens with 2 sequences. NMSE 3e-6 to 2e-3 against the 1e-7 limit.
+  GGML_HEXAGON_GDN_SELECT=1 (HVX kernel only): 36/36 OK. Other >= 64-token cases (not kda=0, K=1) pass.
+  Also: on the model's own 512-token GATED_DELTA_NET shape with generic random inputs, HTP gives 0 where the CPU
+  gives inf (random inputs outside the op's normal range; less meaningful than the built-in cases).
+  No commit has changed gated-delta-net-ops.c since 836d57176 (checked 2026-10-11).
+
+Impact on a real model (NeoHorse-1-4B, qwen35): switching to the HVX kernel did not change the model-level KL
+  divergence (0.8171 vs 0.8169), so in our case this kernel error is small next to the output-layer problem; the
+  op-level failure stands on its own.

@@ -1,0 +1,14 @@
+NOT POSTED. Prepared 2026-10-12 for the owner (D161), a possible follow-up comment on
+https://github.com/ggml-org/llama.cpp/issues/30309; posting is the owner's decision. Evidence: D159,
+runs/v0e-A32/probe-134304, runs/v0e-A32/npu-stalls/.
+
+Another occurrence on the release libggml-htp-v75.so (836d57176), 2026-10-12, same board:
+  llama-server -c 40960 --cache-ram 8192 --device HTP0:0,HTP0:1 -ngl 99 (two sessions), a short health-check
+  probe. The first request (383 prompt tokens, 128 generated) completed; the second (484 prompt tokens) stopped in
+  decode after about 100-119 generated tokens. Host: 4 threads in fastrpc_wait_for_completion, under 0.5 CPU-s per
+  10 s for 300 s, then killed. No kernel message. The next server load worked (no reboot, no cDSP restart).
+  The same kind of short probe had passed many times before on this board.
+  We now run with the DSP library rebuilt with a retry on dspqueue_peek errors in htp_main_thread (log rate-limited,
+  short sleep, keep reading). Our watchdog's previous hang was on 2026-10-10 08:03; between then and this one,
+  nothing hung on either library (the release library ran only short health-check probes in that period). A small
+  sample, not evidence that the retry fixes it.
