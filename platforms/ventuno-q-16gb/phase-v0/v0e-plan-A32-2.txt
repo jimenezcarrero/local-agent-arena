@@ -1,0 +1,80 @@
+Plan for A32's second V0e attempt (A32-2) at window 32768: two S1 items made sound, one baseline-probe policy
+declared, the rest of the A32 plan unchanged. Declared 2026-10-12 (D161), after the Codex review of #54 (D160) asked
+for "a reviewed amendment for reliable compaction triggering and investigation of the cache item's first-call
+budget" and a baseline policy "recorded before another V0e attempt rather than silently substituting the patched
+route". Owner: "Yes" (2026-10-12, to drafting it). Nothing runs until the owner approves this plan after review.
+Not a GO: V0e qualifies, GO is the owner's.
+
+0. What stays as it was
+  Attempt 1 (runs/v0e-A32, D159/D160) stays NOT QUALIFIED, as its own attempt; nothing here re-labels it. A32's
+  configuration, identities and admission are unchanged (v0e-plan-A32.txt sections 2-4 at 882a431; admission
+  v0d-admit-A32 attempt 1, GATE A32: PASS 235.7/5.25). A32-2 starts only if that admission is still the latest A32
+  admission, complete and passing, and its gate re-applied to the evidence passes (the driver checks, as for attempt 1).
+  No new admission: the server, its command and its memory cap do not change.
+
+1. Change 1: the compaction item (v0e_compact.sh) - a trigger independent of the model's output
+  Why: pi 0.80.10 compacts when the context is past window - 16,384 AND prepareCompaction finds a cut; the cut keeps
+  keepRecentTokens = 20,000 by a chars/4 estimate. Attempt 1's files (38,000 corpus characters each) estimated 19,259
+  before the third prompt, so no cut existed (D159); with more model output a cut can exist (D160), so the old item
+  depended on how much the model wrote.
+  Now: each file is 46,000 characters of English licence text (a.txt = GPL-3 + GFDL-1.3, b.txt = LGPL-2.1 + MPL-1.1
+  from /usr/share/common-licenses, truncated; bodies sha256 7175b3f0... and 0c9374db..., checked), plus the code-word
+  line. Under pi's read limit (50 KB, 2,000 lines: 46,0xx bytes, 883 and 856 lines). Each estimates 11,511-11,515 (the code word has 1-5 digits), so
+  the two tool results alone estimate above 23,000 > 20,000, whatever the model writes (its output only adds).
+  Offline check with pi's own prepareCompaction on attempt 1's session with these files and the model's output
+  stripped to a minimum: estimate 23,120, a cut exists (a split turn: turn 1's prompt, read call and a.txt result are
+  summarized; runs/v0e-A32-2-offline/). Whether the model then writes a summary is what the item tests.
+  Precondition, measured on the running server before pi starts (/tokenize, CPU-side): the real token count of the
+  two files must lie in [16,500, 28,000] (above pi's threshold with pi's system prompt added; room left in 32,768).
+  Expected about 21,000 if licence text runs about 4.3 characters per token (not measured: no CPU-only tokenizer
+  on the board, and the package tokenizer loads the NPU backend). Not met (or bodies changed, or no
+  count) -> "compaction INVALID (precondition: ...)", rc 1, pi not run: the item fails closed.
+  PASS criteria unchanged: 3 pi turns exit 0, >= 1 compaction entry, no context rejection; recall recorded, not gated.
+  The RESULT line now also records the files' estimate and real token count.
+
+2. Change 2: the cache item (v0e_window.py cache) - the first-call budget
+  Why: turn 1 (8,411-token prompt) ended with finish_reason "length" after 512 tokens of reasoning and no tool call
+  (D159). 512 was the item's own figure (D112); the window item gives 1,024 and pi itself 8,192 (local32k maxTokens).
+  Now: the two turns that must produce a tool call get 4,096 completion tokens; turn 3 and the fresh-prefix request,
+  which only measure prompt reuse, keep 512. All checks unchanged: a turn without a bash call with an id still fails.
+  This is a test-design change motivated by attempt 1's failure; it is declared here for that reason, applies to
+  every later V0e of any set, and does not change attempt 1's result.
+  Cost: up to about 2 x (35 s prefill + 4,096 / 5.5 tok/s) = about 25 min more in S1 in the worst case.
+
+3. Change 3: the baseline probe policy (declared; the owner chooses)
+  Attempt 1 stopped because the baseline probe before S2 hung (probe-134304: release library, -ngl 99; watchdog 300 s;
+  recovered; D159). That probe is the unchanged NPU health check, run on the release DSP library, whose hang mode is
+  the one the patched library addresses (D127, D131, #30309). Options:
+    (a) unchanged: release-library baseline; a hang there still ends the attempt, although the qualified runtime is
+        the patched library.
+    (b) RECOMMENDED: the same health-check command (-ngl 99, --cache-ram 8192, -c 40960, depth 512, its historical
+        reference numbers) on the patched library (ADSP_LIBRARY_PATH=farf;htp-retry;pkg/lib), with the library
+        identity checked before every baseline as well as before and after every session. A fault in a baseline
+        is still a fault: recovery by baseline probing, then NOT QUALIFIED. Only the library changes.
+    (c) the baseline on the A32 server command itself (-ngl 32, --cache-ram 5120) at depth 512: tests the exact
+        runtime, but loses comparability with every earlier baseline.
+  Implemented as (b) for A32-2 only ("v0e_A_retry.sh A32 2"); AR and A32 attempt 1 keep the release library. If the
+  owner picks (a) or (c), the driver changes before anything runs. The release-library hang itself stays open
+  (reported upstream as #30309; a comment with this occurrence is offered to the owner separately).
+
+4. Execution (after approval). Entry: cd ~/bench-runs && setsid bash ~/v0/v0e_A_retry.sh A32 2 \
+     > ~/bench-runs/v0/v0d/v0e-A32-2-driver.log 2>&1 < /dev/null &
+  Phase v0e-A32-2, status ~/bench-runs/v0/v0d/v0e-A32-2-status.txt; server as attempt 1 (v0e-plan-A32.txt section 3,
+  -c 32768). Sessions, budgets, evidence chain, memfloor --admit 5120, fail-closed DSP journal, stop and recovery
+  rules: as attempt 1 (v0e-plan-A32.txt sections 5 and 7), with the baseline of section 3 here.
+  QUALIFIED only if S1 and S2 PASS, memory ADMIT in both, the sustained summary VALID and no fault. Reported for the
+  owner, not gated beyond the existing items: S2's pi smoke count, the lowest MemAvailable and L_min of each session
+  (reported separately, D160), any throughput-decline flag, and the compaction item's real token count.
+  Estimated NPU time if everything passes: about 3.5-5 h.
+
+5. Monitoring and launch checks (saved at launch to runs/v0e-A32-2/launch-checks.txt): no llama-server; watchdog and
+  sampler running; health check pass without drift; measurement checkout 7badb21 clean; the ~/v0 AND ~/v0/monitor
+  copies identical to the reviewed revision's tools/ (D159 gap 4); the A32 admission still latest and passing; disk
+  >= 10 GB free. After the run: publish_monitor.py, then check that no older committed monitor file changed and that
+  no unredacted identifier is present; audits recomputed from the committed export.
+
+6. Tests (offline, mocked): test_v0e_compact.sh 10/10 (new: pass with the frozen bodies and recorded sizes; no
+  compaction; a failed turn; real count too low, too high, at each bound; no count; changed and missing licence text);
+  test_v0e_window.py 12/12 (all-good also checks the budgets 4096, 4096, 512, 512); test_v0e_A_retry.sh: SET=AR 34/34,
+  SET=A32 35/35, SET=A32 ATT=2 35/35 (every policy case, the baseline command per attempt, the library check before the first
+  baseline in attempt 2, and the S1 failure line naming the set).
