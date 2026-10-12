@@ -6,7 +6,10 @@
 # D157: SET=A32 runs the same cases against "v0e_A_retry.sh A32" (its own admission status and phase), plus the A32
 # command/cap checks; SET=AR (default) as before plus AR's command/cap check.
 pgrep -x llama-server > /dev/null && { echo "a llama-server is running; not testing"; exit 9; }
-SET=${SET:-AR}; case $SET in AR) NAME=A-retry;; A32) NAME=A32;; *) echo "SET must be AR or A32"; exit 9;; esac
+# D161: SET=A32 ATT=2 runs them against "v0e_A_retry.sh A32 2" (phase v0e-A32-2, A32's admission; baseline probes on
+# the patched library, whose identity is checked before every baseline), plus the baseline command check.
+SET=${SET:-AR}; ATT=${ATT:-1}; case $SET/$ATT in AR/1) NAME=A-retry;; A32/1) NAME=A32;; A32/2) NAME=A32-2;; *) echo "SET/ATT must be AR/1, A32/1 or A32/2"; exit 9;; esac
+ARGS="$SET"; [ $ATT = 2 ] && ARGS="$SET 2"
 fails=0
 # fake run_route (baseline probes) and run_v0e (sessions); behaviour per label from $T/mode-<S1|S2|probe>:
 #   pass (S2 also writes a VALID sustained summary) | nosummary | fail (S1 items failed, clean, rc 1) | hang (watchdog
@@ -28,7 +31,10 @@ case $m in
   fail-timeout) printf "$S$R$U${E}t RESULT FAIL: workload=1\n" > $o/run.txt; echo "t x: rc=1" > $o/items.txt; exit 124;;
   fail-killed) printf "$S$R$U${E}t RESULT FAIL: workload=1\n" > $o/run.txt; echo "t x: rc=1" > $o/items.txt; exit 137;;
   fail-health) echo "fail: missing kernel read" > $o/health-verdict.txt; printf "$S$R$U${E}t RESULT FAIL: workload=1\n" > $o/run.txt; exit 1;;
-  hang) echo "NPU-WATCHDOG" >> $WD_LOG; printf "$S$R${E}t RESULT FAIL: workload=5\n" > $o/run.txt; exit 1;;
+  hang|hang-farf) echo "NPU-WATCHDOG" >> $WD_LOG; printf "$S$R${E}t RESULT FAIL: workload=5\n" > $o/run.txt
+    [ $m = hang-farf ] && echo 0x0 > $T/farf/llama-server.farf; exit 1;;
+  loadfail-farf) printf "${S}t SERVER EXITED before ready\n${E}t RESULT FAIL: speed=4\n" > $o/run.txt  # a baseline (run_route) load failure
+    echo "ggml-hex: HTP0:2 buffer mapping failed" > $o/server.log; echo 0x0 > $T/farf/llama-server.farf; exit 1;;
   evidence) printf "$S$R$U${E}t RESULT FAIL: health=(fail: x)\n" > $o/run.txt; exit 1;;
   loadfail|loadfail-timeout|loadfail-killed) printf "${S}t SERVER EXITED before ready\n${E}t RESULT FAIL: load=4\n" > $o/run.txt
     echo "ggml-hex: HTP0:2 buffer mapping failed" > $o/server.log
@@ -58,7 +64,7 @@ case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
   # fake journalctl: records its arguments; ok | fail (rc 1) | empty | nocdsp (no DSP lines)
   printf '#!/bin/bash\necho "$*" >> $T/jargs\nm=$(cat $T/jmode); [ "$m" = fail-first ] && { [ -f $T/jfirst ] && m=ok || { : > $T/jfirst; m=fail; }; }\ncase $m in ok) cat $T/journal-ok.txt;; fail) echo "journal error" >&2; exit 1;; empty) :;; nocdsp) grep -v CDSP0 $T/journal-ok.txt;; esac\n' > $T/jc.sh; chmod +x $T/jc.sh
   env RUN_ROUTE=$T/run.sh RUN_V0E=$T/run.sh MEMFLOOR=$T/mem.py KAUDIT=$T/ka.sh PROBE_WAIT=0 SESS_PAUSE=0 CHECK_PROC=true \
-      HTPR=$T/htpr FARF=$T/farf RETRY_SHA=$rs JOURNAL=$T/jc.sh GATE=$T/gate.sh bash ~/v0/v0e_A_retry.sh $SET > $T/out.txt 2>&1; local rc=$?
+      HTPR=$T/htpr FARF=$T/farf RETRY_SHA=$rs JOURNAL=$T/jc.sh GATE=$T/gate.sh bash ~/v0/v0e_A_retry.sh $ARGS > $T/out.txt 2>&1; local rc=$?
   local seq=$(paste -sd' ' $T/calls 2>/dev/null) st=$BR/v0/v0d/v0e-$NAME-status.txt
   if [ $rc = $want_rc ] && [ "$seq" = "$want_seq" ]; then echo "ok   $name (rc $rc: $seq)"
   else echo "FAIL $name (rc $rc want $want_rc; seq '$seq' want '$want_seq')"; sed 's/^/     /' $T/out.txt | tail -8; fails=$((fails+1)); fi
@@ -73,8 +79,18 @@ case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
         A32) w="--cache-ram 5120 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 32 --ctx-checkpoints 0"; cap=5120;; esac
       [[ "$c" == *"ADSP_LIBRARY_PATH=$T/farf;$T/htpr;"*" -c 32768 $w"* ]] && [ "$(sort -u $T/caps)" = $cap ] && [ "$(wc -l < $T/caps)" = 2 ] \
         || { echo "FAIL $name: $SET session command or memfloor cap ($(sort -u $T/caps | paste -sd,)): $c"; fails=$((fails+1)); }
-      chk "V0e $NAME: QUALIFIED at window 32768" $st;;
+      chk "V0e $NAME: QUALIFIED at window 32768" $st
+      # D161: the baseline probe command: release library (attempt 1, AR), patched library (A32 attempt 2); otherwise
+      # the unchanged health check
+      b=$(grep -m1 '^probe ' $T/cmds); case $ATT in 1) lib="ADSP_LIBRARY_PATH=$HOME/v0/hexpkg/pkg-linux/lib ";; 2) lib="ADSP_LIBRARY_PATH=$T/farf;$T/htpr;$HOME/v0/hexpkg/pkg-linux/lib ";; esac
+      [[ "$b" == *"$lib"*"-c 40960 --cache-ram 8192 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0"* ]] \
+        && [ "$(grep -c '^probe ' $T/cmds)" = "$(grep -c "^probe .*$lib" $T/cmds)" ] || { echo "FAIL $name: baseline command: $b"; fails=$((fails+1)); }
+      chk "attempt $ATT," $st;;
     journal-fail-hang-stands) chk "NOT QUALIFIED (fault HANG" $st;;
+    s1-fail-names-the-set) chk "clean session): $NAME not qualified; S2 runs for evidence" $st;;
+    id-change-after-baseline-loadfail-stops) chk "STOP: before baseline probe-" $st;;
+    id-change-in-recovery-keeps-fault) chk "FAULT HANG in v0e-$NAME-S1" $st; chk "NOT QUALIFIED (faults recorded: 1" $st; chk "library identity lost before probe-" $st;;
+    hang-and-library-changed-keeps-fault) chk "STOP: the patched library or the .farf file changed during v0e-$NAME-S1" $st; chk "FAULT HANG in v0e-$NAME-S1" $st; chk "NOT QUALIFIED (fault HANG in v0e-$NAME-S1; library identity lost)" $st;;
   esac
   rm -rf $T; }
 # D118 policy cases (unchanged expectations)
@@ -92,8 +108,10 @@ case1 loadfail-then-recovery-hang 3 "probe S1 probe probe" mode-S1=loadfail mode
 case1 a-s1-memreject 3 "probe S1" mem=reject
 case1 s2-no-summary 2 "probe S1 probe S2" mode-S2=nosummary
 # D136: library identity; retries counted, not faults
-case1 wrong-library-stops 2 "probe" RETRY_SHA=0000
-case1 farf-changed-stops 2 "probe" farf=0x0
+# D161: attempt 2 checks the library before the first baseline (no probe runs); attempt 1 after it
+LP="probe"; [ $ATT = 2 ] && LP=""
+case1 wrong-library-stops 2 "$LP" RETRY_SHA=0000
+case1 farf-changed-stops 2 "$LP" farf=0x0
 case1 retry-logged 0 "probe S1 probe S2" "jextra=2026-10-11T10:05:00+02:00 x: adsprpc CDSP0: dspqueue_peek failed: 0x0000002f (1 in a row), retrying"
 case1 retry-repeated 0 "probe S1 probe S2" "jextra=2026-10-11T10:05:00+02:00 x: adsprpc CDSP0: dspqueue_peek failed: 0x0000002f (3 in a row), retrying"
 # D137 (Codex review of 6f203ab): admission precondition; abnormal runner exits and failed health are not recoverable;
@@ -118,4 +136,14 @@ case1 pass-without-ready-line-journal-fail-stops 2 "probe S1" mode-S1=pass-norea
 case1 loadfail-journal-fail-recovers 0 "probe S1 probe probe S1 probe S2" mode-S1=loadfail,pass jmode=fail-first
 # D157: an admission of the other set does not count
 if [ $SET = A32 ]; then case1 a32-with-only-an-ar-admission-stops 6 "" other-set-admission; fi
+# D161: the S1 item-failure line names the set
+case1 s1-fail-names-the-set 1 "probe S1 probe S2" mode-S1=fail
+# D162 (Codex review of 609552a): attempt 2 checks the identity immediately before EVERY baseline load (retries and
+# recovery included); a fault already recorded stays recorded and the outcome NOT QUALIFIED. Any set: a session hang
+# followed by a library change records the fault before stopping.
+if [ $ATT = 2 ]; then
+  case1 id-change-after-baseline-loadfail-stops 2 "probe" mode-probe=loadfail-farf
+  case1 id-change-in-recovery-keeps-fault 3 "probe S1 probe" mode-S1=hang mode-probe=pass,loadfail-farf
+fi
+case1 hang-and-library-changed-keeps-fault 3 "probe S1" mode-S1=hang-farf
 echo "failures: $fails"; exit $fails

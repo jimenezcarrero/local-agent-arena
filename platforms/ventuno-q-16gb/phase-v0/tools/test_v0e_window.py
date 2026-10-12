@@ -13,12 +13,12 @@ class Fake:
     """prompt tokens ~ characters / 3.2; cache_n = previous prompt when the first message is unchanged (same nonce)"""
 
     def __init__(self, **bad):
-        self.bad, self.n, self.last = bad, 0, {}
+        self.bad, self.n, self.last, self.maxt = bad, 0, {}, []
 
     def __call__(self, path, body, timeout=0):
         if path == "/tokenize":
             return 200, {"tokens": [0] * int(len(body["content"]) / 3.2)}, 0.0
-        self.n += 1; n = self.n; msgs = body["messages"]
+        self.n += 1; n = self.n; msgs = body["messages"]; self.maxt.append(body.get("max_tokens"))
         p = int(sum(len(m.get("content") or "") for m in msgs) / 3.2) + 40 * len(msgs)
         key = msgs[0]["content"][:60]; cn = self.last.get(key, 0) if self.last.get(key, 0) <= p else 0
         self.last = {key: p}
@@ -53,7 +53,7 @@ def run(**bad):
         rc = vw.main(["v0e_window.py", "cache", out, "/nonexistent", "32768", "local32k"])
         has_tx = os.path.exists(os.path.join(out, "cache-transcript.json"))
         tx = open(os.path.join(out, "cache-transcript.json")).read() if has_tx else ""
-    return rc, buf.getvalue(), tx
+    return rc, buf.getvalue(), tx, vw.post.maxt
 
 
 fails = 0
@@ -65,11 +65,12 @@ cases = [("all-good", {}, 0), ("fresh cache_n missing", {"drop_cache_n_at": 4}, 
          ("turn 3 low reuse", {"low_reuse_at": 3}, 1), ("no tool call at turn 2", {"no_call_at": 2}, 1),
          ("tool call without id", {"no_id_at": 1}, 1), ("fresh http 500", {"http_at": 4}, 1)]
 for name, bad, want in cases:
-    rc, text, tx = run(**bad)
+    rc, text, tx, maxt = run(**bad)
     ok = rc == want
     if name == "all-good":  # the transcript holds real call/result pairs with matching ids
         ok = ok and len(re.findall(r'"role": "tool"', tx)) == 2 and '"tool_call_id": "call1"' in tx \
-             and '"tool_call_id": "call2"' in tx and "turn 3 reuse after a tool result" in text
+             and '"tool_call_id": "call2"' in tx and "turn 3 reuse after a tool result" in text \
+             and maxt == [4096, 4096, 512, 512]  # D161: tool-call turns 4096, reuse-only requests 512
     print(f"{'ok  ' if ok else 'FAIL'} {name} (rc {rc}, want {want})")
     if not ok:
         fails += 1; print(text)

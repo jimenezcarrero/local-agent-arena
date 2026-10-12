@@ -1,0 +1,53 @@
+NOT FILED. Prepared 2026-10-12 for the owner (D161); filing is the owner's decision. Evidence: D145-D156,
+runs/v0q-op, runs/v0p-pi. Claims scoped as in D156 (Codex review of 8265a10).
+
+Title: Hexagon: logits wrong for multi-token ubatches when the output layer is offloaded (-ngl 33 vs 32 on a
+qwen35 hybrid 4B, Q4_0); the output layer's ops pass test-backend-ops alone
+
+Name and version
+  build 11381 (836d57176), release package (arm64-linux, Snapdragon toolchain), htp-v75. The DSP library in these runs
+  was the release libggml-htp-v75.so rebuilt with one change, a retry on dspqueue_peek errors in htp_main_thread (the
+  #30309 workaround; it touches only that error path). Not yet repeated with the unmodified library.
+
+Hardware / OS
+  Arduino VENTUNO Q (Qualcomm QCS8275, Hexagon v75, one NPU), Ubuntu 24.04, kernel 6.8.0-1084-qcom.
+
+Model
+  NeoHorse-1-4B, arch qwen35 (hybrid: gated delta net + attention, 32 blocks, head size 128, scalar gate), vocabulary
+  248,320, file type Q4_0 made with --pure: 249 Q4_0 tensors and 177 F32 tensors (norms and other small tensors),
+  per the loader log.
+
+Problem
+  With the whole model offloaded (two sessions, GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1, --device HTP0:0,HTP0:1 -ngl 99),
+  prompt processing gives logits far from the CPU's. Measured with llama-perplexity --kl-divergence against CPU logits
+  (--device none) on a 6,294-token text, -c 1024 -b 1024 -ub 512, 6 chunks:
+    full offload / -ngl 33:  mean KLD 0.8169 +/- 0.0224, same top token 66.0 %, PPL 2.30 (CPU 14.36)
+    -ngl 32 (output norm and output projection on the CPU, all 32 blocks on the NPU): KLD 0.0024, 97.9 %, PPL 14.43
+    -ngl 16: KLD 0.00028, 99.1 %, PPL 14.35
+  The error depends on the ubatch size at full offload: -ub 1 KLD 0.018, -ub 64 0.18, -ub 512 0.82. It is
+  deterministic (a repeat matched to every digit) and the same with op fusion off (GGML_HEXAGON_OPFUSION=0) and with
+  each HMX kernel switched to HVX in turn (GGML_HEXAGON_MM_SELECT=1 0.810, FA_SELECT=1 0.818, GDN_SELECT=1 0.817).
+  At -ngl 16, one session and two sessions gave identical results. At full offload a one-session load failed to map
+  (twice), so one session could not be compared there; that load failure happened while our disk was filling and is
+  not independently confirmed. A session effect at full offload is not excluded.
+  A perplexity 6x below the reference fits logits of a position carrying information from later tokens, but we have
+  not shown that (a same-prefix, different-continuation comparison would test it).
+
+Effect on generation
+  llama-server, pi coding agent's first request (1,644-token prompt with tool definitions), replayed 20 times: a tool
+  call in the first reply 3/20 with the output layer on the NPU, 20/20 with -ngl 32 (Fisher p = 2.6e-8); with the
+  CPU backend and the same file 20/20. The agent's smoke test: 2/10 vs 10/10.
+
+What passes alone
+  test-backend-ops -b HTP0:0 on the 87 op/shape pairs exported from this model's prompt and decode graphs
+  (test-export-graph-ops, -ub 512): 86 OK; the one failure is GATED_DELTA_NET (separate report), which is not the
+  cause (GDN_SELECT=1 does not change the KLD). The output projection shape (248,320 x 512, Q4_0) passes alone.
+
+Repro (paths shortened)
+  CPU base:  llama-perplexity -m NeoHorse-1-4B-q4_0-pure.gguf -f text.txt -c 1024 -b 1024 -ub 512 --device none -ngl 0
+             --kl-divergence-base cpu.kld
+  NPU:       GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 llama-perplexity <same> --device HTP0:0,HTP0:1 -ngl 33
+             --kl-divergence-base cpu.kld --kl-divergence      (and -ngl 32 for comparison)
+
+Workaround
+  -ngl 32 (the output layer stays on the CPU); prompt speed on this board about 26 % lower at 16K.
