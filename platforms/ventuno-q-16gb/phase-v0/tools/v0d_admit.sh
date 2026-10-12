@@ -8,11 +8,13 @@
 #   AR  A with the patched DSP library (D137): ~/v0/htp-retry first on ADSP_LIBRARY_PATH after the DSP logging file
 #       (~/v0/farf); htp_retry_check.sh runs before every step's probe and load and after the set (a mismatch stops);
 #       if admitted, admit_gate.py applies the frozen 16K gate to that attempt's r1-r3 ("GATE AR: PASS" or exit 3)
+#   A32 AR with the output layer on the CPU (-ngl 32, D155: the NPU output-layer path breaks pi's tool calls) and
+#       --cache-ram 5120 (D157: AR's 7942 left MemAvailable at 1.06 GiB in V0e, D139); same library checks and gate
 # Overridable for tests (tools/test_admit_entry.sh): BR, CHECK_PROC, HELPER_CHECK, PRE_CMD, HTPR_CHECK, GATE, plus the
 # runner's RUN_ROUTE etc.
 set -uo pipefail
 source ~/v0/v0d_lib.sh
-S=$1; case $S in A|AM|H|H2|AR) ;; *) echo "unknown set $S" >&2; exit 9;; esac
+S=$1; case $S in A|AM|H|H2|AR|A32) ;; *) echo "unknown set $S" >&2; exit 9;; esac
 BR=${BR:-$HOME/bench-runs}; CHECK_PROC=${CHECK_PROC:-pgrep -f}
 HELPER_CHECK=${HELPER_CHECK:-sudo -n -l /usr/local/sbin/v0-cdsp-restart}; PRE_CMD=${PRE_CMD:-/bin/bash $HOME/v0/cdsp_pre.sh}
 HTPR_CHECK=${HTPR_CHECK:-/bin/bash $HOME/v0/htp_retry_check.sh}; GATE=${GATE:-python3 $HOME/v0/admit_gate.py}
@@ -26,6 +28,8 @@ A="$E GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server -m $M/NeoHorse-1-4B
 AM="$E GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1,HTP0:2 $P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 40960 --cache-ram 4188 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0 -md $DR/Qwen3.5-4B-Q4_0.gguf --spec-type draft-mtp --spec-draft-n-max 1 --device-draft HTP0:2 --spec-draft-ngl all -otd blk\.([0-9]|[12][0-9]|3[01])\.=CPU --no-repack"
 # AR = A with only ADSP_LIBRARY_PATH changed (the .farf directory, then the patched library, then the package)
 AR="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$HOME/v0/farf;$HOME/v0/htp-retry;$P/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 40960 --cache-ram 7942 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0"
+# A32 = AR with -ngl 32 instead of 99 and --cache-ram 5120 instead of 7942 (D157), nothing else changed
+A32="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$HOME/v0/farf;$HOME/v0/htp-retry;$P/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 40960 --cache-ram 5120 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 32 --ctx-checkpoints 0"
 H="$E GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1,HTP0:2 GGML_HEXAGON_MBUF=256 $P/bin/llama-server -m $M/Ornith-1.0-9B-q4_0-pure.gguf -c 40960 --cache-ram 5364 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1,HTP0:2 --ctx-checkpoints 0 -ngl 33 --no-op-offload -t 4 --no-host"
 # fail-closed preconditions: HANG detection needs the stall watchdog, kernel/health evidence needs the sampler
 $CHECK_PROC '^/bin/bash /home/arduino/v0/npu_stall_watchdog.sh' > /dev/null || { say "STOP: NPU stall watchdog not running"; exit 6; }
@@ -34,7 +38,7 @@ $CHECK_PROC '^/bin/bash /home/arduino/v0/monitor/health_sampler.sh' > /dev/null 
 # probe: the first step is restart + settle -> baseline probe -> warm-up. Each admission step's probe/load pair follows
 # a restart; recovery probes (after a fault or load failure) do not restart.
 [ $S = H2 ] && { $HELPER_CHECK > /dev/null 2>&1 || { say "STOP: cDSP restart helper not installed (D92)"; exit 6; }; }
-[ $S = AR ] && { c=$($HTPR_CHECK 2>&1) || { say "STOP: $c"; exit 6; }; say "AR library: $c"; }
+case $S in AR|A32) c=$($HTPR_CHECK 2>&1) || { say "STOP: $c"; exit 6; }; say "$S library: $c";; esac
 say "admission $S start (pid $$)"; [ $S = H2 ] || ready now
 case $S in
   A)  admit_set A 7942 none $A;;
@@ -42,12 +46,14 @@ case $S in
   H)  admit_set H 5364 probe $H;;
   H2) PRE_LOAD="$PRE_CMD" admit_set H2 5364 probe $H;;
   AR) PRE_LOAD="$HTPR_CHECK" admit_set AR 7942 none $AR;;
+  A32) PRE_LOAD="$HTPR_CHECK" admit_set A32 5120 none $A32;;
 esac; rc=$?
-# AR (D137): the library must still be the declared one after the set, and an admitted set must pass the 16K gate
-if [ $S = AR ] && [ $rc = 0 ]; then
+# AR (D137), A32 (D157): the library must still be the declared one after the set, and an admitted set must pass the
+# 16K gate
+if { [ $S = AR ] || [ $S = A32 ]; } && [ $rc = 0 ]; then
   c=$($HTPR_CHECK 2>&1) || { say "STOP: after the set: $c"; exit 2; }
-  att=$(grep -oE 'SET AR: ADMITTED in attempt [12]' $ST | tail -1 | grep -oE '[12]$')
-  g=$($GATE $O AR "${att:-0}" 2>&1); grc=$?; say "$g"
+  att=$(grep -oE "SET $S: ADMITTED in attempt [12]" $ST | tail -1 | grep -oE '[12]$')
+  g=$($GATE $O $S "${att:-0}" 2>&1); grc=$?; say "$g"
   case $grc in 0) ;; 3) rc=3;; *) say "STOP: 16K gate evidence missing"; rc=2;; esac
 fi
 say "admission $S done rc=$rc (faults $(nfaults))"; exit $rc

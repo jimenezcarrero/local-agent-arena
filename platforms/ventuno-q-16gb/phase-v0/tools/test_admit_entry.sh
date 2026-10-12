@@ -8,12 +8,12 @@ case1() { local name=$1 set=$2 want_rc=$3 want_first=$4; shift 4
   T=$(mktemp -d); export T BR=$T/br WD_LOG=$T/wd.txt; echo x > $WD_LOG; mkdir -p $BR
   # fake runner: PASS with a 16384 probe RESULT line; LOADFAIL_LAB=<label> makes that label's first run a clean load
   # failure (D138: the admitted step is then read from <label>-retry)
-  printf '#!/bin/bash\nlab=$1; o=$BR/v0/$2/$lab; [ -n "${PHASE:-}" ] && o=$BR/v0/$PHASE/$lab; mkdir -p $o; echo "$lab" >> $T/calls\necho pass > $o/health-verdict.txt; : > $o/server.log\nif [ "$lab" = "${LOADFAIL_LAB:-}" ]; then printf "t SERVER EXITED before ready\\nt RESULT FAIL: speed=4\\n" > $o/run.txt; echo "ggml-hex: HTP0:1 buffer mapping failed" > $o/server.log; exit 1; fi\necho "t RESULT PASS (speed, health: pass, kernel evidence)" > $o/run.txt; echo "RESULT $lab: depth=16384 prompt_tokens=18000 ttft=1s prefill_tps=300.0 gen_tokens=128 decode_tps=8.00 method=usage" > $o/probe.txt; exit 0\n' > $T/run.sh
-  printf '#!/bin/bash\nv="pass|0"; echo "${v%%|*}"; exit 0\n' > $T/ka.sh; printf 'import sys\nsys.exit(0)\n' > $T/mem.py
+  printf '#!/bin/bash\nlab=$1; o=$BR/v0/$2/$lab; [ -n "${PHASE:-}" ] && o=$BR/v0/$PHASE/$lab; mkdir -p $o; echo "$lab" >> $T/calls; echo "$lab $*" >> $T/cmds\necho pass > $o/health-verdict.txt; : > $o/server.log\nif [ "$lab" = "${LOADFAIL_LAB:-}" ]; then printf "t SERVER EXITED before ready\\nt RESULT FAIL: speed=4\\n" > $o/run.txt; echo "ggml-hex: HTP0:1 buffer mapping failed" > $o/server.log; exit 1; fi\necho "t RESULT PASS (speed, health: pass, kernel evidence)" > $o/run.txt; echo "RESULT $lab: depth=16384 prompt_tokens=18000 ttft=1s prefill_tps=300.0 gen_tokens=128 decode_tps=8.00 method=usage" > $o/probe.txt; exit 0\n' > $T/run.sh
+  printf '#!/bin/bash\nv="pass|0"; echo "${v%%|*}"; exit 0\n' > $T/ka.sh; printf 'import os, sys\nopen(os.environ["T"] + "/caps", "a").write(sys.argv[2] + "\\n")\nsys.exit(0)\n' > $T/mem.py
   printf '#!/bin/bash\necho PRELOAD >> $T/calls; echo OK restart\n' > $T/pre.sh; chmod +x $T/run.sh $T/ka.sh $T/pre.sh
   # AR (D137): fake library check (ok, fail, or fail from its Nth call: lib-fail-at) and fake 16K gate (exit from gate-rc)
   printf '#!/bin/bash\nn=$(( $(cat $T/hc 2>/dev/null || echo 0) + 1 )); echo $n > $T/hc\nif [ -n "${LIBFAIL_AT:-}" ] && [ $n -ge $LIBFAIL_AT ]; then echo "FAILED htp-retry sha256"; exit 1; fi\necho "OK htp-retry sha256"\n' > $T/hcheck.sh
-  printf '#!/bin/bash\necho "$*" > $T/gate-args; case ${GATE_RC:-0} in 0) echo "GATE AR: PASS median 16K prefill 317.4";; 3) echo "GATE AR: FAIL median 16K prefill 120.0";; *) echo "GATE AR: MISSING";; esac; exit ${GATE_RC:-0}\n' > $T/gate.sh
+  printf '#!/bin/bash\necho "$*" > $T/gate-args; case ${GATE_RC:-0} in 0) echo "GATE $2: PASS median 16K prefill 317.4";; 3) echo "GATE $2: FAIL median 16K prefill 120.0";; *) echo "GATE $2: MISSING";; esac; exit ${GATE_RC:-0}\n' > $T/gate.sh
   chmod +x $T/hcheck.sh $T/gate.sh
   env RUN_ROUTE=$T/run.sh RUN_V0C=$T/run.sh MEMFLOOR=$T/mem.py KAUDIT=$T/ka.sh PROBE_WAIT=0 SET_PAUSE=0 CHECK_PROC=true \
       PRE_CMD=$T/pre.sh HTPR_CHECK=$T/hcheck.sh GATE=$T/gate.sh "$@" bash ~/v0/v0d_admit.sh $set > /dev/null 2>&1; local rc=$?
@@ -24,6 +24,12 @@ case1() { local name=$1 set=$2 want_rc=$3 want_first=$4; shift 4
       || { echo "FAIL ar-load-retry-real-gate: gate did not read AR-s1-r2-retry"; fails=$((fails+1)); };; esac
   case $name in ar-pass) grep -q "GATE AR: PASS" $BR/v0/v0d/v0d-admit-AR-status.txt && [ "$(cat $T/gate-args)" = "$BR/v0/v0d-admit-AR AR 1" ] \
       && [ "$(cat $T/hc)" = 7 ] || { echo "FAIL ar-pass: gate line, gate arguments or 7 library checks (start, 5 steps, after)"; fails=$((fails+1)); };; esac
+  # D157: A32 = AR's command with -ngl 32 and --cache-ram 5120, memfloor at 5120, its own gate and status
+  case $name in a32-pass) s=$BR/v0/v0d/v0d-admit-A32-status.txt; c=$(grep '^A32-s1-r1 ' $T/cmds)
+      grep -q "GATE A32: PASS" $s && [ "$(cat $T/gate-args)" = "$BR/v0/v0d-admit-A32 A32 1" ] && [ "$(cat $T/hc)" = 7 ] \
+      && [[ "$c" == *"ADSP_LIBRARY_PATH=$HOME/v0/farf;$HOME/v0/htp-retry;"*" -c 40960 --cache-ram 5120 "*" --device HTP0:0,HTP0:1 -ngl 32 --ctx-checkpoints 0"* ]] \
+      && [[ "$c" != *"-ngl 99"* ]] && [ "$(sort -u $T/caps)" = 5120 ] && [ "$(wc -l < $T/caps)" = 5 ] \
+      || { echo "FAIL a32-pass: gate line/arguments, 7 library checks, the A32 command or memfloor at 5120"; echo "     $c"; fails=$((fails+1)); };; esac
   rm -rf $T; }
 case1 h2-helper-missing H2 6 none HELPER_CHECK=false
 case1 h2-restart-first H2 0 PRELOAD HELPER_CHECK=true
@@ -37,4 +43,10 @@ case1 ar-gate-fail AR 3 probe GATE_RC=3
 case1 ar-gate-missing AR 2 probe GATE_RC=2
 # D138: integration with the real gate: r2 fails to load once (clean), its retry passes, the gate reads the retry
 case1 ar-load-retry-real-gate AR 0 probe LOADFAIL_LAB=AR-s1-r2 GATE="python3 $HOME/v0/admit_gate.py"
+# D157: A32 (AR + -ngl 32, --cache-ram 5120): same library checks and gate as AR
+case1 a32-pass A32 0 probe HELPER_CHECK=false
+case1 a32-library-wrong A32 6 none LIBFAIL_AT=1
+case1 a32-library-changes-mid-set A32 2 probe LIBFAIL_AT=3
+case1 a32-gate-fail A32 3 probe GATE_RC=3
+case1 a32-load-retry-real-gate A32 0 probe LOADFAIL_LAB=A32-s1-r3 GATE="python3 $HOME/v0/admit_gate.py"
 echo "failures: $fails"; exit $fails

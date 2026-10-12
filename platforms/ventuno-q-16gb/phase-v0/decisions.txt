@@ -2236,3 +2236,25 @@ D156 2026-10-12 Codex review of 8265a10 (D145-D155): four P2 findings and the PR
    Speed: 272/359 tok/s are server prompt timings of one ~1,644-token prompt, not the admission gate (repeated 16K
    fresh-prefix prefill). An -ngl 32 configuration needs its own plan with both speed gates, correctness and memory
    checks, then exact-configuration V0e.
+D157 2026-10-12 Codex follow-up at 739b1d9: ready to merge as a diagnostic checkpoint; #52 merged (097942e). One
+   nonblocking wording correction, applied to #52's description: the default GDN selector fails "the seven tested
+   HMX scalar-gate cases with kda=0, K=1 and >= 64 tokens", not "every case of >= 64 tokens" (t2-gdn.log also has
+   passing >= 64-token kda=1 cases).
+   Owner: "review and merged so you can continue". Next, declared (v0e-plan-A32.txt; nothing runs before the owner
+   approves it after review): configuration A32 = A-retry with -ngl 32 (output layer on the CPU, D155) and
+   --cache-ram 5120 (A-retry's 7942 left MemAvailable at 1.06 GiB in V0e S2, D139; the cut of 2,822 MiB covers the
+   0.45 GiB shortfall, the output layer's CPU buffers and about 1.8 GiB of margin; an estimate, decided by memfloor
+   --admit 5120 and the health verdict). Stage 1: v0d_admit.sh A32 (fresh admission, the frozen 16K gate). Stage 2:
+   v0e_A_retry.sh A32 (the A-retry driver and policy with a set argument; without one it is AR, unchanged).
+   Tools: v0d_admit.sh set A32; v0e_A_retry.sh [AR|A32]. Tests: test_admit_entry.sh 15/15; test_v0e_A_retry.sh
+   SET=AR 33/33 and SET=A32 34/34.
+
+D158 (2026-10-12) Codex review of 4e1be6e (PR #53): ready to merge as a declared plan, no blocking finding; all 82
+   mocked checks pass independently (15/15, 33/33, 34/34). One nonblocking correction, applied: v0e-plan-A32.txt
+   section 2 and the PR description said htp_retry_check.sh runs "before and after every step and session". Admission
+   checks at entry, before each measured step and after the whole set (seven checks on a clean five-step set); V0e
+   before and after each session. Now stated that way (plan section 4 already was). The same wording in the merged
+   v0e-plan-A-retry.txt line 16 describes the same admission code and is read with this correction. Reminders from
+   the review, for the run: publish launch provenance, actual placement and settings, all repeat/prompt/tool evidence
+   and raw monitoring for both stages; keep S2's pi smoke count and any throughput-decline flag visible (reported,
+   not gated). A32 is still unmeasured; GO stays the owner's.
