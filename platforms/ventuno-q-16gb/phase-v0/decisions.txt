@@ -2273,7 +2273,8 @@ D159 (2026-10-12) A32 run (owner: "merged you can start A32 plan", after #53's m
      after-set check (v0d_admit.sh) logs only a failure; the admission ended rc 0 after it, so it passed (logging gap).
    Stage 2 (v0e_A_retry.sh A32): it re-applied the gate to the A32 evidence (PASS) and started. Baseline probe PASS.
      S1 (13:18-13:40, clean: health pass, kernel audit pass, 0 DSP retry events, memory ADMIT, lowest MemAvailable
-     8.53 GiB): streaming probe 10/10 PASS, agentic 3/3 PASS, pi smoke 7/7 PASS (A-retry failed pi), window 4/4 PASS,
+     8.53 GiB [WRONG, D160: 8.53 GiB is memfloor's L_min (MemAvailable + held prompt cache); actual lowest MemAvailable
+     6.92 GiB]): streaming probe 10/10 PASS, agentic 3/3 PASS, pi smoke 7/7 PASS (A-retry failed pi), window 4/4 PASS,
      cache FAIL, compaction FAIL -> S1 FAIL; S2 to run for evidence.
      - Cache (item 3): turn 1 (8,411-token prompt) returned finish_reason "length" after 512 tokens, all reasoning
        content, no tool call. A model result under the item's 512-token limit; recorded as it is.
@@ -2283,7 +2284,9 @@ D159 (2026-10-12) A32 run (owner: "merged you can start A32 plan", after #53's m
        16,384), but prepareCompaction keeps the newest keepRecentTokens = 20,000 by a chars/4 estimate, and the two
        38,000-character file reads estimate at 9,515 and 9,513 (session 19,340), so there is nothing older to
        summarize and auto-compaction returns without an event. The item cannot pass with these files on any model:
-       a test design defect (D112), which also accounts for the 4 earlier compaction FAILs. Not changed mid-run; the
+       a test design defect (D112), which also accounts for the 4 earlier compaction FAILs. [WRONG, D160: this
+       explains this transcript only; the estimate also counts model output, so it depends on the model; the "4
+       earlier FAILs" are one (A-retry S1) shown in 4 files, with a different, unaudited cause.] Not changed mid-run; the
        frozen S1 verdict stands. A corrected item (enough content for pi's estimate to exceed 20,000 before the cut)
        would be a plan change for the owner and review.
      Baseline probe before S2 (probe-134304, 13:43, the unchanged NPU health check: release library, -ngl 99,
@@ -2306,3 +2309,31 @@ D159 (2026-10-12) A32 run (owner: "merged you can start A32 plan", after #53's m
    compare ~/v0/monitor/ too.
    Not shown: S2 (sustained, memory floor at the 5120 cap); whether A32 would pass a corrected compaction item; the
    cause of the release-library hang. Nothing is GO.
+
+D160 (2026-10-12) Codex review of 78d70fb (PR #54): outcome confirmed (A32 admitted, gate PASS; V0e at 32768 NOT
+   QUALIFIED); gate, 8K/32K medians, all ten run windows' kernel audits and memfloor, and the 2,978,227 kB margin
+   reproduced from the committed export. Three reporting findings, all accepted:
+   1. Memory metric. D159's "lowest MemAvailable 8.53 GiB" for S1 is memfloor's L_min (min of MemAvailable + the
+      prompt cache held at that moment). The actual lowest MemAvailable (health.txt, raw samples) is 6.92 GiB. Both
+      pass their checks; the two quantities are now reported separately. Per run, actual min MemAvailable / L_min:
+      warm-up 7.26 GiB / 8,567,137 kB, r1 7.30 / 9,175,531, r2 7.23 / 9,092,209, r3 7.29 / 9,159,723, tools
+      6.16 / 9,038,060, S1 6.92 / 8,949,020; baseline probes 8.47-8.48 GiB. The status-line figures given to the
+      owner during the run ("lowest available 8.17-8.75 GiB") were L_min too.
+   2. Compaction attribution narrowed. The replay explains this transcript only: before the third prompt pi's chars/4
+      estimate is 19,259 (whole session 19,340), below keepRecentTokens 20,000, so prepareCompaction finds no cut.
+      The estimate also counts assistant thinking, text and tool calls, so whether the item can trigger depends on
+      the model's output: with 8,000 thinking characters added to the second turn's last reply (same files and
+      settings) the estimate is 21,259 and prepareCompaction returns a preparation (reproduced:
+      runs/v0e-A32/pi_compaction_synthetic.mjs, pi-compaction-synthetic.txt). Whether a summary would then succeed
+      is untested. D159's "cannot pass with these files on any model" is withdrawn: the item is an unreliable
+      trigger, not a proven impossible one. D159's "4 earlier compaction FAILs" was a counting error: it is one
+      earlier run, A-retry S1 (D139), whose result line appears in 4 files; that run's turns did not return the code
+      words (the tool-call fault), a different and unaudited cause, left unresolved. The frozen compaction FAIL and
+      NOT QUALIFIED stand.
+   3. Execution brief added to the PR description: entry commands, executed revision, server settings and context
+      per stage, stop and recovery rules, authorization and deviations, with a link to the plan at 882a431.
+   Next, per the review (for the owner; nothing runs without a reviewed, approved amendment): a reliable compaction
+   trigger; the cache item's first-call budget (512 tokens against a reasoning model); a declared baseline-probe
+   policy for the release-library hang (not a silent switch to the patched route). Any new attempt keeps these
+   failed results as their own attempt; full S1 and sustained S2 at the exact configuration and window remain
+   required.
