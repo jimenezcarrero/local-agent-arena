@@ -1,0 +1,53 @@
+arm 01 FLASH_ATTN_EXT|SOFT_MAX env GGML_HEXAGON_OPFILTER=FLASH_ATTN_EXT|SOFT_MAX (reload)
+0.00.896.867 W common_get_device_memory_data_impl: device HTP0:0 did not report memory; --fit will not use it
+0.00.896.882 W common_get_device_memory_data_impl: device HTP0:1 did not report memory; --fit will not use it
+0.01.042.741 W common_fit_params: failed to fit params to free device memory: n_gpu_layers already set by user to 99, abort
+0.04.266.368 W resolve_fused_ops: layer 3 is assigned to device HTP0:0 but Flash Attention is assigned to device CPU (usually due to missing support)
+0.04.266.382 W resolve_fused_ops: Flash Attention not supported, set to disabled
+0.04.461.213 I cmn          init: llama threadpool init, n_threads = 8
+0.04.639.897 E ggml-hex: HTP0:1 buffer mapping failed : domain_id 11 size 508563456 fd 38 error 0x00000001
+[New LWP 2665407]
+[New LWP 2665406]
+[New LWP 2665405]
+[New LWP 2665404]
+[New LWP 2665403]
+[New LWP 2665402]
+[New LWP 2665401]
+[New LWP 2665397]
+[New LWP 2665396]
+[New LWP 2665392]
+[New LWP 2665391]
+[New LWP 2665387]
+[New LWP 2665386]
+[New LWP 2665383]
+[New LWP 2665382]
+[New LWP 2665379]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/aarch64-linux-gnu/libthread_db.so.1".
+0x0000ffff963f7a34 in __GI___wait4 (pid=2665408, stat_loc=0x0, options=0, usage=0x0) at ../sysdeps/unix/sysv/linux/wait4.c:30
+warning: 30	../sysdeps/unix/sysv/linux/wait4.c: No such file or directory
+#0  0x0000ffff963f7a34 in __GI___wait4 (pid=2665408, stat_loc=0x0, options=0, usage=0x0) at ../sysdeps/unix/sysv/linux/wait4.c:30
+30	in ../sysdeps/unix/sysv/linux/wait4.c
+#1  0x0000ffff96870250 in ggml_print_backtrace () from /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-base.so.0
+#2  0x0000ffff96886158 in ggml_uncaught_exception() () from /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-base.so.0
+#3  0x0000ffff9667a570 in ?? () from /lib/aarch64-linux-gnu/libstdc++.so.6
+#4  0x0000ffff96670e04 in std::terminate() () from /lib/aarch64-linux-gnu/libstdc++.so.6
+#5  0x0000ffff9667a908 in __cxa_throw () from /lib/aarch64-linux-gnu/libstdc++.so.6
+#6  0x0000ffff9694df38 in ggml_hexagon_shared_buffer::mmap(bool) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-hexagon.so.0
+#7  0x0000ffff96961ff8 in ggml_hexagon_session::enqueue_op(htp_opnode const&) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-hexagon.so.0
+#8  0x0000ffff9697155c in ggml_backend_hexagon_graph_compute(ggml_backend*, ggml_cgraph*) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-hexagon.so.0
+#9  0x0000ffff96891ca4 in ggml_backend_sched_graph_compute_async () from /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-base.so.0
+#10 0x0000ffff96d1718c in llama_context::graph_compute(ggml_cgraph*, bool) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama.so.0
+#11 0x0000ffff96d16fb4 in llama_context::process_ubatch(llama_ubatch const&, llm_graph_type, llama_memory_context_i*, ggml_status&) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama.so.0
+#12 0x0000ffff96d18788 in llama_context::decode(llama_batch_ext const&) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama.so.0
+#13 0x0000ffff970b07a4 in common_init_from_params(common_params&, bool) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-common.so.0
+#14 0x0000ffff973241dc in llama_perplexity(int, char**) () from /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-perplexity-impl.so
+#15 0x0000ffff963484c4 in __libc_start_call_main (main=main@entry=0xaaaacbef0868 <main>, argc=argc@entry=18, argv=argv@entry=0xffffd851f708) at ../sysdeps/nptl/libc_start_call_main.h:58
+warning: 58	../sysdeps/nptl/libc_start_call_main.h: No such file or directory
+#16 0x0000ffff96348598 in __libc_start_main_impl (main=0xaaaacbef0868 <main>, argc=18, argv=0xffffd851f708, init=<optimized out>, fini=<optimized out>, rtld_fini=<optimized out>, stack_end=<optimized out>) at ../csu/libc-start.c:360
+warning: 360	../csu/libc-start.c: No such file or directory
+#17 0x0000aaaacbef0770 in _start ()
+[Inferior 1 (process 2665377) detached]
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  ggml-hex: fastrpc_mmap failed (see log for details)
+timeout: the monitored command dumped core

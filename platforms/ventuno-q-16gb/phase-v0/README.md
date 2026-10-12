@@ -3,7 +3,7 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D140).
+[`decisions.txt`](decisions.txt) (D1–D156).
 
 **Status (2026-10-11 15:30): the NPU hang is diagnosed (D127: htp_main_thread exits on a dspqueue_peek AEE_ENOMORE)
 and mitigated by a retry patch to the DSP library (D131-D133; upstream ggml-org/llama.cpp#30309). With that library,
@@ -12,7 +12,11 @@ NPU hang in about 3 h of NPU use (13 AEE_ENOMORE events, each retried once), but
 the model (S1 pi smoke 1/7 checks; S2 56 cycles: 5 pass, 46 no tool call, 1 wrong order, 4 pi timeouts during long
 generations; the direct streaming tool gates pass 10/10 and 3/3), and after S2's workload completed, its health verdict
 stopped the driver: MemAvailable 1.06 GiB < 1.5 GiB with the prompt cache near its 7,942 MiB cap (D139-D140).
-Earlier: H2 NOT QUALIFIED (D112-D117, loads), A NOT QUALIFIED on the release library (D118-D120, hang). Nothing is GO.**
+pi diagnostic (D144): pi's first request replayed 20 times per step gets a tool call in 3/20 on the NPU (2/20 with
+the card's sampling) but 20/20 on the CPU with the same Q4_0 file (and 20/20 with Q4_K_M); same template and sampling:
+a lead that the Hexagon backend's numerics are behind the pi failures. Located (D145-D155): the output layer on
+the NPU (multi-token ubatches; mechanism not identified, corrections D156); with -ngl 32 (output layer on the CPU) pi's request gets a tool call 20/20 and pi
+smoke passes 10/10 (D6), at 272 vs 359 tok/s prompt. Not yet a configuration: it needs admission and V0e. Earlier: H2 NOT QUALIFIED (D112-D117, loads), A NOT QUALIFIED on the release library (D118-D120, hang). Nothing is GO.**
 
 | Set (D85) | 16K median prefill/decode | 8K / 32K median decode | Tools | Memory (lowest margin) | Outcome |
 |---|---|---|---|---|---|
