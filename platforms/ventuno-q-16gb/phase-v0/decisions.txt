@@ -2395,3 +2395,12 @@ D162 (2026-10-12) Codex review of 609552a (PR #54): D160 corrections accepted; a
    exported op/shape pairs pass; the output layer's ops pass alone); "Q4_0 for every tensor" replaced by the loader's
    249 Q4_0 + 177 F32 tensors (llama-quantize --pure Q4_0); the full-offload one-session load failure stated with
    D156's uncertainty (it happened while the disk was filling, not independently confirmed).
+
+D163 (2026-10-12) Owner decision: A32-2 baseline option (b). PR #54 (D158-D162) reviewed and merged as a checkpoint
+   (2e1e8ba). The owner chose plan section 3's option (b): every baseline probe of A32-2 runs the same health-check
+   command on the patched library (~/v0/htp-retry, sha256 aa2ae2a9..., .farf 0x1f), identity checked before every
+   baseline load (D162). This is what v0e_A_retry.sh attempt 2 implements; no code change. Consequence recorded with
+   the choice: A32-2 baseline numbers are taken on the patched library and are not the campaign's release-library
+   reference; a fault in the patched library would show in both the probe and the sessions.
+   Not yet approved: the A32-2 run itself (launch checks, plan section 5, then the owner's go). Upstream texts still
+   NOT FILED. The pre-existing EVIDENCE-recovery exit code (D162) is unchanged.
