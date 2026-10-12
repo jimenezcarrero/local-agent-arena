@@ -1,5 +1,5 @@
 #!/bin/bash
-# v0e_A_retry.sh — V0e qualification of A at window 32768 with the patched DSP library (D136, D137, v0e-plan-A-retry.txt).
+# v0e_A_retry.sh [AR|A32] — V0e qualification of A at window 32768 with the patched DSP library (D136, D137, v0e-plan-A-retry.txt).
 # D137: runs only after the patched runtime's own admission passed its 16K gate (v0d_admit.sh AR); recovery needs a normal
 # runner exit (rc 1) with complete evidence; the DSP journal is fail-closed.
 # v0e_A.sh (D118) unchanged except: the server loads ~/v0/htp-retry/libggml-htp-v75.so (the htp_main_thread retry
@@ -18,37 +18,42 @@
 #   - a clean load failure (D114 rule, declared up front here): recovery, then that session once more; twice -> STOP:
 #     NOT QUALIFIED (load). A fault during that recovery -> NOT QUALIFIED.
 #   - any other non-PASS (missing evidence, memory reject, invalid sustained summary) -> STOP.
+# D157: set A32 (v0e-plan-A32.txt) = the same driver and policy with AW at -ngl 32 (output layer on the CPU, D155)
+# and --cache-ram 5120 (memfloor --admit 5120), phase v0e-A32, after its own admission (v0d_admit.sh A32, "GATE A32:
+# PASS"). Without an argument the set is AR, unchanged.
 # Overridable for tests: BR, CHECK_PROC, RUN_V0E, SESS_PAUSE + the runner's variables (RUN_ROUTE, MEMFLOOR, PROBE_WAIT...).
 set -uo pipefail
+S=${1:-AR}; case $S in AR) NAME=A-retry; CAP=7942; NGL=99;; A32) NAME=A32; CAP=5120; NGL=32;; *) echo "unknown set $S" >&2; exit 9;; esac
 source ~/v0/v0d_lib.sh
 BR=${BR:-$HOME/bench-runs}; CHECK_PROC=${CHECK_PROC:-pgrep -f}
 RUN_V0E=${RUN_V0E:-$HOME/v0/run_v0e.sh}
 SESS_PAUSE=${SESS_PAUSE:-180}
-PH=v0e-A-retry; ST=$BR/v0/v0d/$PH-status.txt; P=~/v0/hexpkg/pkg-linux; M=~/v0/models/q40; O=$BR/v0/$PH
+PH=v0e-$NAME; ST=$BR/v0/v0d/$PH-status.txt; P=~/v0/hexpkg/pkg-linux; M=~/v0/models/q40; O=$BR/v0/$PH
 mkdir -p $O $BR/v0/v0d; say() { echo "$(date -Is) $*" | tee -a $ST; sync; }
 killall_srv() { for pid in $(ps -eo pid,args | awk '$2 ~ /\/llama-server$/ {print $1}'); do kill -KILL $pid; done; sleep 5; }
 E="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$P/lib"
 BASE="$E GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 40960 --cache-ram 8192 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0"
 source ~/v0/v0d_runner.sh
-# AW = the D90-admitted A command with -c 32768 (D118), with the patched DSP library first on ADSP_LIBRARY_PATH (D136)
+# AW = the D90-admitted A command with -c 32768 (D118), with the patched DSP library first on ADSP_LIBRARY_PATH (D136);
+# A32 (D157): -ngl 32 and --cache-ram 5120
 HTPR=${HTPR:-$HOME/v0/htp-retry}; RETRY_SHA=${RETRY_SHA:-aa2ae2a978d95935b763234c1a6cefe27f42c1cf98d67f041c17f13210fedde2}
 FARF=${FARF:-$HOME/v0/farf}; JOURNAL=${JOURNAL:-journalctl}
 rsha() { [ "$(sha256sum "$HTPR/libggml-htp-v75.so" 2>/dev/null | cut -d' ' -f1)" = "$RETRY_SHA" ] && [ "$(cat "$FARF/llama-server.farf" 2>/dev/null)" = 0x1f ]; }
-AW="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$FARF;$HTPR;$P/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 32768 --cache-ram 7942 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0"
+AW="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$FARF;$HTPR;$P/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 32768 --cache-ram $CAP -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl $NGL --ctx-checkpoints 0"
 $CHECK_PROC '^/bin/bash /home/arduino/v0/npu_stall_watchdog.sh' > /dev/null || { say "STOP: NPU stall watchdog not running"; exit 6; }
 $CHECK_PROC '^/bin/bash /home/arduino/v0/monitor/health_sampler.sh' > /dev/null || { say "STOP: health sampler not running"; exit 6; }
 # D137/D138 (Codex reviews of 6f203ab and 12be36a): eligibility first. The LATEST admission attempt of the patched
 # runtime (v0d_admit.sh AR; the status file is append-only) must be complete and passing: after its last "admission AR
 # start" line, "SET AR: ADMITTED in attempt <n>", "GATE AR: PASS" and "admission AR done rc=0". An older PASS followed
 # by a newer failed or unfinished attempt does not count. The gate is then re-applied to the current evidence.
-ADMIT_ST=${ADMIT_ST:-$BR/v0/v0d/v0d-admit-AR-status.txt}; ADMIT_O=${ADMIT_O:-$BR/v0/v0d-admit-AR}; GATE=${GATE:-python3 $HOME/v0/admit_gate.py}
-ablk=$(awk '/ admission AR start /{b=""} {b=b $0 "\n"} END{printf "%s", b}' "$ADMIT_ST" 2>/dev/null)
-aatt=$(printf '%s' "$ablk" | grep -oE 'SET AR: ADMITTED in attempt [12]' | tail -1 | grep -oE '[12]$')
-{ printf '%s' "$ablk" | grep -q ' admission AR start ' && [ -n "$aatt" ] && printf '%s' "$ablk" | grep -q ' GATE AR: PASS ' \
-  && printf '%s' "$ablk" | grep -q ' admission AR done rc=0 '; } \
+ADMIT_ST=${ADMIT_ST:-$BR/v0/v0d/v0d-admit-$S-status.txt}; ADMIT_O=${ADMIT_O:-$BR/v0/v0d-admit-$S}; GATE=${GATE:-python3 $HOME/v0/admit_gate.py}
+ablk=$(awk -v m=" admission $S start " 'index($0, m){b=""} {b=b $0 "\n"} END{printf "%s", b}' "$ADMIT_ST" 2>/dev/null)
+aatt=$(printf '%s' "$ablk" | grep -oE "SET $S: ADMITTED in attempt [12]" | tail -1 | grep -oE '[12]$')
+{ printf '%s' "$ablk" | grep -q " admission $S start " && [ -n "$aatt" ] && printf '%s' "$ablk" | grep -q " GATE $S: PASS " \
+  && printf '%s' "$ablk" | grep -q " admission $S done rc=0 "; } \
   || { say "STOP: the latest patched-runtime admission ($ADMIT_ST) is not complete and passing"; exit 6; }
-g=$($GATE $ADMIT_O AR $aatt 2>&1) || { say "STOP: the 16K gate no longer passes on the current admission evidence: $g"; exit 6; }
-say "admission AR (attempt $aatt): $g"
+g=$($GATE $ADMIT_O $S $aatt 2>&1) || { say "STOP: the 16K gate no longer passes on the current admission evidence: $g"; exit 6; }
+say "admission $S (attempt $aatt): $g"
 # lastres <dir>: the run's last RESULT line, from "RESULT" on
 lastres() { grep -oE 'RESULT (PASS|FAIL).*' $1/run.txt 2>/dev/null | tail -1; }
 # loadfail <dir>: a clean load failure (D114): the runner exited normally with a completed failure (rc 1; D137: a
@@ -67,7 +72,7 @@ s1clean() { [ "$RC" = 1 ] && [[ "$(lastres $1)" =~ ^RESULT\ FAIL:\ workload=[0-9
 session() { local lab=$1 wl=$2 to=$3 wd0 f0 try
   for try in 1 2; do LAB=$lab; [ $try = 2 ] && LAB=$lab-retry
     f0=$(nfaults); ready now   # a baseline fault is recorded by ready(), which keeps probing until a PASS (recovery)
-    [ "$(nfaults)" = "$f0" ] || { say "V0e A-retry: NOT QUALIFIED (fault in the baseline before $LAB; recovered)"; exit 3; }
+    [ "$(nfaults)" = "$f0" ] || { say "V0e $NAME: NOT QUALIFIED (fault in the baseline before $LAB; recovered)"; exit 3; }
     rsha || { say "STOP: $HTPR/libggml-htp-v75.so is not sha256 $RETRY_SHA (or the .farf file is not 0x1f)"; exit 2; }
     say "START $LAB"; wd0=$(wdcount)
     PHASE=$PH timeout -k 60 $to bash $RUN_V0E $LAB $wl -- $AW > /dev/null 2>&1; RC=$?; killall_srv
@@ -83,10 +88,10 @@ session() { local lab=$1 wl=$2 to=$3 wd0 f0 try
         *) say "STOP: $LAB: DSP journal evidence missing or incomplete ($(cat $O/$LAB/journal-check.txt 2>/dev/null))"; exit 2;; esac
     fi
     [ "$C" = LOADFAIL ] || return 0
-    [ $try = 2 ] && { say "STOP: $lab failed to load twice: V0e A-retry: NOT QUALIFIED (load)"; exit 3; }
+    [ $try = 2 ] && { say "STOP: $lab failed to load twice: V0e $NAME: NOT QUALIFIED (load)"; exit 3; }
     say "LOADFAIL $LAB: recovery, then $lab again (D114 rule)"
     f0=$(nfaults); ready wait
-    [ "$(nfaults)" = "$f0" ] || { say "V0e A-retry: NOT QUALIFIED (fault in the recovery after $LAB)"; exit 3; }
+    [ "$(nfaults)" = "$f0" ] || { say "V0e $NAME: NOT QUALIFIED (fault in the recovery after $LAB)"; exit 3; }
   done; }
 # journal <label> (D137, fail-closed): the server's journal lines to <run dir>/fastrpc-journal.txt, bound to the run's
 # server pid, boot and START..END+60 s window. Returns 1 (reason in journal-check.txt) unless: exactly one server pid,
@@ -107,12 +112,12 @@ journal() { local d=$O/$1 spid boot t0 t1 n r; : > $d/journal-check.txt
   n=$(grep -c 'retrying' $d/fastrpc-journal.txt); r=$(grep -oE '\(([0-9]+) in a row' $d/fastrpc-journal.txt | grep -oE '[0-9]+' | sort -n | tail -1)
   echo "ok: pid $spid, $(wc -l < $d/fastrpc-journal.txt) lines" > $d/journal-check.txt
   say "DSP $1: logged retry events ${n:-0}, longest run ${r:-0}"; [ "${r:-0}" -gt 1 ] && say "FLAG $1: repeated peek errors (${r} in a row), for the owner"; return 0; }
-memcheck() { if python3 $MEMFLOOR --admit 7942 $O/$1 > $O/$1/memfloor-admit.txt 2>&1; then say "MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"
-  else say "STOP: MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"; say "V0e A-retry: NOT QUALIFIED (memory)"; exit 3; fi; }
-onfault() { fault $1 $2; ready wait; say "V0e A-retry: NOT QUALIFIED (fault $2 in $1)"; exit 3; }
-say "V0e A-retry start (pid $$), window 32768, patched DSP library, no root"
+memcheck() { if python3 $MEMFLOOR --admit $CAP $O/$1 > $O/$1/memfloor-admit.txt 2>&1; then say "MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"
+  else say "STOP: MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"; say "V0e $NAME: NOT QUALIFIED (memory)"; exit 3; fi; }
+onfault() { fault $1 $2; ready wait; say "V0e $NAME: NOT QUALIFIED (fault $2 in $1)"; exit 3; }
+say "V0e $NAME start (pid $$), set $S, window 32768, -ngl $NGL, --cache-ram $CAP, patched DSP library, no root"
 s1ok=1
-session v0e-A-retry-S1 $HOME/v0/v0e_s1.sh 7200
+session $PH-S1 $HOME/v0/v0e_s1.sh 7200
 case $C in
   PASS) memcheck $LAB;;
   HANG|DEVFAULT) onfault $LAB $C;;
@@ -122,15 +127,15 @@ case $C in
      else say "STOP: $LAB $C"; exit 2; fi;;
 esac
 sleep $SESS_PAUSE
-session v0e-A-retry-S2 $HOME/v0/v0e_sustained.sh 9000
+session $PH-S2 $HOME/v0/v0e_sustained.sh 9000
 case $C in
   PASS) memcheck $LAB;;
   HANG|DEVFAULT) onfault $LAB $C;;
-  *) say "STOP: $LAB $C"; say "V0e A-retry: NOT QUALIFIED (S2 $C)"; exit 2;;
+  *) say "STOP: $LAB $C"; say "V0e $NAME: NOT QUALIFIED (S2 $C)"; exit 2;;
 esac
 # D117: no QUALIFIED without the sustained report (first 3 vs last 3 cycles); a >10 % decline is a flag for the owner
 sline=$(tail -1 $O/$LAB/sustained-summary.txt 2>/dev/null)
 case $sline in "RESULT summary: VALID"*) say "S2 $sline";;
-  *) say "STOP: S2 sustained summary missing or not VALID: ${sline:-none}"; say "V0e A-retry: NOT QUALIFIED (S2 summary)"; exit 2;; esac
-if [ $s1ok = 1 ]; then say "V0e A-retry: QUALIFIED at window 32768 (S1 and S2 PASS, faults $(nfaults))"; exit 0
-else say "V0e A-retry: NOT QUALIFIED (S1 items failed; S2 PASS)"; exit 1; fi
+  *) say "STOP: S2 sustained summary missing or not VALID: ${sline:-none}"; say "V0e $NAME: NOT QUALIFIED (S2 summary)"; exit 2;; esac
+if [ $s1ok = 1 ]; then say "V0e $NAME: QUALIFIED at window 32768 (S1 and S2 PASS, faults $(nfaults))"; exit 0
+else say "V0e $NAME: NOT QUALIFIED (S1 items failed; S2 PASS)"; exit 1; fi
