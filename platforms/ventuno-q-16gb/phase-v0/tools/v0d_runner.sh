@@ -13,9 +13,11 @@ setfaults() { echo $(( $(nfaults) - ${SET_BASE:-0} )); }
 fault() { mkdir -p "$O"; echo "$(date -Is) $1 $2" >> "$O/faults.txt"; say "FAULT $2 in $1 (faults so far: $(nfaults))"
   [ -z "${SET_BASE:-}" ] && [ "$(nfaults)" -ge "$FAULT_CAP" ] && { say "STOP: fault cap $FAULT_CAP reached"; exit 5; }; true; }
 # ready [now|wait]: baseline probe until PASS (13 tries)
+# PRE_BASE (optional, D162): command run with the probe's label immediately before EVERY baseline load (first try,
+# retries, recovery); it stops the driver itself when its precondition fails. Unset: no change.
 ready() { local i lab wd0 rc c a
   for i in $(seq 1 13); do [ $i = 1 ] && [ "${1:-wait}" = now ] || sleep $PROBE_WAIT
-    lab=probe-$(date +%H%M%S); wd0=$(wdcount)
+    lab=probe-$(date +%H%M%S); [ -n "${PRE_BASE:-}" ] && $PRE_BASE $lab; wd0=$(wdcount)
     timeout -k 60 900 $RUN_ROUTE $lab $PH --depths 512 --nctx 40960 -- $BASE > /dev/null 2>&1; rc=$?; killall_srv
     c=$(classify $O/$lab $rc $wd0); a=$(decide $c 1 probe); say "PROBE $lab: $c -> $a"
     case $a in next) return 0;;

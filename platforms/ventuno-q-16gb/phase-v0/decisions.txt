@@ -2258,3 +2258,140 @@ D158 (2026-10-12) Codex review of 4e1be6e (PR #53): ready to merge as a declared
    the review, for the run: publish launch provenance, actual placement and settings, all repeat/prompt/tool evidence
    and raw monitoring for both stages; keep S2's pi smoke count and any throughput-decline flag visible (reported,
    not gated). A32 is still unmeasured; GO stays the owner's.
+
+D159 (2026-10-12) A32 run (owner: "merged you can start A32 plan", after #53's merge as 1ae79c8): admitted, gate PASS;
+   V0e at 32768 NOT QUALIFIED (S1 failed two items on a clean session; the baseline probe before S2 hung).
+   Launch: stage 1 12:14:29, stage 2 13:17:06 (+02:00), each after launch checks written at launch time
+   (runs/v0d-admit-A32/launch-checks.txt, runs/v0e-A32/launch-checks.txt): measurement checkout 7badb21 clean,
+   patched library OK, health rc 0 without drift, sampler and watchdog running, no llama process, 15 GB free. Two
+   deployed copies (make_manifest.py, test_v0e_H2.sh) were older than 882a431; neither is called by the A32 drivers;
+   replaced before launch, recorded; then all 88 copies identical.
+   Stage 1 (v0d_admit.sh A32, 12:14-13:16): attempt 1, 0 faults. 16K r1/r2/r3 prefill 235.8/223.2/235.7, decode
+     5.25/5.29/5.20; GATE A32: PASS, median 235.7/5.25 (AR 318.4/8.40: prefill -26 %, decode -37 %). Medians 8K
+     decode 5.73, 32K decode 4.72 (r1-r3 4.87/4.72/4.63; not gated). Tools 10/10, 3/3. memfloor --admit 5120 ADMIT
+     on every step, lowest margin 2,978,227 kB (warm-up). Library checks: 7 ran; the status shows 6, because the
+     after-set check (v0d_admit.sh) logs only a failure; the admission ended rc 0 after it, so it passed (logging gap).
+   Stage 2 (v0e_A_retry.sh A32): it re-applied the gate to the A32 evidence (PASS) and started. Baseline probe PASS.
+     S1 (13:18-13:40, clean: health pass, kernel audit pass, 0 DSP retry events, memory ADMIT, lowest MemAvailable
+     8.53 GiB [WRONG, D160: 8.53 GiB is memfloor's L_min (MemAvailable + held prompt cache); actual lowest MemAvailable
+     6.92 GiB]): streaming probe 10/10 PASS, agentic 3/3 PASS, pi smoke 7/7 PASS (A-retry failed pi), window 4/4 PASS,
+     cache FAIL, compaction FAIL -> S1 FAIL; S2 to run for evidence.
+     - Cache (item 3): turn 1 (8,411-token prompt) returned finish_reason "length" after 512 tokens, all reasoning
+       content, no tool call. A model result under the item's 512-token limit; recorded as it is.
+     - Compaction (item 2-3, v0e_compact.sh, D112): all 3 pi turns exited 0 and both code words were recalled, but pi
+       never compacted. Cause, from pi 0.80.10's own code, replayed offline on the recorded session
+       (runs/v0e-A32/pi_compaction_replay.mjs, pi-compaction-replay.txt): the threshold is crossed (27,152 > 32,768 -
+       16,384), but prepareCompaction keeps the newest keepRecentTokens = 20,000 by a chars/4 estimate, and the two
+       38,000-character file reads estimate at 9,515 and 9,513 (session 19,340), so there is nothing older to
+       summarize and auto-compaction returns without an event. The item cannot pass with these files on any model:
+       a test design defect (D112), which also accounts for the 4 earlier compaction FAILs. [WRONG, D160: this
+       explains this transcript only; the estimate also counts model output, so it depends on the model; the "4
+       earlier FAILs" are one (A-retry S1) shown in 4 files, with a different, unaudited cause.] Not changed mid-run; the
+       frozen S1 verdict stands. A corrected item (enough content for pi's estimate to exceed 20,000 before the cut)
+       would be a plan change for the owner and review.
+     Baseline probe before S2 (probe-134304, 13:43, the unchanged NPU health check: release library, -ngl 99,
+       --cache-ram 8192): the first request (383 tokens, off depth) completed; the retry (484 tokens) stalled in
+       decode after ~100-119 tokens; the watchdog killed the server at 13:48:59 (300 s with 4 threads in
+       fastrpc_wait_for_completion; runs/v0e-A32/npu-stalls/). FAULT HANG; recovery: the next baseline probe
+       (14:04:27) PASS without a restart. "V0e A32: NOT QUALIFIED (fault in the baseline before v0e-A32-S2;
+       recovered)". S2 did not run. The hang is in the release library the baseline uses, consistent with the D127
+       hang mode (A, D118-D120); not shown, since that library has no DSP error logging. It is not an A32 server.
+   Recomputed from the committed monitor export (runs/v0e-A32/recompute-20261012.txt): every kernel audit pass, every
+   memfloor --admit 5120 ADMIT, gate reproduced.
+   Gaps: (1) both drivers were launched with output to /dev/null, so there is no *-driver.log (A-retry had one); the
+   status files hold every line the drivers write. (2) The driver's S1 line says "A not qualified", fixed text
+   from the A-retry driver; it refers to A32. (3) The after-set library check is not logged on success.
+   (4) Publishing: ~/v0/monitor/publish_monitor.py was a copy older than D111 (no USB serial redaction); the launch
+   checks compared ~/v0/ only, not ~/v0/monitor/. The first publish put the USB serial back into the four committed
+   kernel exports (2026-10-04/07/08/10). Caught before any commit: the four files restored from git, tools/
+   publish_monitor.py deployed (the other ~/v0/monitor scripts identical), re-published; no unredacted serial in
+   platforms/ (checked without printing it); the recompute, rerun on this export, is identical. Future launch checks
+   compare ~/v0/monitor/ too.
+   Not shown: S2 (sustained, memory floor at the 5120 cap); whether A32 would pass a corrected compaction item; the
+   cause of the release-library hang. Nothing is GO.
+
+D160 (2026-10-12) Codex review of 78d70fb (PR #54): outcome confirmed (A32 admitted, gate PASS; V0e at 32768 NOT
+   QUALIFIED); gate, 8K/32K medians, all ten run windows' kernel audits and memfloor, and the 2,978,227 kB margin
+   reproduced from the committed export. Three reporting findings, all accepted:
+   1. Memory metric. D159's "lowest MemAvailable 8.53 GiB" for S1 is memfloor's L_min (min of MemAvailable + the
+      prompt cache held at that moment). The actual lowest MemAvailable (health.txt, raw samples) is 6.92 GiB. Both
+      pass their checks; the two quantities are now reported separately. Per run, actual min MemAvailable / L_min:
+      warm-up 7.26 GiB / 8,567,137 kB, r1 7.30 / 9,175,531, r2 7.23 / 9,092,209, r3 7.29 / 9,159,723, tools
+      6.16 / 9,038,060, S1 6.92 / 8,949,020; baseline probes 8.47-8.48 GiB. The status-line figures given to the
+      owner during the run ("lowest available 8.17-8.75 GiB") were L_min too.
+   2. Compaction attribution narrowed. The replay explains this transcript only: before the third prompt pi's chars/4
+      estimate is 19,259 (whole session 19,340), below keepRecentTokens 20,000, so prepareCompaction finds no cut.
+      The estimate also counts assistant thinking, text and tool calls, so whether the item can trigger depends on
+      the model's output: with 8,000 thinking characters added to the second turn's last reply (same files and
+      settings) the estimate is 21,259 and prepareCompaction returns a preparation (reproduced:
+      runs/v0e-A32/pi_compaction_synthetic.mjs, pi-compaction-synthetic.txt). Whether a summary would then succeed
+      is untested. D159's "cannot pass with these files on any model" is withdrawn: the item is an unreliable
+      trigger, not a proven impossible one. D159's "4 earlier compaction FAILs" was a counting error: it is one
+      earlier run, A-retry S1 (D139), whose result line appears in 4 files; that run's turns did not return the code
+      words (the tool-call fault), a different and unaudited cause, left unresolved. The frozen compaction FAIL and
+      NOT QUALIFIED stand.
+   3. Execution brief added to the PR description: entry commands, executed revision, server settings and context
+      per stage, stop and recovery rules, authorization and deviations, with a link to the plan at 882a431.
+   Next, per the review (for the owner; nothing runs without a reviewed, approved amendment): a reliable compaction
+   trigger; the cache item's first-call budget (512 tokens against a reasoning model); a declared baseline-probe
+   policy for the release-library hang (not a silent switch to the patched route). Any new attempt keeps these
+   failed results as their own attempt; full S1 and sustained S2 at the exact configuration and window remain
+   required.
+
+D161 (2026-10-12) A32's second V0e attempt declared (v0e-plan-A32-2.txt), after the Codex review of #54 (D160) and
+   the owner's "Yes" to drafting it. Nothing runs until the owner approves it after review. Attempt 1 stays NOT
+   QUALIFIED as its own attempt; A32's configuration and admission are unchanged (no new admission).
+   1. Compaction item (tools/v0e_compact.sh): the trigger no longer depends on the model's output. Files of 46,000
+      characters of English licence text each (a: GPL-3 + GFDL-1.3, b: LGPL-2.1 + MPL-1.1, /usr/share/common-licenses,
+      truncated; body sha256 7175b3f0... and 0c9374db..., checked), under pi's read limit (50 KB, 2,000 lines). pi's
+      estimate of the two tool results alone: 11,511-11,515 each (1-5 digit code word), at least 23,022 together, so prepareCompaction's
+      20,000-token keep leaves something to summarize whatever the model writes. Offline check with pi 0.80.10's own
+      code on attempt 1's session with these files and the model output reduced to a minimum: estimate 23,120,
+      preparation returned (split turn: turn 1's prompt, read call and a.txt result summarized);
+      runs/v0e-A32-2-offline/. Precondition measured on the running server (/tokenize) before pi starts: the two
+      files' real token count in [16,500, 28,000] (pi's threshold crossed once its ~1.6K system prompt is added; room
+      in the 32,768 window at the end of turn 2, where the context peaks). Not met, bodies changed or no count ->
+      "compaction INVALID (precondition: ...)", rc 1, pi not run. The real count is not known in advance (no
+      CPU-only tokenizer on the board; the package tokenizer links the NPU backend, so it was not used); about 21,000
+      expected for prose. PASS criteria unchanged. test_v0e_compact.sh (new) 10/10.
+   2. Cache item (tools/v0e_window.py): the two turns that must produce a tool call get 4,096 completion tokens
+      (512 before; pi itself sends 8,192, the window item 1,024). Turn 3 and the fresh request keep 512. Checks
+      unchanged. Declared as a test change motivated by attempt 1's failure; it applies to every later V0e.
+      test_v0e_window.py 12/12 (all-good checks the budgets).
+   3. Baseline probe policy, options (a) unchanged release library, (b) the same health-check command on the patched
+      library, (c) the A32 command at depth 512. Recommended and implemented: (b), for "v0e_A_retry.sh A32 2" only
+      (phase v0e-A32-2); the library identity is checked before every baseline too. A baseline fault is still a fault.
+      AR and A32 attempt 1 unchanged. The owner chooses; (a) or (c) would change the driver before any run.
+   Also: the driver's S1 failure line names the set ("$NAME not qualified", was "A not qualified", D159 gap 2); the
+   entry command keeps the driver's output in v0e-A32-2-driver.log (D159 gap 1); launch checks compare ~/v0/monitor
+   too (D159 gap 4).
+   Tests: test_v0e_A_retry.sh SET=AR 34/34, SET=A32 35/35, SET=A32 ATT=2 35/35 (runs/v0e-A32-2-offline/tests-D161.txt).
+   Upstream texts prepared, NOT filed (the owner's decision): upstream/output-layer-report.txt (the output-layer
+   fault, D145-D156, scoped as D156), upstream/gdn-hmx-report.txt (GATED_DELTA_NET HMX 7/36, D145/D156),
+   upstream/30309-comment-20261012.txt (the release-library hang of D159). The output-layer runs used the retry
+   build of the DSP library; that is stated in the text.
+
+D162 (2026-10-12) Codex review of 609552a (PR #54): D160 corrections accepted; all 126 offline checks reproduced. One P2
+   on the amendment, fixed: the patched-library/.farf identity was checked only at the first baseline of a session,
+   so a baseline retry (ready() tries up to 13 times) or a recovery probe (after a load failure or in onfault) could
+   load without it, short of plan section 3's "before every baseline". Codex reproduced it with a mock (the first
+   baseline a clean load failure that changes the .farf, then a second baseline PASS before the stop).
+   Fix: v0d_runner.sh ready() runs an optional PRE_BASE hook with the probe label immediately before EVERY baseline
+   load (unset: no change; admission and the other drivers do not set it). v0e_A_retry.sh attempt 2 sets it to
+   prebase(): identity check, STOP on a mismatch; if a fault is already recorded, "NOT QUALIFIED (faults recorded: N,
+   kept in faults.txt; library identity lost before <probe>)", exit 3. The session-entry check it replaces is gone.
+   Also, every set: a session classified HANG/DEVFAULT whose post-session identity check fails now records the fault
+   ("FAULT ...") and ends NOT QUALIFIED (exit 3) instead of stopping with exit 2 before the fault was recorded.
+   New regressions (test_v0e_A_retry.sh): attempt 2, identity changed by a baseline load failure -> STOP before the
+   second baseline (sequence "probe"); attempt 2, identity changed during recovery after an S1 hang -> NOT QUALIFIED
+   with the fault kept; every set, S1 hang plus library change -> fault recorded, NOT QUALIFIED.
+   Tests (runs/v0e-A32-2-offline/tests-D162.txt): test_v0e_A_retry.sh SET=AR 35/35, SET=A32 36/36, SET=A32 ATT=2
+   38/38; test_runner.sh 23/23, test_admit_entry.sh 15/15, test_v0e_A.sh 13/13, test_v0e_H2.sh 13/13 (the runner
+   change is inert without PRE_BASE); test_v0e_compact.sh 10/10, test_v0e_window.py 12/12.
+   Observed while testing, not changed (pre-existing, every set; not part of this finding): a recovery probe after a
+   recorded fault that classifies EVIDENCE stops with "STOP: probe ... EVIDENCE" (exit 2), not the NOT QUALIFIED
+   line; the fault stays in faults.txt. For the owner and review.
+   Upstream report (nonblocking corrections, applied; still NOT FILED): title no longer says every op passes (86/87
+   exported op/shape pairs pass; the output layer's ops pass alone); "Q4_0 for every tensor" replaced by the loader's
+   249 Q4_0 + 177 F32 tensors (llama-quantize --pure Q4_0); the full-offload one-session load failure stated with
+   D156's uncertainty (it happened while the disk was filling, not independently confirmed).
