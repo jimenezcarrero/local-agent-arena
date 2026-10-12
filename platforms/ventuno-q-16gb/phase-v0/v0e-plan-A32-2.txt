@@ -49,7 +49,8 @@ Not a GO: V0e qualifies, GO is the owner's.
         the patched library.
     (b) RECOMMENDED: the same health-check command (-ngl 99, --cache-ram 8192, -c 40960, depth 512, its historical
         reference numbers) on the patched library (ADSP_LIBRARY_PATH=farf;htp-retry;pkg/lib), with the library
-        identity checked before every baseline as well as before and after every session. A fault in a baseline
+        identity checked immediately before every baseline load (first try, retries, recovery; D162) as well as before and
+        after every session. A fault in a baseline
         is still a fault: recovery by baseline probing, then NOT QUALIFIED. Only the library changes.
     (c) the baseline on the A32 server command itself (-ngl 32, --cache-ram 5120) at depth 512: tests the exact
         runtime, but loses comparability with every earlier baseline.
@@ -75,6 +76,7 @@ Not a GO: V0e qualifies, GO is the owner's.
 
 6. Tests (offline, mocked): test_v0e_compact.sh 10/10 (new: pass with the frozen bodies and recorded sizes; no
   compaction; a failed turn; real count too low, too high, at each bound; no count; changed and missing licence text);
-  test_v0e_window.py 12/12 (all-good also checks the budgets 4096, 4096, 512, 512); test_v0e_A_retry.sh: SET=AR 34/34,
-  SET=A32 35/35, SET=A32 ATT=2 35/35 (every policy case, the baseline command per attempt, the library check before the first
-  baseline in attempt 2, and the S1 failure line naming the set).
+  test_v0e_window.py 12/12 (all-good also checks the budgets 4096, 4096, 512, 512); test_v0e_A_retry.sh (D162): SET=AR 35/35,
+  SET=A32 36/36, SET=A32 ATT=2 38/38 (every policy case, the baseline command per attempt, the library check before the first
+  baseline in attempt 2, the identity checked before every baseline load including retries and recovery, a fault
+  kept when a library change follows it, and the S1 failure line naming the set).

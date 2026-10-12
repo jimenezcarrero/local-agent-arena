@@ -2,7 +2,7 @@ NOT FILED. Prepared 2026-10-12 for the owner (D161); filing is the owner's decis
 runs/v0q-op, runs/v0p-pi. Claims scoped as in D156 (Codex review of 8265a10).
 
 Title: Hexagon: logits wrong for multi-token ubatches when the output layer is offloaded (-ngl 33 vs 32 on a
-qwen35 hybrid 4B, Q4_0); every op passes test-backend-ops
+qwen35 hybrid 4B, Q4_0); the output layer's ops pass test-backend-ops alone
 
 Name and version
   build 11381 (836d57176), release package (arm64-linux, Snapdragon toolchain), htp-v75. The DSP library in these runs
@@ -14,7 +14,8 @@ Hardware / OS
 
 Model
   NeoHorse-1-4B, arch qwen35 (hybrid: gated delta net + attention, 32 blocks, head size 128, scalar gate), vocabulary
-  248,320, quantized Q4_0 for every tensor ("pure").
+  248,320, file type Q4_0 made with --pure: 249 Q4_0 tensors and 177 F32 tensors (norms and other small tensors),
+  per the loader log.
 
 Problem
   With the whole model offloaded (two sessions, GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1, --device HTP0:0,HTP0:1 -ngl 99),
@@ -26,8 +27,9 @@ Problem
   The error depends on the ubatch size at full offload: -ub 1 KLD 0.018, -ub 64 0.18, -ub 512 0.82. It is
   deterministic (a repeat matched to every digit) and the same with op fusion off (GGML_HEXAGON_OPFUSION=0) and with
   each HMX kernel switched to HVX in turn (GGML_HEXAGON_MM_SELECT=1 0.810, FA_SELECT=1 0.818, GDN_SELECT=1 0.817).
-  At -ngl 16, one session and two sessions gave identical results; at full offload one session cannot hold the model,
-  so a session effect there is not excluded.
+  At -ngl 16, one session and two sessions gave identical results. At full offload a one-session load failed to map
+  (twice), so one session could not be compared there; that load failure happened while our disk was filling and is
+  not independently confirmed. A session effect at full offload is not excluded.
   A perplexity 6x below the reference fits logits of a position carrying information from later tokens, but we have
   not shown that (a same-prefix, different-continuation comparison would test it).
 

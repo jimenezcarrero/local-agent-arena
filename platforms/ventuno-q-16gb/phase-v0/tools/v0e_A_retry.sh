@@ -25,7 +25,9 @@
 # admission. One driver change, declared: the baseline probes (before each session and during recovery) load the
 # patched DSP library (ADSP_LIBRARY_PATH=$FARF;$HTPR;<pkg>/lib) instead of the release one; the command is otherwise
 # the unchanged NPU health check (-ngl 99, --cache-ram 8192, -c 40960, depth 512), and the library identity is checked
-# before every baseline too. A fault in a baseline is still a fault (NOT QUALIFIED). Attempt 1 (no second argument)
+# before every baseline load too (D162: PRE_BASE, so retries and recovery probes are covered). A fault in a
+# baseline is still a fault (NOT QUALIFIED); if the identity is lost after a fault, the fault stays recorded and the
+# outcome is NOT QUALIFIED (exit 3). Attempt 1 (no second argument)
 # and AR are unchanged. S1's cache and compaction items changed for every set from D161 (v0e_window.py, v0e_compact.sh).
 # Overridable for tests: BR, CHECK_PROC, RUN_V0E, SESS_PAUSE + the runner's variables (RUN_ROUTE, MEMFLOOR, PROBE_WAIT...).
 set -uo pipefail
@@ -79,7 +81,6 @@ s1clean() { [ "$RC" = 1 ] && [[ "$(lastres $1)" =~ ^RESULT\ FAIL:\ workload=[0-9
 # (ready wait), then the session once more (its baseline first) as <label>-retry; a second one stops.
 session() { local lab=$1 wl=$2 to=$3 wd0 f0 try
   for try in 1 2; do LAB=$lab; [ $try = 2 ] && LAB=$lab-retry
-    [ $ATT = 2 ] && { rsha || { say "STOP: before the baseline: $HTPR/libggml-htp-v75.so is not sha256 $RETRY_SHA (or the .farf file is not 0x1f)"; exit 2; }; }
     f0=$(nfaults); ready now   # a baseline fault is recorded by ready(), which keeps probing until a PASS (recovery)
     [ "$(nfaults)" = "$f0" ] || { say "V0e $NAME: NOT QUALIFIED (fault in the baseline before $LAB; recovered)"; exit 3; }
     rsha || { say "STOP: $HTPR/libggml-htp-v75.so is not sha256 $RETRY_SHA (or the .farf file is not 0x1f)"; exit 2; }
@@ -87,7 +88,9 @@ session() { local lab=$1 wl=$2 to=$3 wd0 f0 try
     PHASE=$PH timeout -k 60 $to bash $RUN_V0E $LAB $wl -- $AW > /dev/null 2>&1; RC=$?; killall_srv
     C=$(classify $O/$LAB $RC $wd0); [ "$C" = EVIDENCE ] && loadfail $O/$LAB && C=LOADFAIL
     say "END $LAB: $C (runner rc $RC) | $(lastres $O/$LAB)"
-    rsha || { say "STOP: the patched library or the .farf file changed during $LAB"; exit 2; }
+    # D162: a fault in the session is recorded before a library stop, so it is not lost
+    rsha || { say "STOP: the patched library or the .farf file changed during $LAB"
+      case $C in HANG|DEVFAULT) fault $LAB $C; say "V0e $NAME: NOT QUALIFIED (fault $C in $LAB; library identity lost)"; exit 3;; esac; exit 2; }
     # DSP evidence (D137): required. A failed capture stops, except that a real HANG/DEVFAULT keeps its class (the
     # fault path stops anyway, as NOT QUALIFIED).
     # D138: the only exception is a confirmed clean load failure (class LOADFAIL); missing readiness metadata is not one.
@@ -121,6 +124,13 @@ journal() { local d=$O/$1 spid boot t0 t1 n r; : > $d/journal-check.txt
   n=$(grep -c 'retrying' $d/fastrpc-journal.txt); r=$(grep -oE '\(([0-9]+) in a row' $d/fastrpc-journal.txt | grep -oE '[0-9]+' | sort -n | tail -1)
   echo "ok: pid $spid, $(wc -l < $d/fastrpc-journal.txt) lines" > $d/journal-check.txt
   say "DSP $1: logged retry events ${n:-0}, longest run ${r:-0}"; [ "${r:-0}" -gt 1 ] && say "FLAG $1: repeated peek errors (${r} in a row), for the owner"; return 0; }
+# prebase <probe label> (D162, attempt 2): the patched library and .farf identity immediately before each baseline
+# load. A mismatch stops; after a recorded fault the outcome stays NOT QUALIFIED (exit 3), the fault history kept.
+prebase() { rsha && return 0
+  say "STOP: before baseline $1: $HTPR/libggml-htp-v75.so is not sha256 $RETRY_SHA (or the .farf file is not 0x1f)"
+  [ "$(nfaults)" -gt 0 ] && { say "V0e $NAME: NOT QUALIFIED (faults recorded: $(nfaults), kept in faults.txt; library identity lost before $1)"; exit 3; }
+  exit 2; }
+[ $ATT = 2 ] && PRE_BASE=prebase
 memcheck() { if python3 $MEMFLOOR --admit $CAP $O/$1 > $O/$1/memfloor-admit.txt 2>&1; then say "MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"
   else say "STOP: MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"; say "V0e $NAME: NOT QUALIFIED (memory)"; exit 3; fi; }
 onfault() { fault $1 $2; ready wait; say "V0e $NAME: NOT QUALIFIED (fault $2 in $1)"; exit 3; }
