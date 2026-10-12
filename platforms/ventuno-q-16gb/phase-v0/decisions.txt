@@ -2071,9 +2071,9 @@ D145 2026-10-11 NPU fault located at op level (owner: "Find th NPU fault, if it 
       GATED_DELTA_NET at the 512-token shape (HTP0 0 vs CPU inf on the generic random inputs). The 1-token shape,
       MUL_MAT, FLASH_ATTN_EXT and every other op pass.
    2. Built-in cases (valid inputs), test-backend-ops -o GATED_DELTA_NET: default GGML_HEXAGON_GDN_SELECT=2 -> 9 FAIL
-      of 38: every case that takes the HMX kernel (scalar gate per head, kda=0, K=1, head size % 64 == 0, >= 64
+      of 38 [WRONG, D156: 7 FAIL of 36]: every case that takes the HMX kernel (scalar gate per head, kda=0, K=1, head size % 64 == 0, >= 64
       tokens: 64, 65, 100, 127, 200, 256 tokens, 1-2 seqs), NMSE 3e-6 to 2e-3 against a 1e-7 limit. GDN_SELECT=1
-      (HVX kernel only): 38/38 OK. GDN_SELECT=0 (CPU): OK. NeoHorse (qwen35 hybrid, head size 128, scalar gate)
+      (HVX kernel only): 38/38 OK [D156: 36/36]. GDN_SELECT=0 (CPU): OK [WRONG, D156: 0 tested]. NeoHorse (qwen35 hybrid, head size 128, scalar gate)
       takes the HMX kernel for every prompt batch of >= 8 tokens (HTP_GDN_MIN_TOKENS 8, chunk 64).
    Relation to #30309: none shown. #30309 is a hang (htp_main_thread exits on dspqueue_peek AEE_ENOMORE); this is a
    numerical error in one kernel with no fault or retry. Upstream #29473 (SM7750, v73 without FP16 HMX) reports
@@ -2144,7 +2144,8 @@ D151 2026-10-12 kld7 (one session, DEVS=HTP0:0): the unfiltered npu arm failed t
    Incident (mine): the disk filled (1.1 MB free, about 00:08) from 7 copies of the CPU logits file cpu.kld (1.52 GB
    each, one per attempt; the 23:55 evidence backup copied 4 more) plus a llama-eval-callback full tensor dump. All
    deleted (the logits are deterministic and regenerable; summaries and logs kept): 16 GB free again. The health
-   sampler and watchdog kept running; the monitor export will show whether samples were lost in those minutes.
+   sampler and watchdog kept running; the monitor export will show whether samples were lost in those minutes
+   [D156: they were].
    From now on cpu.kld is deleted right after each run.
    Per-tensor comparison (runs/v0q-op/cb: llama-eval-callback, 309-token prompt from the KLD text, CPU vs NPU two
    sessions, names and sums only): 1925 tensors, same names; differences of 2-12 % in sums spread over layers 0-5
@@ -2157,8 +2158,8 @@ D152 2026-10-12 kld8 (kernel selectors, two sessions): MM_SELECT=1 KLD 0.8101, F
    0.8171, all three 0.8164 (PPL 2.29-2.30 in every arm, npu 0.8169): no HMX kernel accounts for the difference.
    Incident (mine): I started test-backend-ops for 10 token-mixing ops while kld8 arm 04 was still on the NPU; 8 of
    them aborted with "dspqueue_read failed: 0x2e" (two processes on the cDSP). Arm 04 completed (rc 0) with values
-   in line with arms 01-03; no watchdog event; the overlapped logs are kept in runs/v0q-op/t4-overlapped and not used.
-   Rerun alone: SSM_CONV 47/47, CONCAT 50/50, TRI 6/6, SOLVE_TRI 26/26, SET_ROWS 57/57, GET_ROWS 46/46, CPY 140/140,
+   in line with arms 01-03 [D156: arm 04 is invalid, not used]; no watchdog event; the overlapped logs are kept in runs/v0q-op/t4-overlapped and not used.
+   Rerun alone [WRONG counts and scope, D156]: SSM_CONV 47/47, CONCAT 50/50, TRI 6/6, SOLVE_TRI 26/26, SET_ROWS 57/57, GET_ROWS 46/46, CPY 140/140,
    FILL 6/6, CUMSUM 17/17, L2_NORM 22/22 OK. Every op NeoHorse uses passes on the NPU except the HMX GDN kernel
    (D145), and that kernel is not the cause. The fault is at the graph level.
    Declared before running (kld9; args arms, test_v0q_kld.sh 15/15): -ub 64; -ngl 16 (two sessions, half the
@@ -2167,7 +2168,7 @@ D152 2026-10-12 kld8 (kernel selectors, two sessions): MM_SELECT=1 KLD 0.8101, F
    ubatches); one-session -ngl 16 near 0 while two-session -ngl 16 is high -> the two-session split.
 D153 2026-10-12 kld9 (-ub 512 unless stated; KLD / same top / PPL): -ub 64 0.1762 / 86.0 % / 12.45; -ngl 16 two
    sessions 0.00028 / 99.1 % / 14.35; -ngl 16 one session identical to the digit; -ub 1 0.0179 / 95.2 % / 14.37
-   (full offload, npu 0.8169 / 66.0 % / 2.30). Readings: the session split is not involved; the fault needs
+   (full offload, npu 0.8169 / 66.0 % / 2.30). Readings: the session split is not involved [D156: shown at -ngl 16 only]; the fault needs
    multi-token ubatches and grows with their size; it is absent when the last 16 blocks AND NOT the output layer
    are on the NPU (with -ngl 16 the output norm and the 248,320-row output projection stay on the CPU). A row
    misplacement in the output projection for multi-token batches would give exactly the low PPL (logits of token t
@@ -2192,7 +2193,46 @@ D155 2026-10-12 D6 result: the output layer on the NPU is what breaks pi's tool 
    248,320 x 512 Q4_0 output projection; it fails only inside the model, with multi-token ubatches (KLD -ub 1 0.018,
    -ub 64 0.18, -ub 512 0.82) and independently of the HMX/HVX kernel choice and of the session split (D152-D153).
    An NPU perplexity 6x below the CPU's means the logits of a position carry information from later tokens, i.e. a
-   row placement problem in or around the output layer (inference, not verified).
+   row placement problem in or around the output layer (inference, not verified) [overstated, D156].
    Relation to #30309: none; that is a DSP-side hang, this is a wrong-result fault. Also not #29473 (no FP16 HMX).
    A workaround exists (-ngl 32) but it is a configuration change: it needs its own plan, admission (V0d, 16K gate
    at 272 vs 359 tok/s prompt) and V0e before any use. Nothing is GO.
+D156 2026-10-12 Codex review of 8265a10 (D145-D155): four P2 findings and the PR description; all accepted. Nothing is
+   GO. Corrections below; the wrong lines above are marked, not rewritten.
+   1. Runner (tools/v0q_kld.sh): rc 0 was taken as a result. llama-perplexity exits 0 even when kl_divergence stops
+      early (e.g. "failed reading log-probs"), and the driver then printed an empty summary and went on. Now the base
+      must show its chunk count, the running PPL of the last chunk, a finite final PPL and a non-empty logits file
+      (else STOP, exit 1), and every arm the same chunk count, one table row per chunk, finite Mean PPL(Q), Mean KLD
+      and Same top p, and no kl_divergence failure line (else STOP, exit 4, log kept). Checked against every
+      committed log: every arm used in D148-D155 passes; the arms that fail the check are the load failures and
+      refusals already recorded as such (rc != 0). test_v0q_kld.sh: 6 new negative cases (base without final PPL,
+      base without logits file, read failure with rc 0, nan KLD, a missing chunk row, no Same top p).
+   2. kld8 arm 04 (all three selectors) overlapped with the test-backend-ops runs of D152 on the cDSP: INVALID, not
+      used (marked in runs/v0q-op/kld8/summary.txt). The D152 reading rests on arms 01-03 alone (MM 0.8101, FA 0.8178,
+      GDN 0.8171, each with the other kernels on HMX); the three selectors together were not measured cleanly.
+      Monitor coverage during the disk-full incident (D151), from the raw sampler file: two samples truncated
+      (00:05:14 and 00:08:05, skipped by the export as unparseable) and no samples 00:05:14-00:06:00 and
+      00:07:54-00:10:22 (148 s; also a 57 s gap at 00:00:02 during the backup). What ran then: kld7 (CPU base end
+      00:05:38, arm 01 load failure 00:05:45 and reload until 00:07:00) and the llama-eval-callback dumps (to 00:12:41).
+      Neither feeds a result; but kld7's one-session load failure (D151: "one session cannot map the whole model")
+      happened while the disk was filling and is not independently confirmed. Monitoring was not uninterrupted.
+   3. Op-test claims against the raw logs (runs/v0q-op). D145: the default GDN selector fails 7 of 36 built-in
+      cases (t2-gdn.log: 29/36 passed; 64, 65, 100, 127, 200, 256 tokens with 1 seq, 127 tokens with 2 seqs), not 9 of
+      38; GDN_SELECT=1 36/36 (t3-gdn-sel1.log); GDN_SELECT=0 tested nothing (0/0: 36 cases not supported on HTP0, the
+      CPU backend skipped as the reference), so it is not a CPU pass. D152: the rerun-alone totals were each 2 too
+      high (I counted the backend summary lines); from the logs: SSM_CONV 45/45, CONCAT 48/48, TRI 4/4, SOLVE_TRI
+      24/24, SET_ROWS 55/55, GET_ROWS 44/44, CPY 138/138, FILL 4/4. CUMSUM and L2_NORM were NOT rerun alone (only the
+      overlapped logs, 15/15 and 20/20); rerun alone 2026-10-12 09:01, nothing else on the cDSP, same command:
+      CUMSUM 15/15, L2_NORM 20/20 (t5-*.log, t5-start.txt). The test-export run of D145 (86/87) is correct.
+   4. Scope of the conclusions. Measured: the NPU's perplexity on this text is 6x below the CPU's, the KLD grows with
+      the ubatch size (-ub 1 0.018, 64 0.18, 512 0.82), and it is near zero with the output layer on the CPU (-ngl 32
+      0.0024 vs -ngl 33 0.817). That fits positional or causal contamination of the logits but does not prove that
+      later tokens leak: a same-prefix, different-continuation logit comparison would test it (not run). The
+      one-/two-session identity is shown at -ngl 16 only (full offload on one session did not load, see 2); session
+      effects at full offload are not excluded. The -ngl 32/33 boundary and D6 localize a faulty path when the output
+      layer is offloaded, not a faulty output op and not a verified row-placement mechanism.
+   5. PR description: the executed instructions (D1-D6 and KLD commands, settings, timeouts, stop/reload rules,
+      amendments, phase boundaries) restored in the description, kept apart from the historical plans.
+   Speed: 272/359 tok/s are server prompt timings of one ~1,644-token prompt, not the admission gate (repeated 16K
+   fresh-prefix prefill). An -ngl 32 configuration needs its own plan with both speed gates, correctness and memory
+   checks, then exact-configuration V0e.

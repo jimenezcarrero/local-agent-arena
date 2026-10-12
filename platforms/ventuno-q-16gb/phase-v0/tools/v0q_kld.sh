@@ -12,6 +12,11 @@
 # An arm "env:K=V,K=V" sets environment variables instead of a filter (D151); an arm
 # "args:F,V,..." appends flags to the NPU command, which override the defaults (D152). A load that fails with "buffer mapping failed" is reloaded once (D147). Overridable for tests: PPL, ARMS, STALL_S,
 # ARM_PAUSE, RELOAD_PAUSE.
+# D156 (Codex review of 8265a10): rc 0 is not a result. llama-perplexity exits 0 even when kl_divergence stops early
+# ("failed reading log-probs"), so the base must show its chunk count, the running PPL of its last chunk, a finite
+# final PPL and a non-empty logits file, and every arm the same chunk count, one table row per chunk, finite
+# Mean PPL(Q), Mean KLD and Same top p, and no kl_divergence failure line. Otherwise STOP (base exit 1, arm exit 4),
+# the log kept as it is.
 set -uo pipefail
 O=$1; TXT=$2; P=~/v0/hexpkg/pkg-linux; M=~/v0/models/q40/NeoHorse-1-4B-q4_0-pure.gguf
 PPL=${PPL:-$P/bin/llama-perplexity}; STALL_S=${STALL_S:-120}
@@ -22,6 +27,22 @@ NPU_ENV=(LD_LIBRARY_PATH=$P/lib "ADSP_LIBRARY_PATH=$HOME/v0/htp-retry;$P/lib" GG
 ARMS=${ARMS:-"npu nofusion MUL_MAT|MUL_MAT_ID FLASH_ATTN_EXT|SOFT_MAX GATED_DELTA_NET SSM_CONV RMS_NORM|NORM|L2_NORM ROPE SWIGLU|GEGLU|REGLU|GLU SILU|SIGMOID|SOFTPLUS|EXP|NEG|GELU|TANH|ABS|RELU ADD|ADD_ID|MUL|SUB|DIV|SCALE|SQR|SQRT|CLAMP|SUM|SUM_ROWS|CUMSUM|TRI|SOLVE_TRI|FILL|DIAG CPY|CONT|DUP|SET_ROWS|GET_ROWS|CONCAT|PAD|REPEAT|ROLL"}
 xargs=()
 summ() { grep -E '^(Mean +KLD|Maximum KLD|99.9% +KLD|Median +KLD|Same top p|Mean PPL\(Q\)|RMS Δp)' "$1" | tr -s ' ' | paste -sd'|' -; }
+num='-?[0-9]+(\.[0-9]+)?'
+# base_check: sets NCH (chunks) or WHY
+base_check() { local l=$O/cpu.log; WHY=""
+  NCH=$(grep -oE 'calculating perplexity over [0-9]+ chunks' $l | grep -oE '[0-9]+' | head -1)
+  [ -n "$NCH" ] && [ "$NCH" -gt 0 ] || { WHY="no chunk count"; return 1; }
+  grep -qE "\[$NCH\]$num," $l || { WHY="running PPL of chunk $NCH missing"; return 1; }
+  grep -qE "Final estimate: PPL = $num \+/- $num" $l || { WHY="no finite final PPL"; return 1; }
+  [ -s $O/cpu.kld ] || { WHY="logits file missing or empty"; return 1; }; }
+# arm_check <log>: the arm's measurements are complete and finite, or WHY
+arm_check() { local l=$1; WHY=""
+  grep -qE "kl_divergence: .*fail" $l && { WHY="$(grep -m1 -E 'kl_divergence: .*fail' $l)"; return 1; }
+  grep -qE "kl_divergence: computing over $NCH chunks" $l || { WHY="chunk count is not $NCH"; return 1; }
+  [ "$(grep -cE "^ +[0-9]+ +$num ± " $l)" = "$NCH" ] && grep -qE "^ +$NCH +$num ± " $l || { WHY="not $NCH chunk rows"; return 1; }
+  grep -qE "^Mean PPL\(Q\) +: +$num ± " $l || { WHY="no finite Mean PPL(Q)"; return 1; }
+  grep -qE "^Mean +KLD: +$num ± " $l || { WHY="no finite Mean KLD"; return 1; }
+  grep -qE "^Same top p: +$num ± " $l || { WHY="no finite Same top p"; return 1; }; }
 # run_npu <log> <env...>: runs one NPU arm in the background with the stall check; echoes rc, or HANG
 run_npu() { local log=$1; shift; local pid st=0 c0 c1 t
   env "$@" timeout 1800 $PPL $COMMON --device $DEVS -ngl 99 "${xargs[@]}" --kl-divergence-base $O/cpu.kld --kl-divergence >> $log 2>&1 & pid=$!
@@ -36,6 +57,7 @@ run_npu() { local log=$1; shift; local pid st=0 c0 c1 t
 cpu_ticks() { local c; c=$(pgrep -P $1 | head -1); awk '{print $14+$15}' /proc/${c:-$1}/stat 2>/dev/null || echo 0; }
 env LD_LIBRARY_PATH=$P/lib timeout 3600 $PPL $COMMON --device none -ngl 0 -t 4 --kl-divergence-base $O/cpu.kld > $O/cpu.log 2>&1 \
   || { echo "CPU base failed (rc $?)"; exit 1; }
+base_check || { echo "STOP: CPU base incomplete: $WHY" | tee $O/summary.txt; exit 1; }
 echo "base cpu: $(grep -oE 'Final estimate: PPL = [0-9.]+ \+/- [0-9.]+' $O/cpu.log)" | tee $O/summary.txt
 i=0
 for a in $ARMS; do i=$((i+1)); n=$(printf %02d $i); extra=(); xargs=()
@@ -56,6 +78,7 @@ for a in $ARMS; do i=$((i+1)); n=$(printf %02d $i); extra=(); xargs=()
   if [ $rc != 0 ] && grep -q 'that cannot run the operation' $O/arm$n.log; then
     echo "arm $n $a NOT RUNNABLE: $(grep -om1 'pre-allocated tensor.*' $O/arm$n.log)" | tee -a $O/summary.txt; sleep ${ARM_PAUSE:-20}; continue; fi
   [ $rc = 0 ] || { echo "STOP: arm $n rc $rc" | tee -a $O/summary.txt; exit 2; }
+  arm_check $O/arm$n.log || { echo "STOP: arm $n ($a) rc 0 without complete measurements: $WHY" | tee -a $O/summary.txt; exit 4; }
   sleep ${ARM_PAUSE:-20}
 done
 echo "done" >> $O/summary.txt
