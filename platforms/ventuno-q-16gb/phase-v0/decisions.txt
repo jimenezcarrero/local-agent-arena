@@ -2370,3 +2370,28 @@ D161 (2026-10-12) A32's second V0e attempt declared (v0e-plan-A32-2.txt), after 
    fault, D145-D156, scoped as D156), upstream/gdn-hmx-report.txt (GATED_DELTA_NET HMX 7/36, D145/D156),
    upstream/30309-comment-20261012.txt (the release-library hang of D159). The output-layer runs used the retry
    build of the DSP library; that is stated in the text.
+
+D162 (2026-10-12) Codex review of 609552a (PR #54): D160 corrections accepted; all 126 offline checks reproduced. One P2
+   on the amendment, fixed: the patched-library/.farf identity was checked only at the first baseline of a session,
+   so a baseline retry (ready() tries up to 13 times) or a recovery probe (after a load failure or in onfault) could
+   load without it, short of plan section 3's "before every baseline". Codex reproduced it with a mock (the first
+   baseline a clean load failure that changes the .farf, then a second baseline PASS before the stop).
+   Fix: v0d_runner.sh ready() runs an optional PRE_BASE hook with the probe label immediately before EVERY baseline
+   load (unset: no change; admission and the other drivers do not set it). v0e_A_retry.sh attempt 2 sets it to
+   prebase(): identity check, STOP on a mismatch; if a fault is already recorded, "NOT QUALIFIED (faults recorded: N,
+   kept in faults.txt; library identity lost before <probe>)", exit 3. The session-entry check it replaces is gone.
+   Also, every set: a session classified HANG/DEVFAULT whose post-session identity check fails now records the fault
+   ("FAULT ...") and ends NOT QUALIFIED (exit 3) instead of stopping with exit 2 before the fault was recorded.
+   New regressions (test_v0e_A_retry.sh): attempt 2, identity changed by a baseline load failure -> STOP before the
+   second baseline (sequence "probe"); attempt 2, identity changed during recovery after an S1 hang -> NOT QUALIFIED
+   with the fault kept; every set, S1 hang plus library change -> fault recorded, NOT QUALIFIED.
+   Tests (runs/v0e-A32-2-offline/tests-D162.txt): test_v0e_A_retry.sh SET=AR 35/35, SET=A32 36/36, SET=A32 ATT=2
+   38/38; test_runner.sh 23/23, test_admit_entry.sh 15/15, test_v0e_A.sh 13/13, test_v0e_H2.sh 13/13 (the runner
+   change is inert without PRE_BASE); test_v0e_compact.sh 10/10, test_v0e_window.py 12/12.
+   Observed while testing, not changed (pre-existing, every set; not part of this finding): a recovery probe after a
+   recorded fault that classifies EVIDENCE stops with "STOP: probe ... EVIDENCE" (exit 2), not the NOT QUALIFIED
+   line; the fault stays in faults.txt. For the owner and review.
+   Upstream report (nonblocking corrections, applied; still NOT FILED): title no longer says every op passes (86/87
+   exported op/shape pairs pass; the output layer's ops pass alone); "Q4_0 for every tensor" replaced by the loader's
+   249 Q4_0 + 177 F32 tensors (llama-quantize --pure Q4_0); the full-offload one-session load failure stated with
+   D156's uncertainty (it happened while the disk was filling, not independently confirmed).

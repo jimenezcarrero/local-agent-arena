@@ -31,7 +31,10 @@ case $m in
   fail-timeout) printf "$S$R$U${E}t RESULT FAIL: workload=1\n" > $o/run.txt; echo "t x: rc=1" > $o/items.txt; exit 124;;
   fail-killed) printf "$S$R$U${E}t RESULT FAIL: workload=1\n" > $o/run.txt; echo "t x: rc=1" > $o/items.txt; exit 137;;
   fail-health) echo "fail: missing kernel read" > $o/health-verdict.txt; printf "$S$R$U${E}t RESULT FAIL: workload=1\n" > $o/run.txt; exit 1;;
-  hang) echo "NPU-WATCHDOG" >> $WD_LOG; printf "$S$R${E}t RESULT FAIL: workload=5\n" > $o/run.txt; exit 1;;
+  hang|hang-farf) echo "NPU-WATCHDOG" >> $WD_LOG; printf "$S$R${E}t RESULT FAIL: workload=5\n" > $o/run.txt
+    [ $m = hang-farf ] && echo 0x0 > $T/farf/llama-server.farf; exit 1;;
+  loadfail-farf) printf "${S}t SERVER EXITED before ready\n${E}t RESULT FAIL: speed=4\n" > $o/run.txt  # a baseline (run_route) load failure
+    echo "ggml-hex: HTP0:2 buffer mapping failed" > $o/server.log; echo 0x0 > $T/farf/llama-server.farf; exit 1;;
   evidence) printf "$S$R$U${E}t RESULT FAIL: health=(fail: x)\n" > $o/run.txt; exit 1;;
   loadfail|loadfail-timeout|loadfail-killed) printf "${S}t SERVER EXITED before ready\n${E}t RESULT FAIL: load=4\n" > $o/run.txt
     echo "ggml-hex: HTP0:2 buffer mapping failed" > $o/server.log
@@ -85,6 +88,9 @@ case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
       chk "attempt $ATT," $st;;
     journal-fail-hang-stands) chk "NOT QUALIFIED (fault HANG" $st;;
     s1-fail-names-the-set) chk "clean session): $NAME not qualified; S2 runs for evidence" $st;;
+    id-change-after-baseline-loadfail-stops) chk "STOP: before baseline probe-" $st;;
+    id-change-in-recovery-keeps-fault) chk "FAULT HANG in v0e-$NAME-S1" $st; chk "NOT QUALIFIED (faults recorded: 1" $st; chk "library identity lost before probe-" $st;;
+    hang-and-library-changed-keeps-fault) chk "STOP: the patched library or the .farf file changed during v0e-$NAME-S1" $st; chk "FAULT HANG in v0e-$NAME-S1" $st; chk "NOT QUALIFIED (fault HANG in v0e-$NAME-S1; library identity lost)" $st;;
   esac
   rm -rf $T; }
 # D118 policy cases (unchanged expectations)
@@ -132,4 +138,12 @@ case1 loadfail-journal-fail-recovers 0 "probe S1 probe probe S1 probe S2" mode-S
 if [ $SET = A32 ]; then case1 a32-with-only-an-ar-admission-stops 6 "" other-set-admission; fi
 # D161: the S1 item-failure line names the set
 case1 s1-fail-names-the-set 1 "probe S1 probe S2" mode-S1=fail
+# D162 (Codex review of 609552a): attempt 2 checks the identity immediately before EVERY baseline load (retries and
+# recovery included); a fault already recorded stays recorded and the outcome NOT QUALIFIED. Any set: a session hang
+# followed by a library change records the fault before stopping.
+if [ $ATT = 2 ]; then
+  case1 id-change-after-baseline-loadfail-stops 2 "probe" mode-probe=loadfail-farf
+  case1 id-change-in-recovery-keeps-fault 3 "probe S1 probe" mode-S1=hang mode-probe=pass,loadfail-farf
+fi
+case1 hang-and-library-changed-keeps-fault 3 "probe S1" mode-S1=hang-farf
 echo "failures: $fails"; exit $fails
