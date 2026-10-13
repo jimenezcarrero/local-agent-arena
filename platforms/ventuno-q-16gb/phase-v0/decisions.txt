@@ -2395,3 +2395,81 @@ D162 (2026-10-12) Codex review of 609552a (PR #54): D160 corrections accepted; a
    exported op/shape pairs pass; the output layer's ops pass alone); "Q4_0 for every tensor" replaced by the loader's
    249 Q4_0 + 177 F32 tensors (llama-quantize --pure Q4_0); the full-offload one-session load failure stated with
    D156's uncertainty (it happened while the disk was filling, not independently confirmed).
+
+D163 (2026-10-12) Owner decision: A32-2 baseline option (b). PR #54 (D158-D162) reviewed and merged as a checkpoint
+   (2e1e8ba). The owner chose plan section 3's option (b): every baseline probe of A32-2 runs the same health-check
+   command on the patched library (~/v0/htp-retry, sha256 aa2ae2a9..., .farf 0x1f), identity checked before every
+   baseline load (D162). This is what v0e_A_retry.sh attempt 2 implements; no code change. Consequence recorded with
+   the choice: A32-2 baseline numbers are taken on the patched library and are not the campaign's release-library
+   reference; a fault in the patched library would show in both the probe and the sessions.
+   Not yet approved: the A32-2 run itself (launch checks, plan section 5, then the owner's go). Upstream texts still
+   NOT FILED. The pre-existing EVIDENCE-recovery exit code (D162) is unchanged.
+
+D164 2026-10-13 A32-2 launched on the owner's go ("Ok go", after Codex's follow-up review of 59fe19e: no findings).
+   The first launch-check pass (09:58) failed health on package drift: unattended-upgrade at 06:20 today upgraded
+   libx11-6, libx11-data, libx11-xcb1 2:1.8.7-1build1 -> 2:1.8.7-1ubuntu0.1 (security update; not the accelerator
+   stack; pkg-linux/bin/llama-server links no X11 library). The 12 apt holds are intact and the package count is
+   unchanged (1,715). As in D87, D101, D119 and D126, the dpkg baseline was reset (previous kept as
+   dpkg-baseline-20261013-pre-unattended.txt), the health check rerun (pass, no drift line) and the driver launched
+   under the declared plan (v0e-plan-A32-2.txt, baseline option (b), D163). Launch checks with both passes:
+   runs/v0e-A32-2/launch-checks.txt (~/v0 and ~/v0/monitor: 94 files compared with 59fe19e tools/, 0 differ;
+   measurement checkout 7badb21 clean; A32 admission GATE PASS; patched library and .farf identity OK; driver output
+   kept in ~/bench-runs/v0/v0d/v0e-A32-2-driver.log).
+
+D165 2026-10-13 V0e A32-2 result (D161 plan, D163 option (b), launched per D164), 10:00-12:05: NOT QUALIFIED (S1 items
+   failed; S2 PASS; no fault). Evidence: runs/v0e-A32-2/ (status, driver log, probes, S1, S2, v0e-compact, pi-smoke,
+   recompute-20261013.txt).
+   Baselines: probe-100004 and probe-102835 PASS on the patched library (identity checked before each load).
+   S1 (24 min): agentic 3/3, tool items 10/10, pi smoke 7/7; compaction PASS for the first time (files estimate
+   23,026, real 10,031 + 10,034 tokens; pi compacted once in turn 2; both code words recalled after it); window FAIL
+   3/4; cache FAIL 0/1. Memory ADMIT, L_min 9,209,914 kB (required 5,588,910); lowest MemAvailable 6.13 GiB; DSP
+   retry events 1.
+   S2 (96 min, 42 cycles): PASS; 42/42 pi smoke; sustained summary VALID (prefill 249.0 -> 245.3 tok/s, -1.5 %;
+   decode 5.7 -> 5.7, -0.8 %; NSP max 46.5 -> 45.7 C); memory ADMIT, L_min 9,223,127 kB; lowest MemAvailable 3.94
+   GiB (reported, not gated; no swap); DSP retry events 3, longest run 1. Kernel audits and memory floors of both
+   probes and both sessions recomputed from the committed monitor export: identical to the driver's.
+   Both S1 failures are defects in the checks, not in the model's behaviour or the stack (diagnosed from the
+   recorded requests, window.jsonl and cache.jsonl): [NARROWED, D166: only failure 1 is a confirmed check defect;
+   failure 2 is a suspected prompt ambiguity or model refusal under the current request, not isolated]
+   1. window, "tool continuation": the model made the near-limit bash call (prompt 31,547 of 32,768) and answered
+      the tool result correctly. The check requires the next prompt >= first prompt + completion_tokens - 64, but
+      completion_tokens (367) includes the reasoning (869 characters), which the chat template does not send back;
+      the prompt grew by 73 tokens (visible content, tool call, tool result). Attempt 1 passed the same check only
+      because its reply was 67 tokens. The check is model-dependent as written.
+   2. cache, turn 1: the 4,096-token budget (D161) let the model finish (1,743 tokens; attempt 1 was cut at 512),
+      but the prompt begins "Run <nonce>. Here is a project document." over this campaign's own documentation, and
+      the model read "Run" as a request to run the benchmark campaign and declined [D166: a hypothesis from its
+      reasoning; not separated from the corpus or other model behaviour] ("I can't run this benchmark
+      campaign...") without calling bash. The nonce exists only to make the fresh-prefix comparison miss the cache.
+   Not changed. Possible corrections (a later attempt, only with the owner's approval and a review): count the
+   prompt growth from what is sent back (visible content, the tool call and the tool result), and replace "Run
+   <nonce>." with a neutral reference line, the bash instruction first. Neither changes what is measured.
+   [D166: the environment evidence of D164 is published in env/.]
+   Monitor publish: one line of the committed 2026-10-12 minute export rewritten (its last minute, 14:09, was
+   partial at the previous export: 4 samples, now 6); every other change is an append. Identifier checks (machine-id,
+   USB serial) clean. Nothing is GO.
+
+D166 2026-10-13 Codex review of 59342f0 (PR #55): evidence verified (audits, memory, sustained summary, all 43 pi smoke
+   sessions, the compaction entry, placement and library, the minute-export change); three P2 findings, addressed:
+   1. Environment evidence of the D164 baseline reset published (tools/publish_env.sh): env/
+      dpkg-baseline-20261013-pre-unattended.txt (the baseline before the reset), dpkg-baseline-current.txt (after it),
+      apt-history.txt (now including the 2026-10-13 06:20 unattended-upgrade), apt-holds-20261013.txt (identical to
+      20261011), manifest.txt. New env/runtime-identity-20261013.txt separates the installed-package change (libx11-6,
+      libx11-data, libx11-xcb1 only; 1,715 packages before and after) from the measured runtime, checked unchanged
+      after the update: kernel 6.8.0-1084-qcom; the release package against its own pkg-linux.sha256 (133 OK, D40);
+      the patched DSP library and .farf (OK); the model's sha256 (matches v0e-plan-A32.txt); every shared library
+      llama-server loads with the run's LD_LIBRARY_PATH (pkg-linux's own, libc6, libstdc++6, libgcc-s1; no X11).
+   2. D165's attribution narrowed (markers added there). Confirmed: the window item's continuation check is wrong for
+      replies with reasoning. Its lower bound 31,547 + 367 - 64 = 31,850 exceeds the valid follow-up prompt (31,620):
+      the test rebuilds the assistant turn from visible content and tool_calls and omits reasoning_content, so
+      completion_tokens cannot stand for prompt growth; prompt + reply (31,729) stayed within 32,768, no truncation.
+      Not confirmed: the cache item's turn 1 ended after 1,743 tokens with no bash call, declining "a benchmark
+      campaign"; its reasoning supports a prompt-interpretation hypothesis ("Run <nonce>" over the campaign's own
+      documentation), but nothing separates that wording from the corpus or other model behaviour, the request did
+      ask for two bash calls explicitly, no reworded control was run, and reuse was never measured. The cache FAIL
+      stands as recorded: a suspected prompt ambiguity or model refusal under the current request. Any fix is a
+      declared amendment, reviewed, and tested against a control before it is said to address this failure.
+   3. PR #55's description now holds the full executed brief (plan at 59fe19e, revision, entry command, server
+      settings, budgets, stop and recovery rules, owner approval, option (b), the drift reset as an environment
+      deviation).
+   Unchanged: A32-2 NOT QUALIFIED; attempt 1 NOT QUALIFIED; nothing is GO; upstream texts not filed.
