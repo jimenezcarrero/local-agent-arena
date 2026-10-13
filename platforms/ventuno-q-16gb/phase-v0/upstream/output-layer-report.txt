@@ -1,5 +1,7 @@
-NOT FILED. Prepared 2026-10-12 for the owner (D161); filing is the owner's decision. Evidence: D145-D156,
-runs/v0q-op, runs/v0p-pi. Claims scoped as in D156 (Codex review of 8265a10).
+NOT FILED. Prepared 2026-10-12 for the owner (D161), updated 2026-10-13 (D167); filing is the owner's decision.
+Evidence: D145-D156, D159, D165, runs/v0q-op, runs/v0p-pi, runs/v0e-A32-2. Claims scoped as in D156 (Codex review of
+8265a10). Duplicate search 2026-10-13 (ggml-org/llama.cpp issues): none found; #29473 is a different fault (HMX
+without FP16 on a v73 SoC; here the MUL_MAT cases pass on v75).
 
 Title: Hexagon: logits wrong for multi-token ubatches when the output layer is offloaded (-ngl 33 vs 32 on a
 qwen35 hybrid 4B, Q4_0); the output layer's ops pass test-backend-ops alone
@@ -7,7 +9,9 @@ qwen35 hybrid 4B, Q4_0); the output layer's ops pass test-backend-ops alone
 Name and version
   build 11381 (836d57176), release package (arm64-linux, Snapdragon toolchain), htp-v75. The DSP library in these runs
   was the release libggml-htp-v75.so rebuilt with one change, a retry on dspqueue_peek errors in htp_main_thread (the
-  #30309 workaround; it touches only that error path). Not yet repeated with the unmodified library.
+  #30309 workaround; it touches only that error path). Not yet repeated with the unmodified library, and not yet
+  retested on current master (1b70350c9, 2026-10-13: 15 commits under ggml/src/ggml-hexagon since 836d57176,
+  among them #29974, matmul and flash-attention scalability updates).
 
 Hardware / OS
   Arduino VENTUNO Q (Qualcomm QCS8275, Hexagon v75, one NPU), Ubuntu 24.04, kernel 6.8.0-1084-qcom.
@@ -50,4 +54,6 @@ Repro (paths shortened)
              --kl-divergence-base cpu.kld --kl-divergence      (and -ngl 32 for comparison)
 
 Workaround
-  -ngl 32 (the output layer stays on the CPU); prompt speed on this board about 26 % lower at 16K.
+  -ngl 32 (the output layer stays on the CPU); prompt speed on this board about 26 % lower at 16K. With it the same
+  server ran a 96-minute sustained session (42 cycles of an 8K prompt plus a pi agent session, 42/42 sessions
+  passing; prompt speed -1.5 % first to last) without a fault.

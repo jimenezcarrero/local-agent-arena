@@ -3,7 +3,7 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D166).
+[`decisions.txt`](decisions.txt) (D1–D167).
 
 **Status (2026-10-11 15:30): the NPU hang is diagnosed (D127: htp_main_thread exits on a dspqueue_peek AEE_ENOMORE)
 and mitigated by a retry patch to the DSP library (D131-D133; upstream ggml-org/llama.cpp#30309). With that library,
@@ -16,7 +16,7 @@ pi diagnostic (D144): pi's first request replayed 20 times per step gets a tool 
 the card's sampling) but 20/20 on the CPU with the same Q4_0 file (and 20/20 with Q4_K_M); same template and sampling:
 a lead that the Hexagon backend's numerics are behind the pi failures. Located (D145-D155): the output layer on
 the NPU (multi-token ubatches; mechanism not identified, corrections D156); with -ngl 32 (output layer on the CPU) pi's request gets a tool call 20/20 and pi
-smoke passes 10/10 (D6), at 272 vs 359 tok/s prompt. A32 (AR with -ngl 32, --cache-ram 5120; v0e-plan-A32.txt, D157) was admitted (gate PASS, 235.7/5.25) but is NOT QUALIFIED at 32768 (D159): S1 failed cache reuse and compaction (in this transcript pi's size estimate stayed under its 20,000-token keep, so no compaction could start; D160), and the baseline probe before S2 hung. The second V0e attempt (A32-2, v0e-plan-A32-2.txt, D161, D163-D165) is also NOT QUALIFIED: compaction now passes and S2 passes (42 cycles, sustained VALID, 42/42 pi smoke, no fault), but S1's window and cache items failed: the window's continuation check is a confirmed defect (it counts reasoning tokens the template does not send back), the cache item's first turn declined to call bash (suspected prompt ambiguity or model refusal, not isolated; D165, D166). Earlier: H2 NOT QUALIFIED (D112-D117, loads), A NOT QUALIFIED on the release library (D118-D120, hang). Nothing is GO.**
+smoke passes 10/10 (D6), at 272 vs 359 tok/s prompt. A32 (AR with -ngl 32, --cache-ram 5120; v0e-plan-A32.txt, D157) was admitted (gate PASS, 235.7/5.25) but is NOT QUALIFIED at 32768 (D159): S1 failed cache reuse and compaction (in this transcript pi's size estimate stayed under its 20,000-token keep, so no compaction could start; D160), and the baseline probe before S2 hung. The second V0e attempt (A32-2, v0e-plan-A32-2.txt, D161, D163-D165) is also NOT QUALIFIED: compaction now passes and S2 passes (42 cycles, sustained VALID, 42/42 pi smoke, no fault), but S1's window and cache items failed: the window's continuation check is a confirmed defect (it counts reasoning tokens the template does not send back), the cache item's first turn declined to call bash (suspected prompt ambiguity or model refusal, not isolated; D165, D166). A third attempt (A32-3: the continuation measured on the server's own serialization, the cache wording compared against a control in a new stage S0 with a rule declared in advance, a recovery probe after a fault ending NOT QUALIFIED) is declared for review (v0e-plan-A32-3.txt, D167). Earlier: H2 NOT QUALIFIED (D112-D117, loads), A NOT QUALIFIED on the release library (D118-D120, hang). Nothing is GO.**
 
 | Set (D85) | 16K median prefill/decode | 8K / 32K median decode | Tools | Memory (lowest margin) | Outcome |
 |---|---|---|---|---|---|
@@ -25,7 +25,7 @@ smoke passes 10/10 (D6), at 272 vs 359 tok/s prompt. A32 (AR with -ngl 32, --cac
 | H: Ornith-1.0-9B, 3 sessions, `--no-host`, `--cache-ram 5364` | r1, r2: 150.3/4.96, 151.8/4.90 | — | not reached | runs admitted (933 MiB) | **stopped: r3 failed to load twice**; 3 of 6 H loads failed to map (D90) |
 | H2: H with a cDSP restart + 30 s settle before every probe and load (root helper, D92–D104) | 151.1/4.95 | 5.55 / 4.31 | 10/10, 3/3 | all runs admitted (884 MiB) | **admitted in attempt 2, 1 fault (r1 hung at 32K in attempt 1): provisionally eligible, restart required** (D109) |
 | AR: A with the retry-patched DSP library (D137-D139), `--cache-ram 7942` | 318.4/8.40 | 9.34 / 7.03 | 10/10, 3/3 | all runs admitted (101,343 kB, tool gate) | **admitted, 0 faults, gate PASS; V0e at 32768 NOT QUALIFIED** (pi tool calls; post-run health floor, cache near its cap) |
-| A32: AR with `-ngl 32` (output layer on the CPU) and `--cache-ram 5120` (D157-D166) | 235.7/5.25 | 5.73 / 4.72 | 10/10, 3/3 | all runs admitted (2,978,227 kB, warm-up) | **admitted, 0 faults, gate PASS; V0e at 32768 NOT QUALIFIED twice** (attempt 1: S1 cache, compaction, baseline probe hung before S2; A32-2: compaction and S2 PASS; S1 window check defective, cache turn 1 no tool call; D165-D166) |
+| A32: AR with `-ngl 32` (output layer on the CPU) and `--cache-ram 5120` (D157-D167) | 235.7/5.25 | 5.73 / 4.72 | 10/10, 3/3 | all runs admitted (2,978,227 kB, warm-up) | **admitted, 0 faults, gate PASS; V0e at 32768 NOT QUALIFIED twice** (attempt 1: S1 cache, compaction, baseline probe hung before S2; A32-2: compaction and S2 PASS; S1 window check defective, cache turn 1 no tool call; D165-D166) |
 
 Per-depth medians (min–max) of the measured repeats, prefill / decode tok/s (D90; H: r1–r2 only; H2: attempt-2
 r1–r3, D109):

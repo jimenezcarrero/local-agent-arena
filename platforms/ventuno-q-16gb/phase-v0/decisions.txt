@@ -2473,3 +2473,29 @@ D166 2026-10-13 Codex review of 59342f0 (PR #55): evidence verified (audits, mem
       settings, budgets, stop and recovery rules, owner approval, option (b), the drift reset as an environment
       deviation).
    Unchanged: A32-2 NOT QUALIFIED; attempt 1 NOT QUALIFIED; nothing is GO; upstream texts not filed.
+
+D167 2026-10-13 A32-3 declared for review (v0e-plan-A32-3.txt). Owner: "Yes and also the upstream text and the
+   recovery probe" (to drafting the amendment). Nothing runs on the NPU until the owner approves it after review.
+   1. Window item, tool continuation (v0e_window.py continuation()): checked against the server's own serialization
+      of the continued conversation (/apply-template with the tools, /tokenize with special tokens, as the chat
+      endpoint parses and tokenizes it; llama.cpp 836d57176 server-context.cpp): prompt_tokens within 4 of it, the
+      call and the result present in it, prompt grown, within the window, not truncated. Replaces the bound
+      first prompt + completion - 64 (confirmed wrong for reasoning replies, D166).
+   2. Cache item wording: turn1() keeps "current" (unchanged, default) and adds "neutral" ("Reference <nonce>.", the
+      task before the document, the document marked as reference material, a closing first-step instruction); the
+      document, tools, budget and checks are identical. New mode "wording" (v0e_wording.sh): turn 1 only, 8 tries per
+      wording, ABBA order, counts and a two-sided Fisher exact p reported. Driver stage S0 (attempt 3 only), a full
+      session with the evidence chain; declared rule: neutral >= 7/8 -> S1 with CACHE_WORDING=neutral; <= 6/8 -> stop
+      before S1 (exit 4). The current wording's count tests the D166 hypothesis but does not decide.
+   3. Recovery-probe outcome (D162 observation): v0d_runner.sh ready() calls an optional PROBE_STOP hook before it
+      stops; v0e_A_retry.sh sets it for every set: with a recorded fault the outcome is "NOT QUALIFIED (faults
+      recorded: N, kept in faults.txt; recovery ended: <reason>)", exit 3; without a fault unchanged.
+   Tests (runs/v0e-A32-3-offline/tests-D167.txt; every ~/v0 copy identical to tools/): test_v0e_window.py 25/25;
+   test_v0e_A_retry.sh SET=AR 37/37, SET=A32 38/38, SET=A32 ATT=2 40/40, SET=A32 ATT=3 48/48 (attempt 3 runs every
+   earlier case with S0 in front, plus the S0 rule and outcome cases); test_runner.sh 23/23, test_admit_entry.sh
+   15/15, test_v0e_A.sh 13/13, test_v0e_H2.sh 13/13, test_v0e_compact.sh 10/10. Test-harness change: the fake
+   journal takes one mode per call from a queue, so attempt 3's journal cases fail S1's journal, not S0's.
+   Upstream texts (upstream/, still NOT FILED or POSTED) updated: duplicate search of ggml-org/llama.cpp issues
+   (none found; #29473 is a different fault: HMX without FP16 on a v73 SoC), a retest on master still owed (15
+   commits under ggml-hexagon since 836d57176; master 1b70350c9), A32-2's 2 h 05 min on the retry library without a
+   hang added to the #30309 comment, and the -ngl 32 sustained session added to the output-layer workaround.
