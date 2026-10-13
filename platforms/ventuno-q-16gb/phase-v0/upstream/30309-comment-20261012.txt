@@ -1,4 +1,4 @@
-NOT POSTED. Prepared 2026-10-12 for the owner (D161), a possible follow-up comment on
+NOT POSTED. Prepared 2026-10-12 for the owner (D161), updated 2026-10-13 (D167), a possible follow-up comment on
 https://github.com/ggml-org/llama.cpp/issues/30309; posting is the owner's decision. Evidence: D159,
 runs/v0e-A32/probe-134304, runs/v0e-A32/npu-stalls/.
 
@@ -10,5 +10,8 @@ Another occurrence on the release libggml-htp-v75.so (836d57176), 2026-10-12, sa
   The same kind of short probe had passed many times before on this board.
   We now run with the DSP library rebuilt with a retry on dspqueue_peek errors in htp_main_thread (log rate-limited,
   short sleep, keep reading). Our watchdog's previous hang was on 2026-10-10 08:03; between then and this one,
-  nothing hung on either library (the release library ran only short health-check probes in that period). A small
-  sample, not evidence that the retry fixes it.
+  nothing hung on either library (the release library ran only short health-check probes in that period).
+  Update 2026-10-13: with the retry library, a further 2 h 05 min on the NPU without a hang: two health-check probes
+  (the same -ngl 99 command that hung above), a 24-minute agent session and a 96-minute sustained session (42
+  cycles). The retry path logged 1 and 3 events (each a single peek error, retried once). Still a small sample, not
+  evidence that the retry fixes it; it does show the error recurring and being survived.

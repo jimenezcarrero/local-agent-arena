@@ -15,6 +15,8 @@ fault() { mkdir -p "$O"; echo "$(date -Is) $1 $2" >> "$O/faults.txt"; say "FAULT
 # ready [now|wait]: baseline probe until PASS (13 tries)
 # PRE_BASE (optional, D162): command run with the probe's label immediately before EVERY baseline load (first try,
 # retries, recovery); it stops the driver itself when its precondition fails. Unset: no change.
+# PROBE_STOP (optional, D167): command run with the reason just before ready() stops the driver (a probe class that
+# stops, or 13 probes without a PASS); it may exit with its own outcome. Unset, or when it returns: no change.
 ready() { local i lab wd0 rc c a
   for i in $(seq 1 13); do [ $i = 1 ] && [ "${1:-wait}" = now ] || sleep $PROBE_WAIT
     lab=probe-$(date +%H%M%S); [ -n "${PRE_BASE:-}" ] && $PRE_BASE $lab; wd0=$(wdcount)
@@ -22,8 +24,8 @@ ready() { local i lab wd0 rc c a
     c=$(classify $O/$lab $rc $wd0); a=$(decide $c 1 probe); say "PROBE $lab: $c -> $a"
     case $a in next) return 0;;
       fault) fault $lab $c; [ -n "${SET_BASE:-}" ] && [ "$(setfaults)" -ge 2 ] && { say "PROBE $lab: second fault in the admission set"; return 3; };;
-      retry_later) ;; *) say "STOP: probe $lab $c"; exit 2;; esac
-  done; say "STOP: NPU not ready after 13 probes"; exit 1; }
+      retry_later) ;; *) say "STOP: probe $lab $c"; [ -n "${PROBE_STOP:-}" ] && $PROBE_STOP "probe $lab $c"; exit 2;; esac
+  done; say "STOP: NPU not ready after 13 probes"; [ -n "${PROBE_STOP:-}" ] && $PROBE_STOP "NPU not ready after 13 probes"; exit 1; }
 # step_once <label> <speed|tools> <depths> <timeout> <cmd...>: one measured run; prints the class
 step_once() { local lab=$1 kind=$2 dep=$3 to=$4; shift 4; local wd0=$(wdcount) rc
   if [ $kind = speed ]; then timeout -k 60 $to $RUN_ROUTE $lab $PH --depths $dep --nctx 40960 -- "$@" > /dev/null 2>&1; rc=$?
