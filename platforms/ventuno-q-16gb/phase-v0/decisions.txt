@@ -2499,3 +2499,26 @@ D167 2026-10-13 A32-3 declared for review (v0e-plan-A32-3.txt). Owner: "Yes and 
    (none found; #29473 is a different fault: HMX without FP16 on a v73 SoC), a retest on master still owed (15
    commits under ggml-hexagon since 836d57176; master 1b70350c9), A32-2's 2 h 05 min on the retry library without a
    hang added to the #30309 comment, and the -ngl 32 sustained session added to the output-layer workaround.
+
+D168 2026-10-14 Codex review of bca94b7 (PR #56): 252 checks reproduced; two P2 findings in the new continuation check,
+   both reproduced offline (no hardware failure), and two requests; addressed:
+   1. P2, complete response evidence: a 200 response with only a matching prompt_tokens (no completion_tokens, no
+      choices) passed, with the reply silently counted as 0. Now the check requires HTTP 200, integer prompt_tokens > 0
+      and completion_tokens >= 0, a non-empty choices list whose first entry has a message and a finish reason in
+      stop/tool_calls/length; anything absent or malformed fails.
+   2. P2, per-component serialization: the code-word count could be met by the assistant's visible text plus the
+      call, with the tool result dropped by a consistent server. Now the tool result carries its own marker
+      (RESULT-<hex>), which must appear exactly once in the serialization and be absent when the tool message is left
+      out; and leaving out the assistant's tool_calls must shorten the serialization and remove a code-word occurrence.
+      The count heuristic is gone.
+   Regressions (test_v0e_window.py, now 38/38): missing completion_tokens, missing/empty choices, missing or invalid
+   finish reason, missing message; the tool result dropped and the call dropped by a consistent server, each with and
+   without the code word repeated in the visible text; the valid long-reasoning case, a visible-text repeat and
+   finish=length still pass. Each negative case was checked to fail on its own condition (VERBOSE=1 prints the detail).
+   3. S0 readings narrowed (plan section 2, driver comment): a stop below 7/8 is a stop by policy, not a finding that
+      neither wording can pass; both-high does not rule out a smaller stochastic effect; both-low is infrequent calls
+      in these trials, not by itself a refusal. The wording mode now reports each try's outcome (call, stop without a
+      call, length without a call, other finish without a call, incomplete) and counts declining visible text as a
+      pattern, separately per wording; only the call count enters the rule.
+   4. PR #56's description carries the full execution brief (phases and caps, configuration and identities, launch
+      checks, stop and recovery, approval boundary).
