@@ -5,7 +5,7 @@ set -uo pipefail
 H=$(cd "$(dirname "$0")" && pwd); T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p $T/bin
 # fake pi: reply with the code word(s) of the files it was asked about; on the second turn write a compaction entry
-# unless FAKE_NOCOMPACT=1; FAKE_FAIL_TURN=<n> makes that turn exit 1. Counts its calls in $T/picalls.
+# unless FAKE_NOCOMPACT=1; FAKE_FAIL_TURN=<n> makes that turn exit 1; FAKE_NORECALL=1: turn 3 gives b.txt's word only. Counts its calls in $T/picalls.
 cat > $T/bin/pi <<'EOF'
 #!/bin/bash
 sd=""; p=""; while [ $# -gt 0 ]; do case $1 in --session-dir) sd=$2; shift;; -p) p=$2; shift;; esac; shift; done
@@ -14,7 +14,7 @@ n=$(( $(cat $FAKE_T/picalls 2>/dev/null || echo 0) + 1 )); echo $n > $FAKE_T/pic
 cw() { grep -oE 'CODE-[0-9]+-[A-Z]+' $1 | tail -1; }
 echo '{"type":"message","message":{"role":"user"}}' >> $sd/s.jsonl
 [ $n = 2 ] && [ "${FAKE_NOCOMPACT:-0}" != 1 ] && echo '{"type":"compaction","summary":"x"}' >> $sd/s.jsonl
-case $p in *both*) echo "$(cw a.txt) $(cw b.txt)";; *a.txt*) cw a.txt;; *b.txt*) cw b.txt;; esac
+case $p in *both*) if [ "${FAKE_NORECALL:-0}" = 1 ]; then cw b.txt; else echo "$(cw a.txt) $(cw b.txt)"; fi;; *a.txt*) cw a.txt;; *b.txt*) cw b.txt;; esac
 EOF
 chmod +x $T/bin/pi
 # fake token counter: FAKE_TOK tokens per file, or a failure when FAKE_TOK=fail
@@ -43,6 +43,8 @@ case1() { local name=$1 want=$2 text=$3 calls=$4; shift 4; i=$((i+1))
 case1 pass 0 "compaction PASS" 3
 case1 no-compaction 1 "compaction FAIL (pi turns failed 0/3, compactions 0" 3 FAKE_NOCOMPACT=1
 case1 pi-turn-fails 1 "compaction FAIL (pi turns failed 1/3" 3 FAKE_FAIL_TURN=1
+# D171: recall after the compaction is gated
+case1 recall-missing-fails 1 "compaction FAIL (pi turns failed 0/3, compactions 1, context rejections 0; code words: turn1 yes, turn2 yes, recall after compaction no" 3 FAKE_NORECALL=1
 case1 real-too-low 1 "INVALID (precondition: real tokens 16000 outside [16500, 28000])" 0 FAKE_TOK=8000
 case1 real-too-high 1 "INVALID (precondition: real tokens 29000 outside [16500, 28000])" 0 FAKE_TOK=14500
 case1 real-at-lower-bound 0 "compaction PASS" 3 FAKE_TOK=8250
