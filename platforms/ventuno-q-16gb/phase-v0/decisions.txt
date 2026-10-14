@@ -2522,3 +2522,52 @@ D168 2026-10-14 Codex review of bca94b7 (PR #56): 252 checks reproduced; two P2 
       pattern, separately per wording; only the call count enters the rule.
    4. PR #56's description carries the full execution brief (phases and caps, configuration and identities, launch
       checks, stop and recovery, approval boundary).
+
+D169 2026-10-14 V0e A32-3 result (v0e-plan-A32-3.txt, D167-D168; owner: "Ok go A32-3"), 07:30-10:20: NOT QUALIFIED
+   (S1 items failed; S0 PASS, S2 PASS; no fault). Evidence: runs/v0e-A32-3/ (launch checks, status, driver log, three
+   baseline probes, S0, S1, S2, v0e-compact, pi-smoke, recompute-20261014.txt).
+   Launch: 95 deployed files compared, 0 differ; measurement checkout 7badb21 clean; A32 admission still latest and
+   passing. The unattended linux-libc-dev upgrade at 06:50 (before launch) went through the D164 procedure: dpkg
+   baseline reset, the previous baseline kept as env/dpkg-baseline-20261014-pre-unattended.txt, env/ republished. No
+   package changed during the run (installed list identical to env/dpkg-baseline-current.txt afterwards).
+   Baselines: probe-073041, probe-081326, probe-084311 PASS on the patched library (identity checked before each load).
+   S0 (38 min, cache wording): PASS, 16/16 complete requests. current 5/8 (call 5, stop without a call 3, declining
+   text 3), neutral 8/8 (call 8); Fisher two-sided p = 0.2 (reported, not a check). Rule: neutral >= 7/8 -> S1 with
+   the neutral wording. Reading, limited to these 16 trials: consistent with a wording effect, not shown at
+   conventional significance. One current-wording call (try 12) ran "cd ~/Repositories/local-agent-arena && ls -la"
+   rather than "cat out1.txt"; the rule counts a bash call with an id, so it counts. Memory ADMIT, L_min 9,338,558 kB;
+   lowest MemAvailable 4.23 GiB; DSP retry events 1, longest run 1.
+   S1 (26 min): stream probe 10/10, agentic 3/3, pi smoke 7/7, compaction PASS (files estimate 23,026, real 20,064;
+   one compaction; both code words recalled after it); window FAIL 3/4; cache FAIL 3/5 (the neutral wording's turn 1
+   called bash). Memory ADMIT, L_min 9,370,413 kB; lowest MemAvailable 5.74 GiB; DSP retry events 0.
+   S2 (97 min, 41 cycles): PASS; 41/41 pi smoke; sustained summary VALID (prefill 252.3 -> 243.6 tok/s, -3.5 %; decode
+   5.8 -> 5.6, -3.3 %; NSP max 46.7 -> 47.0 C); memory ADMIT, L_min 8,873,411 kB; lowest MemAvailable 3.61 GiB
+   (reported, not gated; no swap); DSP retry events 0.
+   Kernel audits and memory floors of the three probes and three sessions recomputed from the committed monitor
+   export: identical to the driver's.
+   The two S1 failures (diagnosed from window.jsonl, cache.jsonl and the server log):
+   1. window, "tool continuation" - a defect in the D168 check (confirmed from the recorded request and response).
+      The ablation "tool message left out" serializes msg[:-1], a conversation ending in the assistant's tool call;
+      llama-server's /apply-template refuses that with HTTP 400 "Cannot continue an assistant message that contains
+      tool calls." (recorded in window.jsonl), so "result serialized" reads no. Everything else the check measures
+      passed: HTTP 200 complete response; server prompt 31,627 = the serialized continuation 31,627; the call
+      serialized; the result marker present exactly once in the full serialization; the prompt grew from 31,549;
+      total 32,001 of 32,768; finish stop, no truncation; the reply used the tool result. The offline mock accepted
+      a trailing assistant tool call, so the tests did not see it. A correct ablation keeps the tool message and
+      swaps its marker for a second one (the first absent, the second present).
+   2. cache, turns 2 and 3: cache_n = 0 (previous prompts 8,434 and 10,502); the server logged "forcing full prompt
+      re-processing due to lack of cache data (likely due to SWA or hybrid/recurrent memory)" (28 times in S1). The
+      model is hybrid recurrent (qwen35) and A32 runs with --ctx-checkpoints 0 (checkpoints crashed on the NPU in
+      D43: "HTP0:0 synchronize failed: dsp-error NO-SUPPORT" while saving the state). Without a checkpoint the server
+      cannot restore the recurrent state at a shared prefix, so the reuse checks cannot pass in this configuration
+      whatever the wording. Suspected as the whole cause from the log and the configuration, not isolated by a run
+      with checkpoints on. Attempts 1 and 2 had the same configuration; their cache failures were attributed to
+      other causes (turn-1 budget, wording) that hid this one.
+   Not changed. A32's qualification at 32768 now needs an owner decision on the cache item: (a) keep prefix reuse
+   as a requirement, which needs a configuration that can save the recurrent state (recurrent state on the CPU, or
+   a Hexagon state read-back; neither tested); or (b) re-declare the item to measure the re-read cost (effective
+   prefill over the whole prompt: 238 and 235 tok/s at turns 2 and 3). The window ablation is fixed either way
+   before any further attempt. Nothing is GO.
+   Monitor publish: one line of the committed 2026-10-13 minute export rewritten (its last minute, 12:06, was
+   partial at the previous export: 4 samples); every other change is an append. Identifier checks (machine-id, USB
+   serial) over platforms/ventuno-q-16gb: none.
