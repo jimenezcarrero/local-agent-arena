@@ -1,0 +1,55 @@
+# D170 offline tests, 2026-10-14T14:18:00+02:00, tools at the working tree. v0e_window.py changed (result ablation); deployed ~/v0 copy NOT updated (D169 run used 630c8d5)
+## test_v0e_window.py (D170)
+ok   all-good (rc 0, want 0)
+ok   fresh cache_n missing (rc 1, want 1)
+ok   fresh cache_n a string (rc 1, want 1)
+ok   turn 2 cache_n missing (rc 1, want 1)
+ok   turn 3 cache_n a string (rc 1, want 1)
+ok   turn 2 usage missing (rc 1, want 1)
+ok   fresh usage missing (rc 1, want 1)
+ok   fresh prefill 0 (rc 1, want 1)
+ok   turn 3 low reuse (rc 1, want 1)
+ok   no tool call at turn 2 (rc 1, want 1)
+ok   tool call without id (rc 1, want 1)
+ok   fresh http 500 (rc 1, want 1)
+ok   cache all-good, neutral wording (rc 0)
+ok   cache unknown wording refused
+ok   wording counts (rc 0, want 0)
+ok   wording outcomes by category (rc 0, want 0)
+ok   wording declining text counted (rc 0, want 0)
+ok   wording counts a missing call (rc 0, want 0)
+ok   wording http 500 incomplete (rc 1, want 1)
+ok   wording usage missing incomplete (rc 1, want 1)
+ok   continuation with a long reasoning reply passes (A32-2 shape)
+ok   continuation passes with the code in the visible text too
+ok   continuation passes with finish=length
+ok   continuation: server prompt differs from the serialization
+ok   continuation: tool result dropped, server consistent
+ok   continuation: tool result dropped, code repeated in the visible text
+ok   continuation: call dropped, server consistent
+ok   continuation: call dropped, code repeated in the visible text
+ok   continuation: completion_tokens missing
+ok   continuation: choices missing
+ok   continuation: choices empty
+ok   continuation: finish_reason missing
+ok   continuation: finish_reason invalid
+ok   continuation: message missing
+ok   continuation: over the window
+ok   continuation: truncated
+ok   continuation: http 500
+ok   continuation: apply-template unavailable
+ok   continuation: template ignores the tool result (fixed text), server consistent
+ok   continuation: template ignores the tool result, code repeated in the visible text
+ok   mock: conversation ending in an assistant tool call -> 400 as the server
+ok   mock: two assistant messages at the end -> 400 as the server
+ok   mock: conversation ending in a tool message is served
+failures: 0
+
+## the D168 checker (v0e_window.py at 3b9b5c8) against the D170 test file: its valid continuations fail as in A32-3 S1
+FAIL continuation with a long reasoning reply passes (A32-2 shape)
+     FAIL  tool continuation: http=200 complete response: yes, prompt=30134 (serialized continuation 30134; first prompt 30077, its reply 367 incl. reasoning), call serialized: yes, result serialized: no, reply=60 total=30194 of 32768, finish=stop, cache_n=0
+FAIL continuation passes with the code in the visible text too
+     FAIL  tool continuation: http=200 complete response: yes, prompt=30133 (serialized continuation 30133; first prompt 30077, its reply 367 incl. reasoning), call serialized: yes, result serialized: no, reply=60 total=30193 of 32768, finish=stop, cache_n=0
+FAIL continuation passes with finish=length
+     FAIL  tool continuation: http=200 complete response: yes, prompt=30134 (serialized continuation 30134; first prompt 30077, its reply 367 incl. reasoning), call serialized: yes, result serialized: no, reply=60 total=30194 of 32768, finish=length, cache_n=0
+failures: 3
