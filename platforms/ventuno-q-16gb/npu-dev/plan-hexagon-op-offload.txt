@@ -1,6 +1,7 @@
 Developer plan: faster prompt reading for LFM2.5-24B-A2B on the Ventuno Q NPU (resident Q2_K, and Hexagon "op offload")
-Revision 2, 2026-10-14. Revision 1 (c4be600) was declared for review on 2026-10-14; this revision answers Codex's review
-of c4be600 (seven findings, section 10) and adds what my own re-review found missing (section 11). Owner: "let's PR a
+Revision 3, 2026-10-14. Revision 1 (c4be600) and revision 2 (077e32b) were reviewed by Codex the same day; this revision
+answers the review of 077e32b (four inline findings and five requests) and Codex's placement correction (section 12).
+Revision 2's answers to the first review are in section 10, my own additions in section 11. Owner: "let's PR a
 complete developer plan that codex can review for the NPU improvements" and "Review PR57, think in how to improve the
 plan and if there is something still missing" (2026-10-14).
 This is development work, separate from the V0 campaign: nothing here changes the campaign's measured package,
@@ -56,26 +57,59 @@ on the NPU until the owner approves this plan after review, and again before eac
      IQ types (unsloth UD-Q3_K_XL: IQ3_XXS/IQ4_XS; UD-Q2_K_XL: IQ2_XS/IQ3_XXS; AtomicChat AD-IQ3_XXS/IQ3_M); Liquid's repo
      has Q4_K_M 14.5 GB, QAD-Q4_0 13.6 GB and larger. A file with NPU-type experts must be made with llama-quantize.
   F7 Memory: 16 GB board, MemTotal ~14 GiB, ~13 GB available idle. CPU and NPU share DRAM.
-  F8 CPU: 4 x Cortex-A78C 2.36 GHz + 4 x A55; asimddp, no i8mm, no SVE. llama.cpp's CPU repack buffer (CPU_REPACK;
+  F8 CPU (sysfs cpuinfo_max_freq and /proc/cpuinfo on the board, 2026-10-14): cpu0-1 Cortex-A78C up to 2.112 GHz
+     (cpufreq policy0), cpu2-3 Cortex-A78C up to 2.3616 GHz (policy2), cpu4-7 Cortex-A55 up to 1.9584 GHz (policy4); the
+     four A78C cores do not share one maximum. asimddp, no i8mm, no SVE. Every run records the governor and the
+     per-policy frequencies before and after. llama.cpp's CPU repack buffer (CPU_REPACK;
      ggml-cpu/repack.cpp:4974-5072: Q4_0, Q4_K, Q2_K, Q5_K, Q6_K, IQ4_NL, Q8_0 by CPU feature) has no is_host
      (:5248), so the scheduler does not offload from it (F2).
-  F9 Known defect to keep out of the way: NeoHorse logits depart from the CPU when the output layer is placed on Hexagon,
-     although its isolated ops pass (campaign D154-D156). -ngl 32 in the campaign's A32 configuration is a mixed
-     placement (output layer on the CPU), not full-NPU placement.
+  F9 Campaign observation, corrected (campaign D170, Codex review of the campaign's 3b9b5c8): NeoHorse's logits depart
+     from the CPU at full offload with multi-token ubatches (KLD 0.817) and are near the CPU with -ngl 32 (0.0024) or
+     -ngl 16 (0.00028). On the pinned loader -ngl 32 puts block 0 on the CPU and blocks 1-31 AND the output layer on the
+     NPU (i_gpu_start = n_layer_all + 1 - ngl; tied token_embd duplicated as the OUTPUT tensor), so the output layer
+     was on the NPU in every arm; the earlier "output layer" localization is withdrawn, no mechanism is localized, and
+     this plan assumes none. A32 is a measured mixed placement (block 0 on the CPU), not a known-good calibration
+     reference and not an output-on-CPU configuration.
+  F10 Master's copy boundary (af0579c78, 2026-10-14T06:23:44Z). ggml-backend.h:320-327: ggml_backend_sched_copy_callback
+     (backend, src, dst, graph, user_data), called only for input weights in host buffers, after all non-weight inputs
+     of the split are copied; returning false makes the scheduler copy the whole weight. ggml-backend.cpp:1886-1896
+     copies non-weight inputs first, then host weights; :1847-1849 calls the callback; on false, :1854 tries
+     cpy_tensor_async and falls back to ggml_backend_tensor_copy. llama-context.cpp:711 installs sched_copy_experts;
+     :2762-2843: if the split's first node is MUL_MAT_ID on dst, it reads the ids with ggml_backend_tensor_get_async +
+     synchronize (:2791), builds the used-expert set once per ids tensor (reset per graph compute, :2750), and writes
+     runs of used experts with ggml_backend_tensor_set_async at raw offsets plus up to 512 bytes of padding (:2834);
+     the MoE cache is asked first (:2766). Hexagon on master: cpy_tensor_async handles Hexagon-to-Hexagon only
+     (:9020-9046), so a CPU weight reaches set_tensor; set_tensor_async is the synchronous set_tensor (:9160-9165);
+     Hexagon buffers report is_host false (:2876-2879). (Master line numbers; fetched read-only.)
+  F11 Master's MoE cache (llama-moe-cache.cpp, --moe-cache-mib, default 0 = off): per-layer expert banks in a device
+     buffer, sized from the raw expert stride (GGML_PAD(nb[2] * (n_slots + 1)), :275), filled with set_tensor_async at
+     raw slot offsets (:568) and copied into the split's copy with ggml_backend_tensor_copy_async views (:503-507); for
+     small batches a slot map lets the graph read cached experts directly (:612). It disables pipeline parallelism
+     (llama-context.cpp:523). Its raw-stride banks and views have not been checked against Hexagon's tiled layout
+     (F4); an opportunity, not shown to work with Hexagon.
+  F12 LFM2.5 has tied embeddings: no output.weight; token_embd.weight (Q8_0, 2048 x 128000) is created again as the
+     OUTPUT tensor (header of the Hub file, 40 blocks). -ngl all therefore puts the output projection on the NPU;
+     keeping it on the CPU needs -ot token_embd.weight=CPU (both copies; the campaign loaded NeoHorse that way, D84).
 
 2. Goals and gates (all measured; none assumed from estimates)
-  G1 Numerically sound: teacher-forced per-position comparison against the matched CPU arm (section 5, T3) within
-     tolerances calibrated before the run; all outputs finite.
+  G1 Backend parity (numerics of the NPU path, not model quality): teacher-forced per-position comparison of the NPU
+     arm against the matched same-file CPU arm, identical token ids and positions (T3a), within the fixed thresholds of
+     section 5; all outputs finite.
   G2 Faster: fresh prompt reading >= 2x the best matched CPU arm on the same file, at depth 0 and 8192 (end-to-end
      llama-bench pp512 and server time to first token on a fresh prefix; reported separately).
-  G3 Writing not slower: tg128 within 5% of the best matched CPU arm.
-  G4 Agent behaviour not worse on fresh prefixes (T5), as a screening result, not a reliability claim.
+  G3 Writing not slower: tg128 >= 95 % of the better matched CPU arm (faster passes).
+  G4 Agent screening on fresh prefixes (T5), with the numeric rule of section 5; a screening result, not a reliability
+     claim.
   G5 Safe: no DSP fault, hang, kernel error or memory floor breach in any accepted run (section 7).
   G6 Off by default (Track O): with the opt-in unset or 0, the graph's backend assignment and the outputs are identical
      to the unpatched build at the same commit.
+  G7 Model quality of a candidate file (M2, M3), screened on the x86 host before any NPU stage that uses it (T7): the
+     quantized file on the CPU against REF (Q8_0), plus the agent-task rule. A separate gate from G1: a file can match
+     its own CPU run perfectly and still be poor, and CPU repeatability says nothing about quantization loss.
   Feasibility rule (Track O): the early decision uses a measured range, not a point estimate (section 4, A2). Track O
   stops before NPU time only if the optimistic bound of that range is below 2x; if the range straddles 2x, an
-  owner-approved small probe (stage C1) resolves it. Track R stops if the file does not fit (R1) or quality fails (R3).
+  owner-approved small probe (stage C1) resolves it. Track R stops if the file does not fit (R1) or fails G7 (T7, before
+  R2), or G1 fails on the NPU (R3).
 
 3. Common foundations (before either track)
   K1 Code base: a pinned recent master commit (recorded with its date), not 836d57176. Reasons: Q2_K at file size
@@ -86,21 +120,33 @@ on the NPU until the owner approves this plan after review, and again before eac
      pkg-<track>-<commit8>; manifest with the sha256 of every file. Two packages per commit: unpatched (control) and
      patched (Track O). For Track O the patched and unpatched libggml-htp-v*.so must be byte-identical (host-side
      change only). Installed only under ~/npu-dev/<pkg> on the board; never ~/v0/hexpkg, ~/v0/llama.cpp, ~/v0/measure.
-  K3 Models (made on the x86 host from Liquid's BF16 GGUF, sha256 recorded; header checked with
-     exploratory-lfm25-cpu/gguf_tensor_types.py so that every expert tensor is an NPU type):
+  K3 Models (made on the x86 host from Liquid's BF16 GGUF, sha256 recorded; header checked so that every expert tensor
+     is an NPU type):
        M2 = llama-quantize Q2_K (default mix; experts Q2_K, some tensors Q3_K/Q4_K/Q6_K), ~8 GB file;
        M3 = llama-quantize Q3_K_S, ~10.5 GB file;
        REF = Q8_0 (25.5 GB), kept on the x86 host only, used to produce reference logits (T3).
-     Record for each: tensor names, shapes and types (the header dump), file size, sha256.
+     Record for each, before any fit decision: the complete tensor table (name, shape, type, file bytes, and the NPU
+     allocation each tensor gets under the pinned master rule: get_alloc_size and the per-type tile sizes, with
+     file:line), file size, sha256. tools/gguf_tensor_table.py (new, R1) produces it; exploratory gguf_tensor_types.py
+     prints grouped type counts only and is not enough.
   K4 Matched arms for every comparison (same file, same commit, same threads, sampling, context, batch/ubatch,
      cache settings; each recorded):
        CPU-A release-equivalent CPU (unpatched package, CPU backend only, normal CPU repack);
        CPU-B unpatched package, CPU only, --no-repack (the CPU half of an offload run);
-       NPU-R Track R: all layers resident on the NPU, output layer on the CPU;
+       NPU-R  Track R: -ngl all, every block and the output projection resident on the NPU (F12);
+       NPU-R' Track R, separately declared: as NPU-R with -ot token_embd.weight=CPU (output projection on the CPU);
        NPU-O Track O: patched package, weights on the CPU, offload on, --no-repack.
      The 2x gate (G2) and the decode gate (G3) compare against the better of CPU-A and CPU-B.
-  K5 Corpus and commands frozen before any NPU stage: the text for T3 (hash recorded), pi request files (hashes),
-     every command line, env var and server flag, in a commands file committed before the stage runs.
+  K5 Pre-stage manifest, committed before the stage runs, with every identity pinned: master commit and date;
+     toolchain image id; package manifests (sha256 of every file, patched and unpatched); model files (M2, M3, REF:
+     sha256 and tensor tables); reference logits files (sha256, token-id file, positions); the T3 text and token ids;
+     pi request files and the expected-tool table of T5 (hashes); every command line, env var and server flag; the
+     thresholds of section 5. Nothing in it changes after the first NPU result of the stage.
+  K7 Placement verified per run by op role and weight identity, not by -ngl: the loader's per-layer assignment and
+     buffer sizes (-lv debug) checked against the tensor table (the campaign's placement_from_gguf.py rule, D170), and
+     the scheduler's split assignment (GGML_SCHED debug) for named roles: the output projection (the OUTPUT-role
+     MUL_MAT whose src0 is token_embd.weight for tied models), the first and last blocks, and every offloaded MUL_MAT /
+     MUL_MAT_ID. A run whose recorded placement differs from its declared arm is invalid.
   K6 Disk budget: stage a model only when free space >= model + 2 GB logs + the campaign's 10 GB reserve, i.e. ~20 GB
      for M2 and ~23 GB for M3 (today 14 GB free with the campaign's A32 files). Remove the model after the stage unless
      the owner keeps it. Never during a campaign session.
@@ -109,34 +155,51 @@ on the NPU until the owner approves this plan after review, and again before eac
   D1 Hook ggml_backend_hexagon_device_offload_op(dev, op) returns true only if all hold:
        - GGML_HEXAGON_OP_OFFLOAD=1 (unset or 0 = off; G6);
        - op is MUL_MAT (prototype phase O1) or MUL_MAT_ID (phase O2, after D3 passes its tests);
-       - src0 is a repack type and is not on the deny list: output.weight and token_embd.weight when used as the output
-         projection (F9); the deny list matches GGUF weight names, which are stable model metadata (unlike scheduler
-         copy names), and the placement is verified per run from the scheduler's debug output;
+       - src0 is a repack type and is not on the deny list: the output projection (output.weight, or token_embd.weight
+         in its OUTPUT role for tied models, F12). Reason: cost (a 128000-row weight copied per ubatch for a matmul
+         whose server batch is usually 1 output row) and the unresolved full-offload divergence (F9), not a localized
+         fault; offloading it is a separately declared experiment. Matched by weight identity and op role, verified per
+         run (K7);
        - batch >= GGML_OP_OFFLOAD_MIN_BATCH (default 32), defined as in CUDA (F2);
        - the tiled copy fits the session's remaining VA and the declared staging budget (D4); otherwise false.
-  D2 Copy identity and repack (answers Codex Q1 and finding 2). No name or INPUT-flag inference.
+       Preferred route (A1 decides, F10): the explicit copy boundary of master's scheduler copy callback, not D2's
+       address-range inference. The callback is installed by llama_context (sched_copy_experts); a Hexagon-aware path
+       composes with it (the MoE cache first, then the expert runs, then the full-copy fallback when it returns false),
+       never replaces it silently. The backend learns the epoch and the routed set either from a small backend
+       function the composed callback calls (looked up through the registry's proc-address table) or by reading the
+       ids itself (D3). D2's address-range lookup remains the fallback if A1 finds a copy path the callback does not
+       cover.
+  D2 Copy identity, copy epochs and repack (answers Codex Q1, finding 2 of the first review, and the copy-epoch finding
+     of the second). No name or INPUT-flag inference.
        - When offload_op accepts an op, the session records an offload source entry: source weight pointer, its data
          range [data, data + nbytes), type, shape and nb, and a role (dense or expert tensor).
+       - Copy epoch: one epoch per (destination, copy of one split input). It opens at the first weight write into the
+         destination after the epoch was closed (or at the composed callback's begin call, F10), and every range write
+         of that copy joins it; it closes at dispatch. A new epoch opens on the next copy into the destination, and
+         all coverage is dropped when the destination's buffer is reassigned or the graph is reallocated.
+       - Per-write versions are separate from the epoch: each write gets a version number for tracing, but validity is
+         decided per epoch from its accumulated coverage (dense: byte ranges; expert tensors: per-expert bits, D3).
        - Hexagon set_tensor on a non-WEIGHTS buffer looks up the source range that contains [data, data + size). On a
-         match with the destination's type and shape, the write is a weight copy: it is repacked into the tiled layout
-         at the translated tiled offset (D3), and the destination gets a tiled-valid state for the current write
-         generation. Any write that does not match marks the destination raw.
-       - Every write increments the destination's write generation; there is no permanent "already repacked" flag.
-       - At dispatch, a MUL_MAT/MUL_MAT_ID whose src0 is a repack type in a non-WEIGHTS buffer must be tiled-valid for its
-         current generation (and, for MUL_MAT_ID, every used expert valid; D3); otherwise the backend aborts the graph
-         with an error (fail closed), never computes on raw data.
+         match with the destination's type and shape, the write is a weight copy: it is repacked at the translated
+         tiled offset and its range added to the epoch's coverage. A write that does not match (a partial or unknown
+         write) removes every intersected range, or every intersected expert, from the coverage.
+       - At dispatch, a MUL_MAT whose src0 is a repack type in a non-WEIGHTS buffer needs full coverage in the current
+         epoch; a MUL_MAT_ID needs every routed expert covered (D3). Otherwise the backend aborts the graph with an
+         error (fail closed) and never computes on raw or stale data.
        - The table is cleared when the session's graph is rebuilt; entries do not outlive the source buffer.
-       Repack-at-use is kept only as a fallback design if the source-range lookup proves unreliable in A1; it would
-       carry the same generation rule and an accounted scratch buffer.
+       Repack-at-use is kept only as a fallback design if neither the callback boundary nor the source-range lookup is
+       reliable in A1; it would carry the same epoch rule and an accounted scratch buffer.
   D3 MUL_MAT_ID range writes (finding 1). The scheduler writes runs of used experts at raw offsets with up to 512 bytes
      of padding into the next expert (F2). Phase O2 handles this explicitly:
        - expert index from the raw offset (offset / nb[2]); each fully covered expert is repacked into its tiled slice
          at id * tiled_expert_size; bytes of padding that spill into a following expert are ignored for that expert;
-       - per expert, a tiled-valid bit for the current write generation. The dispatch check (D2) requires the bit for
-         every expert id the op routes to. The host has those ids only if it reads the ids tensor: the scheduler
-         already reads and synchronizes them for its copy (F2), so A1 decides whether the check reuses that read or
-         reads the ids itself (a cost T4 measures). Without the ids, the weaker check (every written expert fully
-         covered) is declared as such, not as the routing check;
+       - per expert, a covered bit in the current epoch (D2). The dispatch check requires the bit for every expert id
+         the op actually routes to, read from the routing ids of this dispatch. Sources, in A1's order of preference:
+         the used set that the composed copy callback already computed from the ids (F10), handed to the backend with
+         the epoch; or the backend reads the ids tensor itself before dispatch (Hexagon buffers are not host buffers,
+         so this is a get_tensor with a synchronize; T4 measures its cost); or a verified whole-tensor copy (the
+         callback returns false, D2's dense rule). If none of these is available, MUL_MAT_ID is not offloaded. There
+         is no weaker "every written expert" check: it cannot show that every routed expert was written;
        - Q3_K/Q2_K repack helpers that assume offset 0 and whole tensors (they clear a whole slice) are wrapped per
          expert slice; no concurrent calls into the same slice.
      Until O2's tests pass, MUL_MAT_ID is not offloaded (phase O1 is dense MUL_MAT only).
@@ -147,17 +210,23 @@ on the NPU until the owner approves this plan after review, and again before eac
   D5 Repack speed. Measured first (A2). If parallelised, partition by disjoint tiles/expert slices, clearing Q3_K/Q2_K
      destinations once per slice.
   D6 Placement for runs: weights on the CPU (-ngl 0, or -ngl all with --override-tensor keeping matrix weights on the
-     CPU and the rest resident), --no-repack (F8), output layer on the CPU. Exact lines frozen per K5.
+     CPU and the rest resident), --no-repack (F8), the output projection not offloaded (D1). Exact lines frozen per K5;
+     the resulting placement verified per run (K7).
   D7 Options after O1/O2 work (each a separate, budgeted experiment):
        - a bounded resident cache of small or hot weights, sized from measured reuse;
        - CPU repack kept for tensors that are never offloaded, if --no-repack measurably hurts decode;
        - an allowlist of dense ops on the original IQ3_XXS file (experts stay on the CPU), a same-file experiment that
          needs no new quantization; its gain is unknown and probably small (experts are ~96% of the weights).
   Offline stages (no NPU; the board idle and no campaign session, or the x86 host where stated):
-    A1 Trace and record (file:line, at the pinned master commit): how split inputs are created, allocated and reused
-       (ggml-alloc), which copy paths reach the Hexagon buffer (ggml_backend_tensor_copy -> set_tensor; set_tensor_async;
-       cpy_tensor), the MUL_MAT_ID range-copy path, and how the scheduler starts new splits for offloaded weights.
-       Settle D2's lookup and D4's peak with references.
+    A1 Trace and record (file:line, at the pinned master commit, which is the commit of K1 and F10): how split inputs are
+       created, allocated and reused (ggml-alloc), which copy paths reach the Hexagon buffer (the copy callback and its
+       full-copy fallback, ggml_backend_tensor_copy -> set_tensor, set_tensor_async, cpy_tensor_async, set_tensor_2d),
+       the MUL_MAT_ID path through sched_copy_experts, the MoE cache path (F11), and how the scheduler starts new splits
+       for offloaded weights. Decide: the epoch boundary (callback or address range), the routed-set source (D3), and
+       how a Hexagon-aware callback composes with llama_context's. Settle D4's peak with references.
+    A1b MoE cache audit (offline): bank sizing and views (raw nb[2] stride) against Hexagon's get_alloc_size and tiled
+       expert slices; whether its copy_async views and slot maps can be made layout-aware. --moe-cache-mib stays 0 in
+       every baseline and test arm until this audit and a separately declared test say otherwise.
     A2 Repack and copy cost on the target ARM cores (the board, idle): a harness built from the pinned source's repack
        functions, on real M2/M3 tensor data (read from the GGUF on the x86 host, a few tensors copied to the board, or a
        synthetic tensor with the same type and shape), measuring: source-read bandwidth (cold mmap and warm page cache),
@@ -168,10 +237,16 @@ on the NPU until the owner approves this plan after review, and again before eac
     A3 Code D1-D3 on a branch of a fork at the pinned commit, host side only, with host timers and byte counters
        (bytes read, bytes written tiled, repack time, copy time, sync time) printed per graph at a verbose level.
     A4 Offline tests without the NPU (x86 host or board, CPU only, using the backend's host-side code with a mocked
-       session where possible): the D2 lookup and generation rules (matching copy, non-matching quantized input such
-       as a Q8_0 KV view, rewritten input, address reuse across graphs), the D3 expert translation (sparse,
-       nonconsecutive and changing ids, overlapping padding, repeated graphs), threshold boundaries (batch 1, 31, 32, 33),
-       and the opt-in states (unset, 0, 1, with and without --no-op-offload).
+       session where possible), run before any device probe: the D2 lookup and epoch rules (matching copy,
+       non-matching quantized input such as a Q8_0 KV view, rewritten input, address reuse across graphs, buffer
+       reassignment); copy-epoch and coverage cases: a two-range copy (experts {0,1} then {8,9}) in one epoch passes;
+       a routed expert omitted from the written ranges fails; data left from the previous epoch fails; a partial or
+       unknown write over a covered expert fails; padding that spills into the next expert does not cover it; the D3
+       expert translation (sparse, nonconsecutive and changing ids, repeated graphs); the composed callback (MoE cache
+       off, expert runs, full-copy fallback when it returns false); threshold boundaries (batch 1, 31, 32, 33); the
+       opt-in states (unset, 0, 1, with and without --no-op-offload); and, on the host CPU with the unpatched package,
+       that a slot erase (server /slots/0?action=erase, master server-context.cpp:5323) followed by the same request
+       gives cache_n = 0 on a hybrid recurrent model (T5's fresh arm depends on it).
 
 5. Tests on the NPU (each listed with the stage that runs it, section 6)
   T1 Off by default (G6): patched package with the opt-in unset/0 vs the unpatched package: identical scheduler
@@ -179,41 +254,58 @@ on the NPU until the owner approves this plan after review, and again before eac
   T2 Kernel and copy parity: test-backend-ops -b HTP0 for MUL_MAT and MUL_MAT_ID per repack type at batches 1, 31, 32,
      33, 128, 512, plus a new mode or small harness whose weight reaches the NPU through the offload copy (whole tensor
      for MUL_MAT; sparse, nonconsecutive, changing expert ids and repeated execution for MUL_MAT_ID).
-  T3 Teacher-forced logits: on the frozen text (K5), several sequences, several positions per sequence, ubatch 512 and
-     2048: per-position KL divergence, top-1 agreement and the rank of the reference top token, against (a) the
-     matched CPU arm on the same file and (b) for M2/M3 the Q8_0 reference logits (REF, computed on the x86 host).
-     Tolerances calibrated before the run from CPU repeatability (CPU-A vs CPU-B, two runs each) and, for NeoHorse,
-     from the known-good A32 mixed placement; declared in the commands file. All values finite. Perplexity reported as
-     a secondary figure only.
+  T3a Backend parity (G1): on the frozen text (K5), several sequences and positions, ubatch 512 and 2048, identical
+     token ids and positions in both arms: per-position KL divergence, top-1 agreement and the rank of the CPU's top
+     token, NPU arm against the matched same-file CPU arm. Thresholds fixed now, in the manifest before any NPU result,
+     never enlarged afterwards: mean KLD <= 0.01, 99th-percentile KLD <= 0.10, top-1 agreement >= 97 %, every value
+     finite. Basis: the campaign's NPU path with block 0 on the CPU measured 0.0024 / 97.9 % on NeoHorse, and the
+     full-offload divergence was 0.817 / 66.0 % (F9); the thresholds allow about 4x the former and reject the latter.
+     CPU-A vs CPU-B and a CPU repeat are reported as the noise floor; they do not set the threshold. Perplexity is
+     secondary.
+  T7 Model quality (G7), on the x86 host, before the file's first NPU stage: the candidate on the CPU against REF (Q8_0)
+     with the same token ids, positions and reference settings (pinned in K5): mean KLD, top-1 agreement, rank of REF's
+     top token; and T5's fresh-prefix screening on the host CPU for the candidate and for REF. Pass: top-1 agreement vs
+     REF >= 90 %, and T5's rule (below) for the candidate with REF's count as the comparison. Fixed now, not adjusted
+     after results.
   T4 Speed: llama-bench pp512, pp2048, tg128 at depth 0 and 8192, ubatch 512/1024/2048, 3 repetitions, per arm (K4);
      host counters (A3) and DSP op timing (GGML_HEXAGON_PROFILE=1) for one run per arm; major page faults and disk reads
      during the run. Reported separately: fresh time to first token (server, fresh prefix, 2K/8K/16K tokens), cached
      tool-turn latency, and decode speed.
-  T5 Agent screening (G4), per arm on the same file: 20 fresh-prefix trials (each request starts with a new nonce, so
-     the server cache cannot serve it; cache_n recorded and required to be 0 or the nonce length) and 20 warm-cache
-     trials, reported separately; per trial: whether a call was made, call name, arguments parse as JSON and match the
-     tool schema, id present, plus offloaded op count and bytes (NPU-O). One streaming pi smoke per arm with a tool
-     result and a tool error (recovery observed). A screening result only.
+  T5 Agent screening (G4), per arm on the same file. Fresh arm: a server with -np 1 and --cache-ram 0, and the slot
+     erased (POST /slots/0?action=erase, slots endpoint enabled) before each trial; a trial counts only with
+     cache_n = 0 and prompt_n equal to the whole prompt, and for NPU-O only if its host counters (A3) show positive
+     offloaded bytes and offloaded ops in every evaluated ubatch whose batch is at or above the declared threshold, with
+     at least one such ubatch (a final remainder ubatch below it is not offloaded; n_ubatch and the ubatch sizes are
+     recorded). The erase on a hybrid recurrent model is checked on the host CPU first (A4). Warm arm: the same
+     requests served from a warm cache, labelled as such (TTFT warm), never pooled with the fresh arm.
+     20 fresh and 20 warm trials over the frozen requests; each request has an expected tool behaviour in the K5 table
+     (tool name, required argument keys, values that must match). A trial passes if the first reply is that call,
+     its arguments parse as JSON, match the schema and the expected values, and it has an id. Rule, per arm and kind:
+     passes >= 17/20 and >= (the better matched CPU arm's passes - 2). Plus one streaming pi smoke per arm with a tool
+     result and a tool error (recovery observed; 7/7 checks). A screening result only.
   T6 Robustness: 10 consecutive fresh 8K-token prompts, then 10 more after 5 minutes idle, server mode.
 
 6. Stages (each ends with a written result in this folder; stages marked NPU need the owner's approval first)
   Track R (first, no backend code)
-    R1 (offline) Build the unpatched master package (K2); make M2 and REF on the x86 host (K3); compute the NPU-mapped
-       size of M2 from its header with master's get_alloc_size rule; decide the session count (>= 3) and check against
-       F5/F7 with KV and compute buffers (estimate first; the probe measures).
-    R2 (NPU, ~1 h) Load probe: M2 with GGML_HEXAGON_DEVICES=3 (then 4 if needed), -ngl all, output layer on the CPU,
-       context 16K; record per-session mapped bytes, MemAvailable, load time; one short generation. Stop at the first
-       fault or floor breach.
-    R3 (NPU, ~3 h) T3, T4, T5, T6 for NPU-R against CPU-A/CPU-B on M2. If quality fails (T3 vs REF), Track R ends here
-       with the measured result; Q3_K-tiled files do not fit (F6), so there is no larger resident option.
+    R1 (offline) Build the unpatched master package (K2); make M2 and REF on the x86 host (K3); produce M2's complete
+       tensor table with each tensor's NPU allocation under master's rule (the default Q2_K mix includes Q3_K/Q4_K/Q6_K
+       tensors, so the "Q2_K" label is not an estimate); compute the peak per-session buffers (weights per layer split,
+       KV, recurrent state, compute) for 3 and 4 sessions against F5/F7; decide the session count. Then T7 for M2.
+    R2 (NPU, ~1 h; only if R1 fits and M2 passed T7) Load probe: M2 with GGML_HEXAGON_DEVICES=3 (then 4 if needed),
+       -ngl all (NPU-R; NPU-R' as a second load), context 16K; record per-session mapped bytes, MemAvailable, load
+       time, the K7 placement; one short generation. Stop at the first fault or floor breach.
+    R3 (NPU, ~3 h) T3a, T4, T5, T6 for NPU-R (and NPU-R' if declared) against CPU-A/CPU-B on M2. If G1 fails, Track R
+       ends here with the measured result; Q3_K-tiled files do not fit (F6), so there is no larger resident option.
   Track O
     A1-A4 (offline, section 4).
     C1 (NPU, ~1 h, only if A2's range straddles 2x or to validate A4 on the device) T1 and T2 for phase O1 (dense
        MUL_MAT), NeoHorse-4B Q4_0 (the campaign's file, read-only) and synthetic graphs.
-    C2 (NPU, ~2 h) NeoHorse: T3, T4 with NPU-O vs CPU-A/CPU-B and the A32 mixed placement. NeoHorse is dense, so this
-       validates the copy path and measures its overhead; it does not predict MoE throughput.
+    C2 (NPU, ~2 h) NeoHorse: T3a, T4 with NPU-O vs CPU-A/CPU-B; the campaign's A32 placement (block 0 on the CPU, F9) is
+       measured alongside as a reference only. NeoHorse is dense, so this validates the copy path and measures its
+       overhead; it does not predict MoE throughput.
     C3 (NPU, ~1 h) Phase O2 (MUL_MAT_ID): T2's expert cases on synthetic graphs before any real MoE model.
-    D1 (NPU, ~3 h) M3 (and M2 for comparison with Track R): T3, T4, T5, T6 for NPU-O vs CPU-A/CPU-B.
+    D1 (NPU, ~3 h; only for files that passed T7) M3 (and M2 for comparison with Track R): T3a, T4, T5, T6 for NPU-O
+       vs CPU-A/CPU-B.
     E  Report; an upstream PR text for ggml-org/llama.cpp if G1-G5 hold (filing is the owner's decision).
 
 7. Safety, enforcement and separation (finding 7)
@@ -244,7 +336,7 @@ on the NPU until the owner approves this plan after review, and again before eac
 
 8. Effort (rough)
   Track R: R1 half a day on the x86 host (download 48 GB BF16, quantize, reference logits); R2 1 h NPU; R3 half a day.
-  Track O: A1-A4 3-5 days; C1-C3 one day including ~4 h NPU; D1 half a day; E half a day.
+  Track O: A1-A4 (with A1b) 4-6 days; C1-C3 one day including ~4 h NPU; D1 half a day; E half a day.
 
 9. Questions for review
   Q1 Is the source-range lookup in D2 a reliable link between a scheduler copy and its weight on every copy path A1
@@ -253,6 +345,8 @@ on the NPU until the owner approves this plan after review, and again before eac
      fp16 differences?
   Q3 Is running Track R first right, given that a Q2_K file may lose too much quality for agent work?
   Q4 Is the wrapper in section 7 enough enforcement for development binaries on a board that also carries the campaign?
+  Q5 Is a backend function looked up through the registry (called from a composed llama copy callback) an acceptable
+     way to hand the epoch and routed set to Hexagon upstream, or should the scheduler pass them itself?
 
 10. Codex review of c4be600 (2026-10-14) and what changed
   [P1] MUL_MAT_ID range writes -> D3 (expert-aligned range repack with per-expert validity and offset translation);
@@ -287,3 +381,28 @@ on the NPU until the owner approves this plan after review, and again before eac
     faults and disk reads, and A2 measures cold and warm reads.
   - Placement: offload runs keep non-matrix work (attention, short convolution, norms) resident on the NPU where
     supported (D6), rather than leaving it on the CPU with -ngl 0.
+
+12. Codex review of 077e32b and placement correction (2026-10-14) and what changed
+  [P1] Copy epoch -> D2: one epoch per destination copy with accumulated coverage; per-write versions kept apart;
+       new epoch on the next copy, coverage dropped on reassignment, intersected ranges invalidated by partial or
+       unknown writes. A4: two-range copy passes; omitted expert, stale previous-epoch data and partial overwrite fail.
+  [P1] Routing ids -> D3: the dispatch check validates the actual routed set against the epoch's coverage (from the
+       composed callback's used set, or the backend's own read of the ids, or a verified whole-tensor copy); the
+       weaker "every written expert" check is removed; without a routed-set source MUL_MAT_ID is not offloaded.
+       A4 adds a routed expert absent from the written ranges.
+  [P2] Quality vs parity -> G1/T3a (NPU vs same-file CPU, fixed thresholds) and G7/T7 (candidate CPU vs Q8_0 plus the
+       agent rule, on the host, before the file's first NPU stage); identical token ids and positions pinned in K5;
+       thresholds fixed now and never enlarged after NPU results; CPU repeatability is a noise floor, not a threshold.
+  [P2] Fresh prefix -> T5: -np 1, --cache-ram 0, slot erase before each trial, cache_n = 0 required; NPU-O trials count
+       only with positive offloaded work and ubatches above the threshold; warm arm separate and labelled.
+  Requests: (1) A1 at the actual master commit with the callback and MoE cache paths (F10, F11, A1, A1b), offline
+       copy-epoch and coverage tests before any device probe (A4); (2) see the P2 above; (3) G3 >= 95 % (faster
+       passes), G4/T5 numeric rule with expected tool behaviour; (4) placement by op role and weight identity, tied
+       embeddings included (K7, F12), CPU frequencies from the board (F8); (5) full identities in the pre-stage
+       manifest (K5) and the complete tensor/allocation table before the fit decision (K3, R1).
+  Track R: R1 computes the default-mix allocation and per-session peaks, not the file label (as the review asked).
+  Architecture opportunity (master's copy callback and MoE cache): adopted as the preferred route in D1/D2/D3 and A1,
+       composed with llama_context's callback, MoE cache off in baselines until A1b and a declared test.
+  Placement correction (campaign D170): F9 rewritten; A32 no longer used as an output-on-CPU or known-good reference
+       (T3a basis, C2); the output projection's exclusion in D1 now rests on cost and the unresolved divergence, and is
+       verified per run; NPU-R puts it on the NPU, NPU-R' keeps it on the CPU by -ot, each declared.
