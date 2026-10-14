@@ -1,0 +1,134 @@
+# Weight placement under -ngl for the campaign's qwen35 models, llama.cpp 836d57176 (D170). Header reads and source
+# excerpts only; nothing was loaded on the NPU. 2026-10-14T14:16:21+02:00. Checkout: 836d57176dc699a726c55418e4f96b8ca628e1bf (clean: 0 modified files)
+
+## 1. Loader rule, src/llama-model.cpp:1591-1616
+    const int i_gpu_start = std::max(n_layer_all + 1 - n_gpu_layers, 0);
+    const int act_gpu_layers = devices.empty() ? 0 : std::min(n_gpu_layers, n_layer_all + 1);
+    auto get_layer_buft_list = [&](int il) -> llama_model::impl::layer_dev {
+        const bool is_swa = il < n_layer_all && hparams.is_swa(il);
+        if (il < i_gpu_start || (il - i_gpu_start) >= act_gpu_layers) {
+            LLAMA_LOG_DEBUG("load_tensors: layer %3d assigned to device %s, is_swa = %d\n", il, ggml_backend_dev_name(cpu_dev), is_swa);
+            return {cpu_dev, &pimpl->cpu_buft_list};
+        }
+        const int layer_gpu = std::upper_bound(splits.begin(), splits.begin() + n_devices(), float(il - i_gpu_start)/act_gpu_layers) - splits.begin();
+        auto * dev = devices.at(layer_gpu).dev;
+        LLAMA_LOG_DEBUG("load_tensors: layer %3d assigned to device %s, is_swa = %d\n", il, ggml_backend_dev_name(dev), is_swa);
+        return {dev, &pimpl->gpu_buft_list.at(dev)};
+    };
+
+    // assign the input layer
+    // there is very little benefit to offloading the input layer, so always keep it on the CPU
+    pimpl->dev_input = { cpu_dev, &pimpl->cpu_buft_list };
+
+    // assign the repeating layers to the devices according to the splits
+    pimpl->dev_layer.resize(n_layer_all);
+    for (int il = 0; il < n_layer_all; ++il) {
+        pimpl->dev_layer[il] = get_layer_buft_list(il);
+    }
+
+    // assign the output layer
+    pimpl->dev_output = get_layer_buft_list(n_layer_all);
+
+## 2. The 'offloading N repeating layers' log line, src/llama-model.cpp:1913-1926 (prints min(ngl, n_layer_all) - 1; not the placement)
+    if (llama_supports_gpu_offload()) {
+        const int n_gpu = std::min(n_gpu_layers, n_layer_all);
+
+        int n_repeating = n_gpu;
+        if (n_repeating > 0) {
+            LLAMA_LOG_INFO("%s: offloading output layer to GPU\n", __func__);
+            n_repeating--;
+        }
+        LLAMA_LOG_INFO("%s: offloading %d repeating layers to GPU\n", __func__, n_repeating);
+
+        const int max_backend_supported_layers = n_layer_all + 1;
+        const int max_offloadable_layers       = n_layer_all + 1;
+
+        LLAMA_LOG_INFO("%s: offloaded %d/%d layers to GPU\n", __func__, std::min(n_gpu_layers, max_offloadable_layers), max_backend_supported_layers);
+
+## 3. Tied output, src/models/qwen35.cpp:42-53 and src/llama-model-loader.cpp:1162-1167
+    // output
+    output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), { n_embd }, 0);
+    output = create_tensor(tn(LLM_TENSOR_OUTPUT, "weight"), { n_embd, n_vocab }, TENSOR_NOT_REQUIRED);
+
+    // optional projection of the embeddings output
+    cls_out   = create_tensor(tn(LLM_TENSOR_CLS_OUT, "weight"), { n_embd, hparams.n_embd_out() }, TENSOR_NOT_REQUIRED);
+    cls_out_b = create_tensor(tn(LLM_TENSOR_CLS_OUT, "bias"),   { hparams.n_embd_out() },         TENSOR_NOT_REQUIRED);
+
+    // if output is NULL, init from the input tok embed
+    if (output == NULL) {
+        output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), { n_embd, n_vocab }, TENSOR_DUPLICATED);
+    }
+...
+        // some models use the token embedding tensor as the output, but since these are used in different layers and with different ops
+        // the tensor is duplicated
+        // to handle this, we check if the tensor is duplicated, and if so, we assume that it is being loaded as the output tensor
+        llm_tensor tn_tensor = tn.tensor;
+        if (tn.tensor == LLM_TENSOR_TOKEN_EMBD && (flags & TENSOR_DUPLICATED)) {
+            tn_tensor = LLM_TENSOR_OUTPUT;
+
+## 4. tools/placement_from_gguf.py (D170) on the measured files
+sha256 f822fa2602af45d802e54bac518bab3f62b08943029626114a474afc3d8f3049  q40/NeoHorse-1-4B-q4_0-pure.gguf
+model NeoHorse-1-4B-q4_0-pure.gguf: architecture qwen35, block_count 32, tensors 426, output.weight present: no (tied: token_embd.weight duplicated as the OUTPUT tensor)
+-ngl 99: i_gpu_start 0; blocks on the CPU: none; blocks on the accelerator: 32; output layer (output_norm + output projection): accelerator; weights CPU 341.02 MiB, accelerator 2259.29 MiB
+-ngl 34: i_gpu_start 0; blocks on the CPU: none; blocks on the accelerator: 32; output layer (output_norm + output projection): accelerator; weights CPU 341.02 MiB, accelerator 2259.29 MiB
+-ngl 33: i_gpu_start 0; blocks on the CPU: none; blocks on the accelerator: 32; output layer (output_norm + output projection): accelerator; weights CPU 341.02 MiB, accelerator 2259.29 MiB
+-ngl 32: i_gpu_start 1; blocks on the CPU: 0; blocks on the accelerator: 31; output layer (output_norm + output projection): accelerator; weights CPU 401.72 MiB, accelerator 2198.59 MiB
+-ngl 16: i_gpu_start 17; blocks on the CPU: 0-16; blocks on the accelerator: 15; output layer (output_norm + output projection): accelerator; weights CPU 1360.85 MiB, accelerator 1239.46 MiB
+block 0 weights by type: F32 0.15 MiB, Q4_0 60.56 MiB
+tensor output_norm.weight [2560] F32 0.01 MiB
+tensor token_embd.weight [2560, 248320] Q4_0 341.02 MiB
+
+sha256 d21c19e56e1a7d2cdc42a0714cb318769fcc53c28ad2c8b19e500c70cc490528  q40/Ornith-1.0-9B-q4_0-pure.gguf
+model Ornith-1.0-9B-q4_0-pure.gguf: architecture qwen35, block_count 33, tensors 442, output.weight present: yes
+-ngl 99: i_gpu_start 0; blocks on the CPU: none; blocks on the accelerator: 33; output layer (output_norm + output projection): accelerator; weights CPU 545.62 MiB, accelerator 4391.63 MiB
+-ngl 34: i_gpu_start 0; blocks on the CPU: none; blocks on the accelerator: 33; output layer (output_norm + output projection): accelerator; weights CPU 545.62 MiB, accelerator 4391.63 MiB
+-ngl 33: i_gpu_start 1; blocks on the CPU: 0; blocks on the accelerator: 32; output layer (output_norm + output projection): accelerator; weights CPU 662.92 MiB, accelerator 4274.33 MiB
+-ngl 32: i_gpu_start 2; blocks on the CPU: 0-1; blocks on the accelerator: 31; output layer (output_norm + output projection): accelerator; weights CPU 780.22 MiB, accelerator 4157.03 MiB
+-ngl 16: i_gpu_start 18; blocks on the CPU: 0-17; blocks on the accelerator: 15; output layer (output_norm + output projection): accelerator; weights CPU 2637.92 MiB, accelerator 2299.33 MiB
+block 0 weights by type: F32 0.16 MiB, Q4_0 117.14 MiB
+tensor output.weight [4096, 248320] Q4_0 545.62 MiB
+tensor output_norm.weight [4096] F32 0.02 MiB
+tensor token_embd.weight [4096, 248320] Q4_0 545.62 MiB
+
+## 5. Check against the committed server logs (load_tensors / llama_memory_recurrent lines, as logged)
+runs/v0p-pi/v0p-D1/server.log:
+  load_tensors: offloading output layer to GPU
+  load_tensors: offloading 31 repeating layers to GPU
+  load_tensors: offloaded 33/33 layers to GPU
+  load_tensors:          CPU model buffer size =   341.02 MiB
+  load_tensors:       HTP0:0 model buffer size =  1019.84 MiB
+  load_tensors:       HTP0:1 model buffer size =  1239.46 MiB
+  llama_memory_recurrent:     HTP0:0 RS buffer size =   108.88 MiB
+  llama_memory_recurrent:     HTP0:1 RS buffer size =    92.12 MiB
+runs/v0p-pi/v0p-D6/server.log:
+  load_tensors: offloading output layer to GPU
+  load_tensors: offloading 31 repeating layers to GPU
+  load_tensors: offloaded 32/33 layers to GPU
+  load_tensors:          CPU model buffer size =   341.16 MiB
+  load_tensors:   CPU_REPACK model buffer size =    60.56 MiB
+  load_tensors:       HTP0:0 model buffer size =   959.13 MiB
+  load_tensors:       HTP0:1 model buffer size =  1239.46 MiB
+  llama_memory_recurrent:        CPU RS buffer size =     8.38 MiB
+  llama_memory_recurrent:     HTP0:0 RS buffer size =   100.50 MiB
+  llama_memory_recurrent:     HTP0:1 RS buffer size =    92.12 MiB
+runs/v0e-A32-3/v0e-A32-3-S1/server.log.txt:
+  load_tensors: offloading output layer to GPU
+  load_tensors: offloading 31 repeating layers to GPU
+  load_tensors: offloaded 32/33 layers to GPU
+  load_tensors:          CPU model buffer size =   341.16 MiB
+  load_tensors:   CPU_REPACK model buffer size =    60.56 MiB
+  load_tensors:       HTP0:0 model buffer size =   959.13 MiB
+  load_tensors:       HTP0:1 model buffer size =  1239.46 MiB
+  llama_memory_recurrent:        CPU RS buffer size =     8.38 MiB
+  llama_memory_recurrent:     HTP0:0 RS buffer size =   100.50 MiB
+  llama_memory_recurrent:     HTP0:1 RS buffer size =    92.12 MiB
+
+Reading: NeoHorse 4B has 32 blocks and no output.weight (tied). -ngl 99/33: every block and the output layer on the NPU;
+CPU 341.02 MiB = token_embd (input lookup), as logged in D1 (341.02; NPU 1019.84 + 1239.46 = 2259.30). -ngl 32: block 0
+on the CPU (60.56 MiB Q4_0 -> CPU_REPACK 60.56, F32 0.15), blocks 1-31 AND the output layer on the NPU; as logged in D6
+and A32-3 (CPU 341.16 + CPU_REPACK 60.56 = 401.72; NPU 959.13 + 1239.46 = 2198.59; one recurrent layer's state on the
+CPU, 8.38 MiB). -ngl 16: blocks 0-16 on the CPU, blocks 17-31 and the output layer on the NPU (kld9 kept no loader lines;
+from the rule). The output layer was on the NPU in every KLD arm and pi diagnostic step of D145-D155.
+Ornith 9B has 33 blocks (32 + the MTP block 32, nextn_predict_layers 1) and its own output.weight: -ngl 33 puts block 0 on
+the CPU and blocks 1-32 plus the output layer on the NPU (logged 'offloaded 33/34'); the 9B 'output head on the CPU'
+layouts used -ot output.weight=CPU (D76, D79), an explicit override, not -ngl.

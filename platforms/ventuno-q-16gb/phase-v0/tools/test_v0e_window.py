@@ -74,4 +74,182 @@ for name, bad, want in cases:
     print(f"{'ok  ' if ok else 'FAIL'} {name} (rc {rc}, want {want})")
     if not ok:
         fails += 1; print(text)
+
+# D167: cache wording. "neutral" passes the same checks; the fresh request still misses (new nonce); unknown fails.
+os.environ["CACHE_WORDING"] = "neutral"
+rc, text, tx, maxt = run()
+ok = rc == 0 and "wording: neutral" in text and '"content": "Reference ' in tx and maxt == [4096, 4096, 512, 512]
+print(f"{'ok  ' if ok else 'FAIL'} cache all-good, neutral wording (rc {rc})"); fails += not ok
+os.environ["CACHE_WORDING"] = "nonsense"
+try:
+    run(); ok = False
+except SystemExit:
+    ok = True
+print(f"{'ok  ' if ok else 'FAIL'} cache unknown wording refused"); fails += not ok
+del os.environ["CACHE_WORDING"]
+
+
+class WFake(Fake):
+    """wording mode: a bash call only for the neutral text (unless no_call_neutral_at), records the order"""
+
+    def __call__(self, path, body, timeout=0):
+        if path == "/tokenize":
+            return super().__call__(path, body, timeout)
+        self.n += 1; c = body["messages"][0]["content"]; w = "neutral" if c.startswith("Reference ") else "current"
+        self.maxt.append((w, body.get("max_tokens")))
+        if self.bad.get("http_at") == self.n:
+            return 500, {"error": "x"}, 0.0
+        call = w == "neutral" and self.bad.get("no_call_neutral_at") != self.n and self.bad.get("length_at") != self.n
+        msg = {"role": "assistant", "content": "" if call else "I cannot run this."}
+        if call:
+            msg["tool_calls"] = [{"id": f"c{self.n}", "type": "function", "function": {"name": "bash", "arguments": '{"command":"cat out1.txt"}'}}]
+        fin = "tool_calls" if call else ("length" if self.bad.get("length_at") == self.n else "stop")
+        if fin == "length":
+            msg["content"] = ""
+        d = {"choices": [{"message": msg, "finish_reason": fin}],
+             "usage": {"prompt_tokens": 8400, "completion_tokens": 900}, "timings": {"cache_n": 0, "prompt_per_second": 250.0}}
+        if self.bad.get("drop_usage_at") == self.n:
+            del d["usage"]
+        return 200, d, 0.0
+
+
+def wrun(n=8, **bad):
+    vw.checks.clear(); vw.post = WFake(**bad); os.environ["WORDING_N"] = str(n)
+    with tempfile.TemporaryDirectory() as out, redirect_stdout(io.StringIO()) as buf:
+        rc = vw.main(["v0e_window.py", "wording", out, "/nonexistent", "32768", "local32k"])
+    return rc, buf.getvalue(), vw.post.maxt
+
+
+for name, kw, want, line in [
+        ("wording counts", {}, 0, "FISHER: two-sided p = 0.000155"),
+        ("wording outcomes by category", {"length_at": 3}, 0, "OUTCOMES neutral: call 7, stop without a call 0, "
+         "length without a call 1, other finish without a call 0, incomplete 0; declining text 0"),
+        ("wording declining text counted", {}, 0, "OUTCOMES current: call 0, stop without a call 8, length without a "
+         "call 0, other finish without a call 0, incomplete 0; declining text 8"),
+        ("wording counts a missing call", {"no_call_neutral_at": 2}, 0, "WORDING: current 0/8, neutral 7/8"),
+        ("wording http 500 incomplete", {"http_at": 6}, 1, "WORDING: current 0/8, neutral 7/8"),
+        ("wording usage missing incomplete", {"drop_usage_at": 1}, 1, "WORDING: current 0/8, neutral 8/8")]:
+    rc, text, order = wrun(**kw)
+    ok = rc == want and line in text and len(order) == 16 and [w for w, _ in order][:8] == \
+        ["current", "neutral", "neutral", "current"] * 2 and {t for _, t in order} == {4096}
+    print(f"{'ok  ' if ok else 'FAIL'} {name} (rc {rc}, want {want})"); fails += not ok
+    if not ok:
+        print(text)
+
+
+class CFake:
+    """the tool continuation (D167, D168): /apply-template renders role, content, tool calls and the tool list (a
+    consistent server: the chat prompt is counted from the same rendering); /tokenize counts characters / 4.
+    drop_tool / drop_calls: the template (and so the server) omits tool messages / assistant tool calls.
+    resp: how the chat answer is damaged (no_completion, no_choices, empty_choices, no_finish, bad_finish, no_message).
+    D170: like the pinned server (server-common.cpp, prefill_assistant on), a message list ending in an assistant
+    message is a continuation: HTTP 400 when that message has tool calls or follows another assistant message.
+    fixed_tool: the template renders every tool message with a fixed text (it ignores the tool result)."""
+
+    def __init__(self, offset=0, drop_tool=False, drop_calls=False, c2=60, trunc=False, http=200, tmpl_http=200, resp=None,
+                 fixed_tool=False):
+        self.offset, self.drop_tool, self.drop_calls, self.c2 = offset, drop_tool, drop_calls, c2
+        self.trunc, self.http, self.tmpl_http, self.resp, self.fixed_tool = trunc, http, tmpl_http, resp, fixed_tool
+
+    @staticmethod
+    def refusal(msgs):
+        if msgs and msgs[-1]["role"] == "assistant":
+            if len(msgs) >= 2 and msgs[-2]["role"] == "assistant":
+                return "Cannot have 2 or more assistant messages at the end of the list."
+            if msgs[-1].get("tool_calls"):
+                return "Cannot continue an assistant message that contains tool calls."
+        return None
+
+    def render(self, msgs, tools):
+        content = lambda m: "TOOL OUTPUT" if self.fixed_tool and m["role"] == "tool" else (m.get("content") or "")
+        parts = [f"<{m['role']}>{content(m)}" + ("" if self.drop_calls else json.dumps(m.get("tool_calls") or ""))
+                 for m in msgs if not (self.drop_tool and m["role"] == "tool")]
+        cont = msgs and msgs[-1]["role"] == "assistant"
+        return json.dumps(tools) + "".join(parts) + ("" if cont else "<assistant>")
+
+    def __call__(self, path, body, timeout=0):
+        why = self.refusal(body.get("messages") or [])
+        if path in ("/apply-template", "/v1/chat/completions") and why:
+            return 400, {"error": {"code": 400, "message": why, "type": "invalid_request_error"}}, 0.0
+        if path == "/apply-template":
+            return (200, {"prompt": self.render(body["messages"], body.get("tools"))}, 0.0) if self.tmpl_http == 200 \
+                else (500, {"error": "x"}, 0.0)
+        if path == "/tokenize":
+            return 200, {"tokens": [0] * (len(body["content"]) // 4)}, 0.0
+        if self.http != 200:
+            return self.http, {"error": "x"}, 0.0
+        p = len(self.render(body["messages"], body.get("tools"))) // 4 + self.offset
+        d = {"choices": [{"message": {"role": "assistant", "content": "Done."}, "finish_reason": "stop"}],
+             "usage": {"prompt_tokens": p, "completion_tokens": self.c2}, "timings": {"cache_n": 0}}
+        if self.trunc:
+            d["timings"]["truncated"] = True
+        r = self.resp
+        if r == "no_completion": del d["usage"]["completion_tokens"]
+        if r == "no_choices": del d["choices"]
+        if r == "empty_choices": d["choices"] = []
+        if r == "no_finish": del d["choices"][0]["finish_reason"]
+        if r == "bad_finish": d["choices"][0]["finish_reason"] = "error"
+        if r == "no_message": del d["choices"][0]["message"]
+        return 200, d, 0.0
+
+
+import json
+vw.W = 32768
+code_word = "WINDOW-CHECK-862708"
+msg0 = [{"role": "user", "content": "Run x. " + "w" * 120000 + f"\n\nInstruction: call the bash tool exactly once with the command: echo {code_word}"}]
+call = [{"id": "Ud4d", "type": "function", "function": {"name": "bash", "arguments": json.dumps({"command": f"echo {code_word}"})}}]
+m_plain = {"role": "assistant", "content": "I'll run the bash command as instructed.\n\n", "tool_calls": call}
+m_echo = {"role": "assistant", "content": f"I will echo {code_word} now.", "tool_calls": call}  # the code in visible text too
+p0 = len(CFake().render(msg0, vw.TOOLS)) // 4
+d0 = {"usage": {"prompt_tokens": p0, "completion_tokens": 367}}  # A32-2: 367 completion tokens, most of them reasoning
+for name, m0, kw, want in [
+        ("continuation with a long reasoning reply passes (A32-2 shape)", m_plain, {}, True),
+        ("continuation passes with the code in the visible text too", m_echo, {}, True),
+        ("continuation passes with finish=length", m_plain, {"resp": None, "c2": 60}, True),
+        ("continuation: server prompt differs from the serialization", m_plain, {"offset": 40}, False),
+        ("continuation: tool result dropped, server consistent", m_plain, {"drop_tool": True}, False),
+        ("continuation: tool result dropped, code repeated in the visible text", m_echo, {"drop_tool": True}, False),
+        ("continuation: call dropped, server consistent", m_plain, {"drop_calls": True}, False),
+        ("continuation: call dropped, code repeated in the visible text", m_echo, {"drop_calls": True}, False),
+        ("continuation: completion_tokens missing", m_plain, {"resp": "no_completion"}, False),
+        ("continuation: choices missing", m_plain, {"resp": "no_choices"}, False),
+        ("continuation: choices empty", m_plain, {"resp": "empty_choices"}, False),
+        ("continuation: finish_reason missing", m_plain, {"resp": "no_finish"}, False),
+        ("continuation: finish_reason invalid", m_plain, {"resp": "bad_finish"}, False),
+        ("continuation: message missing", m_plain, {"resp": "no_message"}, False),
+        ("continuation: over the window", m_plain, {"c2": 32768}, False),
+        ("continuation: truncated", m_plain, {"trunc": True}, False),
+        ("continuation: http 500", m_plain, {"http": 500}, False),
+        ("continuation: apply-template unavailable", m_plain, {"tmpl_http": 500}, False),
+        ("continuation: template ignores the tool result (fixed text), server consistent", m_plain, {"fixed_tool": True}, False),
+        ("continuation: template ignores the tool result, code repeated in the visible text", m_echo, {"fixed_tool": True}, False)]:
+    f = CFake(**kw)
+    if name.endswith("finish=length"):
+        orig = f.__call__
+        def f(path, body, timeout=0, orig=orig):
+            c, d, t = orig(path, body, timeout)
+            if path == "/v1/chat/completions":
+                d["choices"][0]["finish_reason"] = "length"
+            return c, d, t
+    vw.checks.clear(); vw.post = f
+    with redirect_stdout(io.StringIO()) as buf:
+        vw.continuation(list(msg0), p0, d0, m0, call, code_word)
+    ok = vw.checks == [want]
+    if name.startswith("continuation with"):  # the pre-D167 bound would have failed this valid continuation
+        p2 = int(re.search(r"prompt=(\d+) \(serialized", buf.getvalue()).group(1))
+        ok = ok and p2 < p0 + 367 - 64
+    print(f"{'ok  ' if ok else 'FAIL'} {name}"); fails += not ok
+    if not ok or os.environ.get("VERBOSE"):  # VERBOSE=1: the check's detail line for every case
+        print("     " + "".join(l for l in buf.getvalue().splitlines(True) if "tool continuation" in l).strip())
+# D170: the mock refuses what the pinned server refuses (A32-3: /apply-template 400 on the D168 ablation, window.jsonl)
+fk = CFake(); full = msg0 + [m_plain, {"role": "tool", "tool_call_id": "Ud4d", "content": "x"}]
+for name, msgs, want in [
+        ("mock: conversation ending in an assistant tool call -> 400 as the server", full[:-1],
+         "Cannot continue an assistant message that contains tool calls."),
+        ("mock: two assistant messages at the end -> 400 as the server", full[:-1] + [{"role": "assistant", "content": "x"}],
+         "Cannot have 2 or more assistant messages at the end of the list."),
+        ("mock: conversation ending in a tool message is served", full, None)]:
+    c, d, _ = fk("/apply-template", {"messages": msgs, "tools": vw.TOOLS})
+    ok = (c == 400 and d["error"]["message"] == want) if want else (c == 200 and "prompt" in d)
+    print(f"{'ok  ' if ok else 'FAIL'} {name}"); fails += not ok
 print(f"failures: {fails}"); sys.exit(fails)
