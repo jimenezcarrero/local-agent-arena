@@ -2692,6 +2692,24 @@ D172 2026-10-14 Codex review of 370f7a2 (PR #58, D171): the methodology directio
    4. PR #58's description now holds the full execution brief (commands, identities, order and caps, launch checks,
       memory admission, stop and recovery policy), not only the plan's pointer.
    Tests (runs/v0e-A32-4-offline/tests-D172.txt): test_v0e_window.py 76/76 (15 new: the call, answer and timing
-   cases; 11 of them pass wrongly on the D171 checker), test_v0e_compact.sh 15/15 (4 new). v0e_A_retry.sh is
+   cases; 11 of them pass wrongly on the D171 checker [9 return PASS there, 2 fail on another check; D173]),
+   test_v0e_compact.sh 15/15 (4 new). v0e_A_retry.sh is
    unchanged since 370f7a2 (its tests are in tests-D171.txt). A32-4 is still declared only; nothing ran on the NPU.
    Nothing is GO.
+
+D173 2026-10-14 Codex follow-up review of 5f58c99 (PR #58, D172): the timing and compaction findings addressed, the
+   whole-array tool validation and the execution brief accepted; 76 + 15 cases and the recall outcomes on the real
+   sessions reproduced. One remaining P2 and one wording correction; addressed:
+   1. The command check normalized with str.split(), which turns line breaks and Unicode whitespace into a space:
+      "cat\nout1.txt" (two commands to bash) and "cat<NBSP>out1.txt" (another command name) were accepted and the
+      harness supplied the file anyway (Codex: turns PASS 25/25). Now the command must match
+      [ \t]*cat[ \t]+out<k>.txt[ \t]* exactly: only ASCII spaces and tabs, no line break anywhere (a trailing newline,
+      harmless to bash, is refused too: the declared command has none, and the real calls had none). New cases:
+      newline, NBSP, CR, trailing and leading newline, vertical tab, ideographic space, "; ls" (all fail; 7 of them
+      PASS on the D172 checker, "; ls" was already refused); spaces and tabs still pass.
+   2. D172 said 11 of the new cases pass wrongly on the D171 checker: 9 return PASS there; 2 (decode time beyond the
+      wall time; the 0.9 s short wall time) already returned rc 1, failing on another check (the fresh request's
+      latency), so they fail the test's expected-check assertion instead. Marked in D172 and corrected in the plan.
+   Tests (runs/v0e-A32-4-offline/tests-D173.txt): test_v0e_window.py 84/84, test_v0e_compact.sh 15/15 (unchanged);
+   v0e_A_retry.sh unchanged since 370f7a2. The turns gate is verified offline only, not yet on a live server. A32-4
+   is declared, not run; nothing ran on the NPU. Nothing is GO.
