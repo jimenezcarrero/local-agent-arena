@@ -2666,3 +2666,32 @@ D171 2026-10-14 Owner decision on the cache item (D170 item 3): "Yes (b) and kee
       window fix, the turns item, gated compaction recall) and S2; no S0 (the wording question is settled). Driver:
       "v0e_A_retry.sh A32 4". Offline tests in runs/v0e-A32-4-offline/tests-D171.txt.
    Nothing runs until the owner approves the plan after review. Nothing is GO.
+
+D172 2026-10-14 Codex review of 370f7a2 (PR #58, D171): the methodology direction supported; 61 + 11 offline cases,
+   A32-4's 40 driver cases and the A32-3 request reports reproduced. Three P2 false passes in the new gates (each
+   reproduced offline by Codex, checker defects, not observed model or backend failures) and one description gap;
+   addressed:
+   1. Tool calls (v0e_window.py turns): the gate matched "out<k>.txt" anywhere in the first bash call's arguments, so
+      malformed arguments, cat out<k>.txt.bak and echo out<k>.txt passed; extra calls were dropped through calls[:1];
+      a non-bash call on the answer passed. Now the whole tool_calls array must be exactly one call of type
+      "function", a non-empty string id, name "bash", arguments a JSON object with exactly one string key "command"
+      equal to "cat out<k>.txt" (whitespace normalized); the answer's array must be empty; the accepted message goes
+      into the transcript whole. Matches the real server's call shape (A32-3 cache.jsonl, window.jsonl).
+   2. Timing: predicted_ms was checked only as >= 0, so wall - decode could be negative and pass the 300 s limit
+      (Codex: prefill 332.3 s, estimate -1 s, PASS). Now prompt_ms and predicted_ms must be finite and their sum at
+      most the wall time + 1 s (counters, fail-closed); the time to first token is labelled an estimate
+      (non-streamed: wall - server decode), must be finite and >= 0, and the value gated is the larger of the estimate
+      and the server's prefill. On the 35 committed real responses (A-retry and A32): prefill + decode never exceeds
+      the wall time (largest excess 0.00 s, wall recorded to 0.1 s).
+   3. Compaction recall (v0e_compact.sh): gated on grep matches in pi's whole printed output, so words from tool
+      output, reasoning or diagnostics counted, and a re-read after the compaction passed. Now read from the session
+      file: one file; turn 3's prompt exactly once with a compaction entry before it; no tool call or tool result
+      after it; the last assistant message's text parts hold both words. On the real sessions: A32-2 and A32-3 yes;
+      A32 attempt 1 and A-retry no (no compaction before turn 3; the old grep said yes for A32 attempt 1, which never
+      compacted, D160). The test's fake pi now writes pi's session format (compact JSON, typed content parts).
+   4. PR #58's description now holds the full execution brief (commands, identities, order and caps, launch checks,
+      memory admission, stop and recovery policy), not only the plan's pointer.
+   Tests (runs/v0e-A32-4-offline/tests-D172.txt): test_v0e_window.py 76/76 (15 new: the call, answer and timing
+   cases; 11 of them pass wrongly on the D171 checker), test_v0e_compact.sh 15/15 (4 new). v0e_A_retry.sh is
+   unchanged since 370f7a2 (its tests are in tests-D171.txt). A32-4 is still declared only; nothing ran on the NPU.
+   Nothing is GO.
