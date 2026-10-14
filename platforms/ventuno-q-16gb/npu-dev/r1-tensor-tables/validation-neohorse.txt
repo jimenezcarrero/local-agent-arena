@@ -1,0 +1,73 @@
+# validation on the campaign's NeoHorse-1-4B-q4_0-pure.gguf (sha256 f822fa26..., Q4_0: master and release rules agree) against the A32-3 S1 server log (-ngl 32, 2 sessions, -c 32768; runs/v0e-A32-3 in the campaign branch), 2026-10-15T00:20:50+02:00
+model NeoHorse-1-4B-q4_0-pure.gguf: GGUF v3, architecture qwen35, block_count 32, tensors 426, file 2380008192 bytes, data from 10967808; output.weight: no (tied: token_embd.weight duplicated as the OUTPUT tensor); rule master
+offset gaps consistent: 426/426
+TYPE count params_M file_MiB npu_alloc_MiB alloc/file
+TYPE Q4_0 249 4204.8 2255.62 2255.62 1.0000
+TYPE F32 177 1.0 3.67 3.67 1.0000
+LAYER index file_MiB npu_alloc_MiB (index 32 = the output layer)
+LAYER 0 60.70 60.70
+LAYER 1 60.70 60.70
+LAYER 2 60.70 60.70
+LAYER 3 57.68 57.68
+LAYER 4 60.70 60.70
+LAYER 5 60.70 60.70
+LAYER 6 60.70 60.70
+LAYER 7 57.68 57.68
+LAYER 8 60.70 60.70
+LAYER 9 60.70 60.70
+LAYER 10 60.70 60.70
+LAYER 11 57.68 57.68
+LAYER 12 60.70 60.70
+LAYER 13 60.70 60.70
+LAYER 14 60.70 60.70
+LAYER 15 57.68 57.68
+LAYER 16 60.70 60.70
+LAYER 17 60.70 60.70
+LAYER 18 60.70 60.70
+LAYER 19 57.68 57.68
+LAYER 20 60.70 60.70
+LAYER 21 60.70 60.70
+LAYER 22 60.70 60.70
+LAYER 23 57.68 57.68
+LAYER 24 60.70 60.70
+LAYER 25 60.70 60.70
+LAYER 26 60.70 60.70
+LAYER 27 57.68 57.68
+LAYER 28 60.70 60.70
+LAYER 29 60.70 60.70
+LAYER 30 60.70 60.70
+LAYER 31 57.68 57.68
+LAYER 32 341.03 341.03
+INPUT (CPU) file 341.02 MiB
+KV estimate at ctx 32768: 8 attention layers [3, 7, 11, 15, 19, 23, 27, 31], 1024.0 MiB (F16 K and V, head_dim 256); recurrent state and compute buffers not estimated
+SESSIONS 2 (-ngl 32): HTP0:0 layers 1-16 weights 959 + KV 512 = 1471 MiB (46% of 3200); HTP0:1 layers 17-32 weights 1239 + KV 512 = 1751 MiB (55% of 3200); CPU weights 402 MiB incl. layers [0]
+RESULT gguf-table: PASS (426 tensors; file 2259.29 MiB; NPU allocation of everything placeable 2259.29 MiB, rule master)
+rc=0
+## logged (A32-3 S1 server.log):
+load_tensors:          CPU model buffer size =   341.16 MiB
+load_tensors:   CPU_REPACK model buffer size =    60.56 MiB
+load_tensors:       HTP0:0 model buffer size =   959.13 MiB
+load_tensors:       HTP0:1 model buffer size =  1239.46 MiB
+llama_kv_cache:     HTP0:0 KV buffer size =   512.00 MiB
+llama_kv_cache:     HTP0:1 KV buffer size =   512.00 MiB
+llama_kv_cache: size = 1024.00 MiB ( 32768 cells,   8 layers,  4/1 seqs), K (f16):  512.00 MiB, V (f16):  512.00 MiB
+llama_memory_recurrent:        CPU RS buffer size =     8.38 MiB
+## per session, exact (MiB, 4 decimals): computed HTP0:0 959.1338 (logged 959.13), HTP0:1 1239.4573 (logged 1239.46); CPU: token_embd 341.02 + block 0's F32 0.14 = 341.16 (logged CPU 341.16) and block 0's Q4_0 60.56 (logged CPU_REPACK 60.56); KV 8 layers 512 + 512 MiB (logged 512.00 + 512.00)
+## unit tests
+ok   master allocation per type (Q3_K/Q4_K/Q6_K tiles, Q2_K at file size, Q4_0 ne1 padding, non-repack, 3-D, 128 pad)
+ok   file bytes from the type table
+ok   offset gaps consistent
+ok   release rule tiles Q2_K at 512 (512/32*16*64 = 16384; the 3-D expert 256/32*16*32*4 = 16384)
+ok   roles: input, blocks, output
+ok   tied: output layer = output_norm (2048 -> 2048) + token_embd copy (34816)
+ok   --output-cpu (NPU-R'): the tied copy leaves the output layer
+ok   lfm2moe: token_embd_norm with the output, block 4 (>= block_count) with the output
+ok   KV: only the layers with head_count_kv > 0
+ok   KV: qwen35 recurrent_layers mask (one attention layer, 128 MiB at 32768)
+ok   3 sessions, all layers: 0-2, 3-5, 6-8
+ok   3 sessions, -ngl 8: block 0 on the CPU, then 1-3, 4-6, 7-8
+ok   offset gap smaller than the computed size -> FAIL
+ok   unknown type id -> FAIL
+ok   URL source with range requests gives the same table and summary
+failures: 0
+rc=0
