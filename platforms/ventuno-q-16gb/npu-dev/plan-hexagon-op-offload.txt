@@ -1,0 +1,172 @@
+Developer plan: prompt reading on the NPU for models whose weights stay in CPU memory (Hexagon "op offload")
+Declared 2026-10-14 for review (Codex). Owner: "let's PR a complete developer plan that codex can review for the NPU
+improvements" (2026-10-14). This is development work, separate from the V0 campaign: nothing here changes the campaign's
+measured package, configuration, tools or evidence, and no result here is campaign evidence. Nothing runs on the NPU
+until the owner approves this plan after review, and again before each NPU stage (section 6).
+
+0. Summary
+  LFM2.5-24B-A2B (lfm2moe, 24B total, 2.45B active, 64 experts top-4) runs on this board on the CPU only, and it reads
+  prompts slowly: 15.6 tok/s at depth 0 and 13.3 tok/s at depth 8192 (llama-bench pp512, 4 Cortex-A78C threads,
+  IQ3_XXS, exploratory run of 2026-10-13/14, ~/bench-runs/lfm25-explore). Writing is usable (8.4 tok/s), and the
+  model makes a tool call in pi's first reply 20 of 20 times. A 32K-token context would take over 30 minutes to read.
+  The NPU reads NeoHorse-4B prompts at 235.7 tok/s (A32 admission), because its matrix unit (HMX) suits large batches.
+  The model cannot simply be placed on the NPU (section 1). This plan adds the missing piece: during prompt reading,
+  copy the weights of each large-batch matrix operation from CPU memory to the NPU, compute there, and keep the
+  weights in CPU memory. llama.cpp already does this for CUDA, Vulkan, Metal, SYCL and CANN ("op offload"); the
+  Hexagon backend leaves the hook empty. Writing (batch 1) stays on the CPU, unchanged.
+
+1. Facts this plan rests on (llama.cpp 836d57176, the campaign's release; ~/v0/llama.cpp)
+  F1 The hook is empty. ggml/src/ggml-hexagon/ggml-hexagon.cpp:8311
+       /* .offload_op = */ NULL,  // ggml_backend_hexagon_device_offload_op,
+     commented out since the backend's first commit (63d2fc46e, #16547). No upstream issue or PR discusses it (GitHub
+     search of ggml-org/llama.cpp, 2026-10-14: "hexagon offload", "hexagon moe", "hexagon op offload").
+  F2 How the scheduler uses it. ggml/src/ggml-backend.cpp:1105-1116: an op whose weight (buffer usage WEIGHTS) lives
+     in a host buffer of the lowest-priority backend (the CPU) is assigned to a higher-priority backend b when
+     supports_op(b, op) and offload_op(b, op) are both true; the weight is then copied into b's compute buffer as a split
+     input ("<backend>#<name>#<n>"). Disabled with --no-op-offload. CUDA's hook (ggml-cuda.cu:5734-5752) is
+     get_op_batch_size(op) >= op_offload_min_batch_size, read from GGML_OP_OFFLOAD_MIN_BATCH (default 32; the same
+     variable in SYCL, Metal, CANN); batch = ne[1] for MUL_MAT, ne[2] for MUL_MAT_ID.
+  F3 Weight types the NPU runs (ggml-hexagon.cpp:6184-6300): MUL_MAT and MUL_MAT_ID for Q4_0, Q4_1, Q8_0, IQ4_NL, MXFP4,
+     Q4_K, Q5_K, Q6_K, Q3_K, Q2_K (plus F16/F32 for MUL_MAT). Not IQ3_XXS, IQ2_XS, IQ4_XS or the other IQ types. All
+     of the repack types are HMX-eligible (ggml_hexagon_is_hmx_weight_type, :297) when the batch exceeds
+     HTP_MM_HMX_MIN_NROWS. SSM_CONV (LFM2's short convolution) is supported.
+  F4 The NPU keeps weights in its own tiled layout ("repack", ggml_hexagon_is_repack_type, :268). K-quant tiles store
+     uncompressed scales: Q3_K and Q2_K both take 512 bytes per 32x32 tile (htp/matmul-ops.h:40,45), 4.0 bits per
+     weight, so on the NPU they are no smaller than Q4_0 (4.5). The allocation size is already the tiled size for any
+     Hexagon buffer (get_alloc_size, :2769), but set_tensor repacks only tensors flagged GGML_HEXAGON_TENSOR_REPACK
+     (:2408-2440): set for WEIGHTS buffers, or at init_tensor for tensors that supports_op put in sess->needs_repack,
+     which happens only when the weight has no buffer yet (:6222-6224). A weight copy that the scheduler makes into a
+     compute buffer is a new tensor with neither, so today it would be copied raw (memcpy) into a tiled allocation.
+  F5 One NPU session addresses about 3.2 GB (HTP_OP_MAX_VMEM_DEFAULT 3,355,443,200, htp-ops.h:134). The backend can
+     open several sessions on one NPU and split layers across them (GGML_HEXAGON_DEVICES=N, docs/backend/snapdragon).
+  F6 Why full placement does not fit: LFM2.5-24B's expert weights are about 22B parameters; repacked at 4.0-4.5 bits
+     they need about 11-12.5 GB of NPU-mapped memory, against about 13 GB available on the board (16 GB total). The
+     published 2- and 3-bit files store the experts in IQ types (GGUF headers read 2026-10-14: unsloth UD-Q3_K_XL
+     experts IQ3_XXS/IQ4_XS, UD-Q2_K_XL experts IQ2_XS/IQ3_XXS; AtomicChat AD-IQ3_XXS/IQ3_M), so none runs its experts on
+     the NPU (F3). Liquid's own repo has Q4_K_M (14.5 GB) and QAD-Q4_0 (13.6 GB) and larger; neither fits.
+  F7 With op offload, the NPU holds only the weights of the operations in flight; the full model stays in the
+     memory-mapped file (about 10.5 GB for a Q3_K_S file, like the 11.1 GB IQ3_XXS file that ran on the CPU).
+  F8 The CPU side: no i8mm or SVE (Features: fp asimd ... asimddp), 4 x A78C at 2.36 GHz plus 4 x A55. llama.cpp's
+     CPU repack buffer (CPU_REPACK; ggml-cpu/repack.cpp:4974-5072 handles Q4_0, Q4_K, Q2_K, Q5_K, Q6_K, IQ4_NL and
+     Q8_0, each depending on CPU features) has no is_host (:5248), so the scheduler does not offload from it (F2).
+     Offload runs therefore use --no-repack; stage A1 records which types this CPU repacks. Q3_K has no CPU repack.
+
+2. Goal and success criteria (all measured, none assumed)
+  G1 Correct: NPU-offloaded prompt reading gives the CPU's results within tolerance (section 5, T2-T4).
+  G2 Faster: LFM2.5-24B Q3_K_S reads prompts at >= 2x the CPU's speed at depth 0 and at depth 8192 (pp512 >= 31 tok/s;
+     a stretch target of 4x is the estimate in section 3).
+  G3 Writing not slower: tg128 within 5% of the CPU-only figure (offload must not trigger at batch 1).
+  G4 Safe on this board: no DSP fault, hang or kernel error in any accepted run; MemAvailable never below 1.5 GB.
+  G5 Off by default: without the new opt-in variable, behaviour and the produced graph are identical to the release.
+  Stop rule for the whole plan: if stage A's measured repack cost projects < 2x (G2), or stage C shows the copy path
+  cannot be made correct, the work stops there with a written result; nothing is forced onto the NPU.
+
+3. Expected cost (to be replaced by stage A's measurement)
+  Per 512-token batch, offload must copy and repack every matrix weight once: ~10.5 GB for a Q3_K_S LFM2.5 (with 512
+  tokens and top-4 of 64 experts nearly every expert is used). At an assumed 2-4 GB/s repack throughput that is
+  ~3-5 s, plus ~2-3 s of NPU compute (NeoHorse-4B dense reads 512 tokens in ~2.2 s; 2.45B active parameters) = 5-8 s
+  per 512 tokens, ~65-100 tok/s against 33 s on the CPU (15.6 tok/s): about 4x. Larger batches (-ub 1024/2048) spread
+  the repack over more tokens. The repack throughput is the main unknown; stage A measures it before any NPU work.
+
+4. Design
+  D1 Hook (host side only, ggml-hexagon.cpp). ggml_backend_hexagon_device_offload_op(dev, op) returns true when all of:
+       - the opt-in variable GGML_HEXAGON_OP_OFFLOAD=1 is set (G5; default off);
+       - op is MUL_MAT or MUL_MAT_ID, and its weight is a repack type (F3);
+       - batch >= GGML_OP_OFFLOAD_MIN_BATCH (default 32), with CUDA's get_op_batch_size definition (F2);
+       - the repacked weight fits the session's free VA and the compute-buffer budget (D4).
+     supports_op already rejects what the NPU cannot run; the hook only decides "worth it".
+  D2 Making the copied weight tiled (the core problem, F4). The copy is a split input in a COMPUTE buffer, so set_tensor
+     would memcpy raw blocks into a tiled allocation. Options, to be settled in stage A by reading the code paths:
+       (a) flag at offload time: offload_op records the source weight; when the scheduler's copy of that weight is
+           initialised or set (it carries GGML_TENSOR_FLAG_INPUT and the source's type and shape), set
+           GGML_HEXAGON_TENSOR_REPACK so set_tensor repacks it. Needs a reliable link from copy to source (the copy's
+           name "<backend>#<src name>#<n>", or the source pointer if the scheduler exposes it). Risk: a quantized input
+           that is NOT a matmul weight (e.g. a Q8_0/Q4_0 KV-cache tensor copied for attention) must not be repacked;
+           the flag must be set only for tensors that offload_op accepted.
+       (b) repack at use: graph_compute checks each MUL_MAT/MUL_MAT_ID whose src0 is an unflagged repack-type tensor in
+           a compute buffer and repacks it in place (through a scratch buffer) before sending the op. Simpler link, but
+           it adds a repack pass inside compute and must also mark the tensor so it is not repacked twice.
+     (a) is preferred if the link is reliable, because the repack then happens in the copy the scheduler already makes.
+     Either way, the repack runs on the CPU (repack_tensor_tiled) with the same code that prepares resident weights, so
+     the layout is the one the kernels already use.
+  D3 Repack speed. repack_tensor_tiled is the cost centre (section 3). Stage A measures it single-threaded and, if
+     needed, parallelises it over the 4 big cores (rows are independent). No DSP-side change is planned: the DSP
+     libraries stay byte-identical to the release (sha256 checked), which keeps the risk on the host side.
+  D4 Memory. Each offloaded weight's copy lives in the NPU session's compute buffer. Questions for stage A/C: does the
+     scheduler reuse that memory across splits (ggml-alloc), or does a split that spans many layers hold many copies
+     at once? Peak must stay inside one session's ~3.2 GB VA (F5); otherwise, limit offload per split, use more than one
+     session, or keep the NPU split to one layer's operations. One MUL_MAT_ID copy is the whole expert tensor of a
+     layer (64 experts); for LFM2.5 at Q3_K that is ~0.25-0.3 GB per gate/up/down tensor.
+  D5 Placement for the tests. Weights on the CPU (-ngl 0, or -ngl all with --override-tensor to keep matrix weights on
+     the CPU), op offload on, GGML_HEXAGON_OP_OFFLOAD=1, --no-repack (F8). The exact command lines are
+     fixed in stage C and recorded with each run.
+  D6 Later, not in this plan: avoid the per-batch repack altogether (keep a tiled copy in host memory and share it with
+     the DSP without copying, since CPU and NPU share DRAM; or an LRU of repacked layers). Considered only if stage D
+     shows the repack dominates after D3.
+
+5. Tests
+  T1 Off-by-default (offline and on the NPU): with GGML_HEXAGON_OP_OFFLOAD unset, the scheduler's split and backend
+     assignment for NeoHorse at -ngl 32 are identical to the release (GGML_SCHED_DEBUG output compared), and the
+     NeoHorse A32 server command reproduces the admission figures within the admission's tolerance.
+  T2 Kernel parity: test-backend-ops -b HTP0 -o MUL_MAT and -o MUL_MAT_ID for every repack type at batches 32, 128,
+     512, with the weight supplied through the offload path (a new test-backend-ops mode or a small harness that sets
+     the weight through a COMPUTE-buffer copy); error within the existing test tolerances.
+  T3 Model parity, NeoHorse-4B Q4_0 (known on this board): llama-perplexity on a fixed 8 x 512-token text, CPU-only vs
+     offload vs full NPU (-ngl 32): offload within 0.5% of CPU and of full NPU. Greedy (temperature 0) generation of
+     256 tokens after a fixed 2K-token prompt: first divergence reported (not required to be identical; fp16 HMX
+     accumulation differs from the CPU).
+  T4 Model parity, LFM2.5-24B Q3_K_S: perplexity CPU vs offload within 1%; 20 pi first-request replays: tool-call rate
+     not lower than the CPU's 20/20 by more than one (>= 19/20).
+  T5 Speed: llama-bench pp512, pp2048 and tg128 at depth 0 and 8192, -ub 512/1024/2048, 3 repetitions, CPU-only vs
+     offload; repack time and NPU time from GGML_HEXAGON_PROFILE=1 for one run of each.
+  T6 Robustness: 10 consecutive 8K-token prompts on llama-server with offload, then 10 more after a 5-minute idle; the
+     DSP journal (fail-closed check as in the campaign), kernel log audit and NPU stall watchdog running throughout.
+
+6. Stages (each ends with a written result in this folder; NPU stages need the owner's approval first)
+  A Offline, no NPU (the board idle or on an x86 host; never during a campaign session, which would disturb its
+    CPU-side measurements):
+      A1 Read and record the exact copy path: how the scheduler creates, allocates and fills split-input weight copies
+         (ggml-backend.cpp), how ggml-alloc reuses compute memory, and where the copy reaches the Hexagon buffer
+         (set_tensor vs cpy_tensor). Settle D2 (a) or (b) and D4's reuse question with file:line references.
+      A2 Repack microbenchmark: a small harness built from repack_tensor_tiled (same source file, same compiler flags)
+         repacking 1 GB of real Q4_0, Q3_K and Q2_K tensor data (from a GGUF on disk), single-threaded and on 4 A78C
+         threads. Output: GB/s per type. With F6's sizes this gives section 3's projection; the stop rule in section 2
+         applies here.
+      A3 Write the code (D1-D3) on a branch of a llama.cpp fork at 836d57176, host side only.
+  B Build (x86_64 host with Docker; the owner's machine, as for the campaign package): the documented Snapdragon
+    preset in the same toolchain image as build_hexagon_x86.sh (ghcr.io/snapdragon-toolchain/arm64-linux:v0.7, pinned
+    by image id), into a package named pkg-opoffload-<commit8>, with a manifest of sha256 for every file. Check: the four
+    libggml-htp-v*.so are byte-identical to the release package's (D3). Installed on the board only under
+    ~/npu-dev/ (never ~/v0/hexpkg, ~/v0/llama.cpp or the measurement checkout).
+  C NeoHorse on the NPU (owner approval; ~2 h of NPU time): T1, T2, T3, T5 with NeoHorse-4B Q4_0 (the campaign file,
+    read-only). Accept only with no DSP fault. Result: whether offload works and how fast it is on a model whose
+    full-NPU speed is known (an upper bound for offload).
+  D LFM2.5-24B (owner approval; ~3 h of NPU time): make LFM2.5-24B-A2B Q3_K_S with llama-quantize at the same commit
+    on the x86 host from Liquid's BF16 GGUF (48 GB; does not fit on the board), sha256 recorded; check with the header
+    reader that every expert tensor is an NPU type (F3); copy to ~/npu-dev/models (needs ~11 GB free; the campaign's
+    10 GB floor applies first, so only between campaign sessions and with the file removed afterwards if space is
+    needed). Then T4, T5, T6. Optional: Q2_K (smaller file, same NPU cost per F4) if memory is tight.
+  E Report (results/ in this folder) and, if G1-G4 hold, an upstream PR text for ggml-org/llama.cpp. Filing it is the
+    owner's decision.
+
+7. Safety and separation
+  - Never while a campaign driver, admission or session runs (pgrep check before each stage, as the campaign's launch
+    checks); never with the campaign's tools, run directories or monitor files.
+  - The NPU stall watchdog and health sampler keep running; each NPU run is wrapped in the campaign's fail-closed DSP
+    journal check and kernel-log audit (read-only use of those tools). Logs under ~/bench-runs/npu-dev/.
+  - On any DSP fault, hang or "dspqueue" error: stop the stage, do not repeat the configuration, record it, and tell
+    the owner. The root helper for restarting the DSP (/usr/local/sbin/v0-cdsp-restart) is NOT used: its authorization
+    expired 2026-10-09; recovery is the owner's (reboot or their decision).
+  - Memory floor: stop a run if MemAvailable falls below 1.5 GB (memfloor.py, read-only use).
+  - No vendor files, sudoers or system packages change; no root.
+
+8. Estimated effort
+  A: 1-2 days (A1 reading, A2 harness, A3 code). B: 1 h on the x86 host. C: half a day including ~2 h NPU. D: half a
+  day plus the BF16 download and quantization on the host. E: half a day.
+
+9. Questions for review
+  Q1 Is D2 (a) (flag the copy at offload time) sound given how ggml-backend creates split-input copies, or is (b)
+     (repack at use) safer?
+  Q2 Are the tolerances in T3/T4 (perplexity 0.5% / 1%, tool calls >= 19/20) appropriate?
+  Q3 Is the stop rule in section 2 (projected < 2x after stage A) the right gate before NPU time is spent?
+  Q4 Anything in section 7 missing for running development code on the NPU of a board that also carries the campaign?
