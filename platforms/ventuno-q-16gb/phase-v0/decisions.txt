@@ -519,7 +519,7 @@ D54 2026-10-06 Overnight investigation (owner away, no root; v0d-investigation.m
      explicit HTP device lists. Unlocking its ubatch needs a patched build or a newer release.
    - Mapping failures are all single large buffers (KV, compute, output layer) + 4 KiB (table in the doc); inferred
      mechanism: per-session 32-bit DSP address space with large-buffer placement. Post-reset tests prepared
-     (tools/v0d_unlock.sh): output layer on CPU (-ngl n_layer), MBUF=256, more sessions; 4B at 65K on 4 sessions;
+     (tools/v0d_unlock.sh): output layer on CPU (-ngl n_layer) [placement wrong, D170], MBUF=256, more sessions; 4B at 65K on 4 sessions;
      n-gram speculative decoding feasibility.
    - The final re-measurement (tools/v0d_final.sh) and the NPU readiness probes were stopped at 00:22 so a CPU
      thread test (tools/v0d_cpu_threads.sh) runs without concurrent NPU loads; both are relaunched after the reset.
@@ -533,7 +533,7 @@ D55 2026-10-06 CPU thread placement (tools/v0d_cpu_threads.sh, runs/v0d-cpu/, si
 
 D56 2026-10-06 Morning chain prepared (tools/v0d_morning.sh): after the owner's cDSP reset, v0d_final.sh (readiness probes
    every 10 min for up to 6 h, then F and A warm-up + 3 interleaved repeats at all depths, tool gates on F), then — only
-   if no NPU hang occurred — v0d_unlock.sh (output layer on CPU, MBUF=256, more sessions, 4B at 65K on 4 sessions,
+   if no NPU hang occurred — v0d_unlock.sh (output layer on CPU, [placement wrong, D170] MBUF=256, more sessions, 4B at 65K on 4 sessions,
    partial-offload 9B with 4 big-core threads, n-gram speculation feasibility, two cache-ram 0 repeats). Started at
    ~02:40 so it begins measuring as soon as the NPU loads. Window analysis (v0d-investigation.md §4b): by pi 0.80.10's
    formulas a 40960 window avoids the 32K one-token stall; marathons at 65K+ are not possible for the 4B NPU
@@ -574,13 +574,13 @@ D59 2026-10-06 V0d unlock tests, rounds 1-4 (runs/v0d-unlock/, tools/v0d_unlock*
      stays on the CPU but in ggml-hexagon's host buffer (rpcmem shared with the DSP); with op offload on (default),
      its lookup is sent to an HTP session, which maps the whole table. Fails: -ngl 33 on 2 or 3 sessions; -ngl 20;
      --no-op-offload on 2 sessions; --no-host with -ngl 99 on 2 or 3 sessions (the output layer, same size, then
-     sits on the NPU). WORKS: 3 sessions, -ngl 33 (32 repeating layers + output layer on the NPU; the unused MTP
+     sits on the NPU). WORKS: 3 sessions, -ngl 33 (32 repeating layers + output layer on the NPU; the unused MTP [placement wrong, D170]
      layer and token_embd on the CPU), --no-op-offload, 4 big-core threads: 512 157.5/6.44, 16K 152.2/5.47; min
      MemAvailable 5.61 GiB. First 9B configuration to reach both speed gates (145/4.4), single run.
-   - 4B at -c 65536: loads on 4 sessions, both with -ngl 99 (16K 314.7/7.81) and -ngl 32 (output on CPU: 238.6/5.16,
+   - 4B at -c 65536: loads on 4 sessions, both with -ngl 99 (16K 314.7/7.81) and -ngl 32 (output on CPU: [placement wrong, D170] 238.6/5.16,
      8 threads; 243.4/7.89 with --no-op-offload and 4 big cores). Fails on 3 sessions (token_embd 357 MiB map) and on
      2 sessions even with --no-host (256 MiB KV chunk). 4 sessions at 40960: 320.0/7.73 (2 sessions: 312.9/8.06).
-   - 4B other: output layer on CPU + --no-op-offload + 4 big cores on 2 sessions 245.1/8.30 (decode +3 %, prefill
+   - 4B other: output layer on CPU [placement wrong, D170] + --no-op-offload + 4 big cores on 2 sessions 245.1/8.30 (decode +3 %, prefill
      -22 %); --no-host on 2 sessions 320.9/8.08 (neutral). n-gram speculation (ngram-map-k, 16): 319.7/8.00, no
      gain on these prompts (no repetition to exploit); feasibility only, agent workloads may differ.
    - cache-ram 0 anomaly confirmed in two repeats: 16K 219.4/6.27 and 215.6/6.48 (vs ~313/8.1 at 8192). Cause not
@@ -737,7 +737,7 @@ D70 2026-10-06 Owner: use speculative decoding / MTP as much as possible and fin
    draft-simple roll back through checkpoints (worked once, D59). Extra snapshots add RS buffers on the NPU.
    Per model:
    - Ornith-1.0-9B is an MTP build ("Ornith 9b Mtp Kl", finetune mtp-kl, nextn_predict_layers 1); its MTP layer is
-     in the file, ignored today, and kept on the CPU by -ngl 33. In this build draft-mtp for qwen35 uses the loaded
+     in the file, ignored today, and kept on the CPU by -ngl 33. [placement wrong, D170] In this build draft-mtp for qwen35 uses the loaded
      target (no second copy, unlike the Jetson).
    - NeoHorse-1-4B (fine-tune of Qwen3.5-4B) has no MTP head: candidates are the base model's MTP head
      (unsloth/Qwen3.5-4B-MTP-GGUF; the Jetson saw +27-34 % for a cross-fine-tune head), a DFlash block drafter
@@ -2170,24 +2170,24 @@ D153 2026-10-12 kld9 (-ub 512 unless stated; KLD / same top / PPL): -ub 64 0.176
    sessions 0.00028 / 99.1 % / 14.35; -ngl 16 one session identical to the digit; -ub 1 0.0179 / 95.2 % / 14.37
    (full offload, npu 0.8169 / 66.0 % / 2.30). Readings: the session split is not involved [D156: shown at -ngl 16 only]; the fault needs
    multi-token ubatches and grows with their size; it is absent when the last 16 blocks AND NOT the output layer
-   are on the NPU (with -ngl 16 the output norm and the 248,320-row output projection stay on the CPU). A row
+   are on the NPU (with -ngl 16 the output norm and the 248,320-row output projection stay on the CPU). [placement wrong, D170] A row
    misplacement in the output projection for multi-token batches would give exactly the low PPL (logits of token t
    computed from a later token's state). Declared before running (kld10): -ngl 32 (all 32 blocks on the NPU, output
-   layer on the CPU) and -ngl 33 (output layer too). Reading: 32 near 0 and 33 at ~0.8 -> the output layer.
-D154 2026-10-12 kld10: -ngl 32 (all blocks on the NPU, output layer on the CPU) KLD 0.0024 / same top 97.9 % / PPL
+   layer on the CPU) [placement wrong, D170] and -ngl 33 (output layer too). Reading: 32 near 0 and 33 at ~0.8 -> the output layer.
+D154 2026-10-12 kld10: -ngl 32 (all blocks on the NPU, output layer on the CPU) [placement wrong, D170] KLD 0.0024 / same top 97.9 % / PPL
    14.43; -ngl 33 (output layer on the NPU) 0.8169 / 66.0 % / 2.30, identical to full offload. The NPU's departure
-   from the CPU in prompt batches is entirely in the output layer (output norm + 248,320-row output projection) when
+   from the CPU in prompt batches is entirely in the output layer [placement wrong, D170] (output norm + 248,320-row output projection) when
    it runs on the NPU; the 32 blocks match the CPU closely even at -ub 512. Not yet shown: that this is what breaks
    pi (the server computes logits for the last prompt token only; a wrong row there would make the FIRST generated
    token come from the wrong position, which fits replies that narrate instead of opening a tool call).
    Declared before running: v0p_diag.sh step D6 (STEPS=D6) = D1's runtime and request plus -ngl 32 (later flag
    wins), 10 pi sessions and 20 replays. Reading: D6 >= 17/20 and Fisher vs D1 p < 0.01 -> the output layer on the
    NPU accounts for this request's failures; <= 8/20 -> it does not by itself. test_v0p_diag.sh 23/23.
-D155 2026-10-12 D6 result: the output layer on the NPU is what breaks pi's tool calls. D6 (01:02-01:25, PASS,
+D155 2026-10-12 D6 result: the output layer on the NPU is what breaks pi's tool calls. [placement wrong, D170] D6 (01:02-01:25, PASS,
    0 faults; launch checks runs/v0p-pi/launch-checks-D6.txt; server log "offloaded 32/33 layers"; same template and
    sampling as D1 by /props): first-reply tool calls 20/20 (D1 3/20, Fisher p = 2.6e-8); pi smoke 10/10 PASS 7/7
    (D1 2/10, Fisher p = 7.1e-4). Prompt eval 1,644 tokens 272 tok/s (D1 359); median replay 24.1 s (D1 21.5 s).
-   Reading as declared in D154 (>= 17/20, p < 0.01): with this request, the output layer (output norm + output
+   Reading as declared in D154 (>= 17/20, p < 0.01): with this request, the output layer (output norm + output [placement wrong, D170]
    projection) running on the NPU accounts for the failures; the 32 blocks on the NPU do not (KLD 0.0024 vs CPU).
    The mechanism is NOT identified: every op of the output layer passes test-backend-ops alone, including the
    248,320 x 512 Q4_0 output projection; it fails only inside the model, with multi-token ubatches (KLD -ub 1 0.018,
@@ -2225,11 +2225,11 @@ D156 2026-10-12 Codex review of 8265a10 (D145-D155): four P2 findings and the PR
       overlapped logs, 15/15 and 20/20); rerun alone 2026-10-12 09:01, nothing else on the cDSP, same command:
       CUMSUM 15/15, L2_NORM 20/20 (t5-*.log, t5-start.txt). The test-export run of D145 (86/87) is correct.
    4. Scope of the conclusions. Measured: the NPU's perplexity on this text is 6x below the CPU's, the KLD grows with
-      the ubatch size (-ub 1 0.018, 64 0.18, 512 0.82), and it is near zero with the output layer on the CPU (-ngl 32
+      the ubatch size (-ub 1 0.018, 64 0.18, 512 0.82), and it is near zero with the output layer on the CPU [placement wrong, D170] (-ngl 32
       0.0024 vs -ngl 33 0.817). That fits positional or causal contamination of the logits but does not prove that
       later tokens leak: a same-prefix, different-continuation logit comparison would test it (not run). The
       one-/two-session identity is shown at -ngl 16 only (full offload on one session did not load, see 2); session
-      effects at full offload are not excluded. The -ngl 32/33 boundary and D6 localize a faulty path when the output
+      effects at full offload are not excluded. The -ngl 32/33 boundary and D6 localize a faulty path when the output [placement wrong, D170]
       layer is offloaded, not a faulty output op and not a verified row-placement mechanism.
    5. PR description: the executed instructions (D1-D6 and KLD commands, settings, timeouts, stop/reload rules,
       amendments, phase boundaries) restored in the description, kept apart from the historical plans.
@@ -2241,9 +2241,9 @@ D157 2026-10-12 Codex follow-up at 739b1d9: ready to merge as a diagnostic check
    HMX scalar-gate cases with kda=0, K=1 and >= 64 tokens", not "every case of >= 64 tokens" (t2-gdn.log also has
    passing >= 64-token kda=1 cases).
    Owner: "review and merged so you can continue". Next, declared (v0e-plan-A32.txt; nothing runs before the owner
-   approves it after review): configuration A32 = A-retry with -ngl 32 (output layer on the CPU, D155) and
+   approves it after review): configuration A32 = A-retry with -ngl 32 (output layer on the CPU, D155) [placement wrong, D170] and
    --cache-ram 5120 (A-retry's 7942 left MemAvailable at 1.06 GiB in V0e S2, D139; the cut of 2,822 MiB covers the
-   0.45 GiB shortfall, the output layer's CPU buffers and about 1.8 GiB of margin; an estimate, decided by memfloor
+   0.45 GiB shortfall, the output layer's CPU buffers [placement wrong, D170] and about 1.8 GiB of margin; an estimate, decided by memfloor
    --admit 5120 and the health verdict). Stage 1: v0d_admit.sh A32 (fresh admission, the frozen 16K gate). Stage 2:
    v0e_A_retry.sh A32 (the A-retry driver and policy with a set argument; without one it is AR, unchanged).
    Tools: v0d_admit.sh set A32; v0e_A_retry.sh [AR|A32]. Tests: test_admit_entry.sh 15/15; test_v0e_A_retry.sh
@@ -2473,3 +2473,160 @@ D166 2026-10-13 Codex review of 59342f0 (PR #55): evidence verified (audits, mem
       settings, budgets, stop and recovery rules, owner approval, option (b), the drift reset as an environment
       deviation).
    Unchanged: A32-2 NOT QUALIFIED; attempt 1 NOT QUALIFIED; nothing is GO; upstream texts not filed.
+
+D167 2026-10-13 A32-3 declared for review (v0e-plan-A32-3.txt). Owner: "Yes and also the upstream text and the
+   recovery probe" (to drafting the amendment). Nothing runs on the NPU until the owner approves it after review.
+   1. Window item, tool continuation (v0e_window.py continuation()): checked against the server's own serialization
+      of the continued conversation (/apply-template with the tools, /tokenize with special tokens, as the chat
+      endpoint parses and tokenizes it; llama.cpp 836d57176 server-context.cpp): prompt_tokens within 4 of it, the
+      call and the result present in it, prompt grown, within the window, not truncated. Replaces the bound
+      first prompt + completion - 64 (confirmed wrong for reasoning replies, D166).
+   2. Cache item wording: turn1() keeps "current" (unchanged, default) and adds "neutral" ("Reference <nonce>.", the
+      task before the document, the document marked as reference material, a closing first-step instruction); the
+      document, tools, budget and checks are identical. New mode "wording" (v0e_wording.sh): turn 1 only, 8 tries per
+      wording, ABBA order, counts and a two-sided Fisher exact p reported. Driver stage S0 (attempt 3 only), a full
+      session with the evidence chain; declared rule: neutral >= 7/8 -> S1 with CACHE_WORDING=neutral; <= 6/8 -> stop
+      before S1 (exit 4). The current wording's count tests the D166 hypothesis but does not decide.
+   3. Recovery-probe outcome (D162 observation): v0d_runner.sh ready() calls an optional PROBE_STOP hook before it
+      stops; v0e_A_retry.sh sets it for every set: with a recorded fault the outcome is "NOT QUALIFIED (faults
+      recorded: N, kept in faults.txt; recovery ended: <reason>)", exit 3; without a fault unchanged.
+   Tests (runs/v0e-A32-3-offline/tests-D167.txt; every ~/v0 copy identical to tools/): test_v0e_window.py 25/25;
+   test_v0e_A_retry.sh SET=AR 37/37, SET=A32 38/38, SET=A32 ATT=2 40/40, SET=A32 ATT=3 48/48 (attempt 3 runs every
+   earlier case with S0 in front, plus the S0 rule and outcome cases); test_runner.sh 23/23, test_admit_entry.sh
+   15/15, test_v0e_A.sh 13/13, test_v0e_H2.sh 13/13, test_v0e_compact.sh 10/10. Test-harness change: the fake
+   journal takes one mode per call from a queue, so attempt 3's journal cases fail S1's journal, not S0's.
+   Upstream texts (upstream/, still NOT FILED or POSTED) updated: duplicate search of ggml-org/llama.cpp issues
+   (none found; #29473 is a different fault: HMX without FP16 on a v73 SoC), a retest on master still owed (15
+   commits under ggml-hexagon since 836d57176; master 1b70350c9), A32-2's 2 h 05 min on the retry library without a
+   hang added to the #30309 comment, and the -ngl 32 sustained session added to the output-layer workaround. [placement wrong, D170]
+
+D168 2026-10-14 Codex review of bca94b7 (PR #56): 252 checks reproduced; two P2 findings in the new continuation check,
+   both reproduced offline (no hardware failure), and two requests; addressed:
+   1. P2, complete response evidence: a 200 response with only a matching prompt_tokens (no completion_tokens, no
+      choices) passed, with the reply silently counted as 0. Now the check requires HTTP 200, integer prompt_tokens > 0
+      and completion_tokens >= 0, a non-empty choices list whose first entry has a message and a finish reason in
+      stop/tool_calls/length; anything absent or malformed fails.
+   2. P2, per-component serialization: the code-word count could be met by the assistant's visible text plus the
+      call, with the tool result dropped by a consistent server. Now the tool result carries its own marker
+      (RESULT-<hex>), which must appear exactly once in the serialization and be absent when the tool message is left
+      out; and leaving out the assistant's tool_calls must shorten the serialization and remove a code-word occurrence.
+      The count heuristic is gone.
+   Regressions (test_v0e_window.py, now 38/38): missing completion_tokens, missing/empty choices, missing or invalid
+   finish reason, missing message; the tool result dropped and the call dropped by a consistent server, each with and
+   without the code word repeated in the visible text; the valid long-reasoning case, a visible-text repeat and
+   finish=length still pass. Each negative case was checked to fail on its own condition (VERBOSE=1 prints the detail).
+   3. S0 readings narrowed (plan section 2, driver comment): a stop below 7/8 is a stop by policy, not a finding that
+      neither wording can pass; both-high does not rule out a smaller stochastic effect; both-low is infrequent calls
+      in these trials, not by itself a refusal. The wording mode now reports each try's outcome (call, stop without a
+      call, length without a call, other finish without a call, incomplete) and counts declining visible text as a
+      pattern, separately per wording; only the call count enters the rule.
+   4. PR #56's description carries the full execution brief (phases and caps, configuration and identities, launch
+      checks, stop and recovery, approval boundary).
+
+D169 2026-10-14 V0e A32-3 result (v0e-plan-A32-3.txt, D167-D168; owner: "Ok go A32-3"), 07:30-10:20: NOT QUALIFIED
+   (S1 items failed; S0 PASS, S2 PASS; no fault). Evidence: runs/v0e-A32-3/ (launch checks, status, driver log, three
+   baseline probes, S0, S1, S2, v0e-compact, pi-smoke, recompute-20261014.txt).
+   Launch: 95 deployed files compared, 0 differ; measurement checkout 7badb21 clean; A32 admission still latest and
+   passing. The unattended linux-libc-dev upgrade at 06:50 (before launch) went through the D164 procedure: dpkg
+   baseline reset, the previous baseline kept as env/dpkg-baseline-20261014-pre-unattended.txt, env/ republished. No
+   package changed during the run (installed list identical to env/dpkg-baseline-current.txt afterwards).
+   Baselines: probe-073041, probe-081326, probe-084311 PASS on the patched library (identity checked before each load).
+   S0 (38 min, cache wording): PASS, 16/16 complete requests. current 5/8 (call 5, stop without a call 3, declining
+   text 3), neutral 8/8 (call 8); Fisher two-sided p = 0.2 (reported, not a check). Rule: neutral >= 7/8 -> S1 with
+   the neutral wording. Reading, limited to these 16 trials: consistent with a wording effect, not shown at
+   conventional significance. One current-wording call (try 12) ran "cd ~/Repositories/local-agent-arena && ls -la" [incomplete, D170: tries 1 and 4 too]
+   rather than "cat out1.txt"; the rule counts a bash call with an id, so it counts. Memory ADMIT, L_min 9,338,558 kB;
+   lowest MemAvailable 4.23 GiB; DSP retry events 1, longest run 1.
+   S1 (26 min): stream probe 10/10, agentic 3/3, pi smoke 7/7, compaction PASS (files estimate 23,026, real 20,064;
+   one compaction; both code words recalled after it); window FAIL 3/4; cache FAIL 3/5 (the neutral wording's turn 1
+   called bash). Memory ADMIT, L_min 9,370,413 kB; lowest MemAvailable 5.74 GiB; DSP retry events 0.
+   S2 (97 min, 41 cycles): PASS; 41/41 pi smoke; sustained summary VALID (prefill 252.3 -> 243.6 tok/s, -3.5 %; decode
+   5.8 -> 5.6, -3.3 %; NSP max 46.7 -> 47.0 C); memory ADMIT, L_min 8,873,411 kB; lowest MemAvailable 3.61 GiB
+   (reported, not gated; no swap); DSP retry events 0.
+   Kernel audits and memory floors of the three probes and three sessions recomputed from the committed monitor
+   export: identical to the driver's.
+   The two S1 failures (diagnosed from window.jsonl, cache.jsonl and the server log):
+   1. window, "tool continuation" - a defect in the D168 check (confirmed from the recorded request and response).
+      The ablation "tool message left out" serializes msg[:-1], a conversation ending in the assistant's tool call;
+      llama-server's /apply-template refuses that with HTTP 400 "Cannot continue an assistant message that contains
+      tool calls." (recorded in window.jsonl), so "result serialized" reads no. Everything else the check measures
+      passed: HTTP 200 complete response; server prompt 31,627 = the serialized continuation 31,627; the call
+      serialized; the result marker present exactly once in the full serialization; the prompt grew from 31,549;
+      total 32,001 of 32,768; finish stop, no truncation; the reply used the tool result. The offline mock accepted
+      a trailing assistant tool call, so the tests did not see it. A correct ablation keeps the tool message and
+      swaps its marker for a second one (the first absent, the second present).
+   2. cache, turns 2 and 3: cache_n = 0 (previous prompts 8,434 and 10,502); the server logged "forcing full prompt
+      re-processing due to lack of cache data (likely due to SWA or hybrid/recurrent memory)" (28 times in S1). The
+      model is hybrid recurrent (qwen35) and A32 runs with --ctx-checkpoints 0 (checkpoints crashed on the NPU in
+      D43: "HTP0:0 synchronize failed: dsp-error NO-SUPPORT" while saving the state). Without a checkpoint the server
+      cannot restore the recurrent state at a shared prefix, so the reuse checks cannot pass in this configuration
+      whatever the wording. Suspected as the whole cause from the log and the configuration, not isolated by a run
+      with checkpoints on. Attempts 1 and 2 had the same configuration; their cache failures were attributed to
+      other causes (turn-1 budget, wording) that hid this one.
+   Not changed. A32's qualification at 32768 now needs an owner decision on the cache item: (a) keep prefix reuse
+   as a requirement, which needs a configuration that can save the recurrent state (recurrent state on the CPU, or
+   a Hexagon state read-back; neither tested); or (b) re-declare the item to measure the re-read cost (effective
+   prefill over the whole prompt: 238 and 235 tok/s at turns 2 and 3). The window ablation is fixed either way
+   before any further attempt. Nothing is GO.
+   Monitor publish: one line of the committed 2026-10-13 minute export rewritten (its last minute, 12:06, was
+   partial at the previous export: 4 samples); every other change is an append. Identifier checks (machine-id, USB
+   serial) over platforms/ventuno-q-16gb: none.
+
+D170 2026-10-14 Codex review of 3b9b5c8 (PR #56, D169): the A32-3 evidence verified (six kernel audits and memory
+   floors, S2's sustained summary byte-for-byte, all 42 pi sessions, S0's 16 responses, the window round trip and the
+   400 refusal, cache turns 2/3 at cache_n 0, DSP counts 1/0/0, env manifest and monitor appends). A32-3 stays NOT
+   QUALIFIED as executed. One P1 finding (placement) and four actions; addressed:
+   1. P1, -ngl 32 placement. The pinned loader (836d57176, src/llama-model.cpp:1591-1616) computes i_gpu_start =
+      max(n_layer_all + 1 - ngl, 0) and assigns index n_layer_all (the output layer) with the same rule as the
+      blocks. NeoHorse 4B has 32 blocks and tied embeddings (no output.weight; qwen35.cpp creates token_embd.weight
+      again with TENSOR_DUPLICATED, which llama-model-loader.cpp:1166 classifies as OUTPUT). So -ngl 32 puts block 0
+      on the CPU and blocks 1-31 AND the output layer on the NPU; -ngl 33/99 put everything on the NPU; -ngl 16 puts
+      blocks 0-16 on the CPU and blocks 17-31 and the output layer on the NPU. Checked without the NPU
+      (runs/placement-D170/placement.txt; tools/placement_from_gguf.py reads the GGUF header and applies the rule):
+      the computed weight sizes equal the logged buffers (D1 -ngl 99: CPU 341.02 MiB = token_embd, NPU 2259.30;
+      D6 and A32-3 -ngl 32: CPU 341.16 + CPU_REPACK 60.56 = block 0, NPU 2198.59, one recurrent layer's state on the
+      CPU, 8.38 MiB). Every server log said "offloading output layer to GPU"; I read "offloaded 32/33" as the output
+      layer staying back and did not check the rule. The "offloading N repeating layers" line prints
+      min(ngl, n_layer_all) - 1 (31 for both 99 and 32) and is not the placement.
+      Consequences. The output layer was on the NPU in every KLD arm and pi step of D145-D155, including the
+      near-zero arms (-ngl 32 KLD 0.0024; -ngl 16 0.00028). D153-D155's localization to the output layer is
+      withdrawn. The measurements stand: full offload departs from the CPU (KLD 0.817, PPL 2.30 vs 14.36), the
+      departure grows with the ubatch, it is near zero with block 0 (or blocks 0-16) on the CPU, and pi's first
+      request gets 3/20 at full offload vs 20/20 at -ngl 32. No new mechanism is inferred: putting block 0 on the
+      CPU also changes the graph splits and copies; a causal claim needs a controlled comparison (e.g. -ot overrides
+      that move one thing at a time), declared and reviewed first. A32's command, hashes, admission and V0e
+      evidence are unchanged and stay its evidence under the corrected description ("block 0 on the CPU").
+      Earlier statements with the same error (marked "[placement wrong, D170]" in place, not rewritten): D54, D56 and D59's
+      "output layer on CPU (-ngl n_layer)" tests and results, the 9B -ngl 33 layout (D59, D70: block 0 on the CPU; blocks 1-32,
+      including the MTP block 32, and the output layer on the NPU; logged "offloaded 33/34"), D153-D157 and D167.
+      The 9B "output head on the CPU" layouts of D76-D79 used -ot output.weight=CPU, an explicit override, and are
+      not affected. Run labels ("outcpu") and comments in the deployed tools (v0d_unlock*.sh, v0d_admit.sh) are left
+      as they are (they name committed runs; the deployed copies are byte-compared at launch); this entry corrects
+      their meaning.
+      Corrected: README.md (status paragraph, A32 row, the "4B with the output layer on the CPU" row),
+      v0d-investigation.md (the unlock tests), v0e-plan-A32.txt (a dated note at the top; plan text unchanged).
+      upstream/output-layer-report.txt WITHDRAWN (a note at the top; the original kept below it, not to be filed);
+      upstream/gdn-hmx-report.txt no longer refers to it.
+   2. Window oracle fixed (tools/v0e_window.py): the result ablation keeps the tool message and swaps its marker for
+      a second one; PASS needs the first marker exactly once in the full serialization and absent from the swapped
+      one, and the second marker absent from the full one and present once in the swapped one. The mock now refuses
+      what the pinned server refuses (server-common.cpp:1328-1341: a message list ending in an assistant message
+      with tool calls, or in two assistant messages, HTTP 400 with the same text). New cases: those two refusals and a
+      served list ending in a tool message; a template that ignores the tool result, with and without the code word
+      in the visible text (both fail). test_v0e_window.py 43/43; the D168 checker run against the D170 test file
+      fails its three valid continuations with "result serialized: no", as in A32-3 S1
+      (runs/v0e-A32-3-offline/tests-D170.txt). Not deployed to ~/v0 (A32-3 ran 630c8d5; a later attempt deploys the
+      reviewed revision at its launch checks).
+   3. Cache. A focused cache/state investigation is declared and reviewed before any further A32 attempt. Keeping
+      prefix reuse as a requirement needs a separately identified configuration that can restore the recurrent state
+      (with its own admission and qualification); replacing reuse with a re-read cost measure is a change of
+      qualification policy that needs an explicit, reviewed methodology decision and cannot qualify A32-3
+      retroactively. Both wait for the owner.
+   4. D169 correction (S0): three of the five current-wording calls did not run the requested command (tries 1 and
+      4 "find ...", try 12 "cd ~/Repositories/local-agent-arena && ls -la"); exactly "cat out1.txt" in 2/8 current
+      vs 8/8 neutral. Descriptive only; the declared rule counts a bash call with an id and is unchanged. Also: the
+      06:50 unattended upgrade was five packages (bluez, bluez-cups, bluez-obexd, libbluetooth3 5.72-0ubuntu5.7 ->
+      5.8, and linux-libc-dev), not linux-libc-dev alone (launch-checks.txt; llama-server links no Bluetooth library).
+   5. PR #56's description: the pre-run approval and disk text and "live /apply-template still untested" updated
+      (executed with the reviewed tools at 630c8d5; the endpoint is now tested).
+   Nothing is GO.
