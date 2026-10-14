@@ -356,9 +356,16 @@ configuration's qualification.
    check that the model metadata, the runtime's effective context and pi's
    advertised window agree. A window that fails is recorded as unsupported for
    that configuration, never silently shortened.
-3. **Cached multi-turn reuse**, reported separately from fresh-prefix speed:
-   reuse a transcript, append tool output, compact, and record the cached
-   token counts where the runtime reports them.
+3. **Multi-turn correctness and cost** (from D171; before it, cached reuse
+   of at least 90 % of the previous prompt was required): a conversation with
+   real tool results growing to near the window, then a cold read of the same
+   prompt. The continuation must be correct (the right calls in order, the
+   prompt the server's own serialization, earlier facts recalled at the end,
+   and after a real-pi compaction), and every request's time to first token
+   must stay within 300 s, half of arena 3's 600 s per-turn budget. Total,
+   cached and evaluated tokens, prefill time, time to first token and the
+   full turn time are recorded for every request. Reuse is reported, never
+   required: zero reuse is a limitation to report, not a failure.
 4. **A sustained run** of at least 90 minutes, or the longest planned
    uninterrupted session if longer, with one server kept up. Sample
    temperatures, exposed clocks, MemAvailable, swap, memory pressure and

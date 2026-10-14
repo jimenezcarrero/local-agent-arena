@@ -37,13 +37,18 @@
 # not show that neither wording can pass). S0 is not a qualifying session; a fault in it is a fault (NOT QUALIFIED).
 # D167, every set: a baseline or recovery probe that stops the driver after a fault was recorded ends NOT QUALIFIED
 # (exit 3, faults kept), through the runner's PROBE_STOP hook; without a recorded fault the stop is unchanged.
+# D171 (v0e-plan-A32-4.txt): "v0e_A_retry.sh A32 4" is A32's fourth attempt, phase v0e-A32-4: as attempt 3 without S0
+# (the wording question is settled; the new S1 item uses the neutral wording). S1's item 3 is now the multi-turn
+# correctness and cost item (v0e_window.py turns, every set from D171) and compaction recall is gated. Every set, after
+# each session: server_requests.py on the session's server log -> <run dir>/server-requests.txt and a "COST" status
+# line (reported: requests, tokens from the cache, forced full re-processing, largest prompt-cache state; never gated).
 # Overridable for tests: BR, CHECK_PROC, RUN_V0E, SESS_PAUSE + the runner's variables (RUN_ROUTE, MEMFLOOR, PROBE_WAIT...).
 set -uo pipefail
 S=${1:-AR}; case $S in AR) NAME=A-retry; CAP=7942; NGL=99;; A32) NAME=A32; CAP=5120; NGL=32;; *) echo "unknown set $S" >&2; exit 9;; esac
-ATT=${2:-1}; case $S/$ATT in */1) ;; A32/2) NAME=A32-2;; A32/3) NAME=A32-3;; *) echo "unknown attempt $ATT for set $S" >&2; exit 9;; esac
+ATT=${2:-1}; case $S/$ATT in */1) ;; A32/2) NAME=A32-2;; A32/3) NAME=A32-3;; A32/4) NAME=A32-4;; *) echo "unknown attempt $ATT for set $S" >&2; exit 9;; esac
 source ~/v0/v0d_lib.sh
 BR=${BR:-$HOME/bench-runs}; CHECK_PROC=${CHECK_PROC:-pgrep -f}
-RUN_V0E=${RUN_V0E:-$HOME/v0/run_v0e.sh}
+RUN_V0E=${RUN_V0E:-$HOME/v0/run_v0e.sh}; SREQ=${SREQ:-python3 $HOME/v0/server_requests.py}
 SESS_PAUSE=${SESS_PAUSE:-180}
 PH=v0e-$NAME; ST=$BR/v0/v0d/$PH-status.txt; P=~/v0/hexpkg/pkg-linux; M=~/v0/models/q40; O=$BR/v0/$PH
 mkdir -p $O $BR/v0/v0d; say() { echo "$(date -Is) $*" | tee -a $ST; sync; }
@@ -96,6 +101,8 @@ session() { local lab=$1 wl=$2 to=$3 wd0 f0 try
     PHASE=$PH timeout -k 60 $to bash $RUN_V0E $LAB $wl -- $AW > /dev/null 2>&1; RC=$?; killall_srv
     C=$(classify $O/$LAB $RC $wd0); [ "$C" = EVIDENCE ] && loadfail $O/$LAB && C=LOADFAIL
     say "END $LAB: $C (runner rc $RC) | $(lastres $O/$LAB)"
+    # D171: what the session's requests cost (reported, never gated)
+    $SREQ $O/$LAB/server.log > $O/$LAB/server-requests.txt 2>&1 && say "COST $LAB: $(tail -1 $O/$LAB/server-requests.txt)"
     # D162: a fault in the session is recorded before a library stop, so it is not lost
     rsha || { say "STOP: the patched library or the .farf file changed during $LAB"
       case $C in HANG|DEVFAULT) fault $LAB $C; say "V0e $NAME: NOT QUALIFIED (fault $C in $LAB; library identity lost)"; exit 3;; esac; exit 2; }
