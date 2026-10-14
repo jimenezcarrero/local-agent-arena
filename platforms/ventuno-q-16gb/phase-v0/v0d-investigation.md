@@ -66,10 +66,11 @@ total" (D53). `GGML_HEXAGON_MBUF` only splits weight buffers, which is why it mo
 This is an inference from the logs; the kernel-side IOVA layout was not inspected (no root, no debugfs).
 
 **Post-reset tests that follow from it** (`tools/v0d_unlock.sh`, run after the final re-measurement):
-`-ngl <n_layer>` to keep the output layer and the vocabulary-sized logits on the CPU (4B: 32, 9B: 33),
+`-ngl <n_layer>` (4B: 32, 9B: 33; meant to keep the output layer and the vocabulary-sized logits on the CPU, but D170:
+the pinned loader then puts block 0 on the CPU and keeps the output layer on the NPU, `runs/placement-D170/`),
 `GGML_HEXAGON_MBUF=256`, and more sessions to shrink each KV buffer — 9B on 3 and 2 sessions, the 4B on 2, the
 4B at 65K on 4 sessions. Even if the 9B fits, its decode margin was then expected to be small (the ceiling estimate is withdrawn, §1) over the
-4.4 gate, and the output layer on the CPU costs a little more.
+4.4 gate, and the output layer on the CPU costs a little more [that layout is -ot output.weight=CPU, not -ngl; D170].
 
 ## 3. Paths that could still unlock performance, ranked
 
@@ -143,8 +144,8 @@ placement for decode on this SoC.** Consequences:
 - Every V0c CPU-route number (and GenieX CPU, which ran 8 unpinned threads) is the documented-default result, not
   the route's best; the CPU route still misses the 145 tok/s prefill gate by a factor of 6–9, so no eligibility
   changes.
-- Any CPU-side work in the campaign — the V2 rows planned on the CPU (BF16, Q8), the output layer kept on the CPU
-  in the unlock tests, partial offload — should use 4 big-core threads. The partial-offload 9B (D48: 2.71 tok/s
+- Any CPU-side work in the campaign — the V2 rows planned on the CPU (BF16, Q8), block 0 kept on the CPU by
+  -ngl n_layer in the unlock tests (described then as the output layer, D170), partial offload — should use 4 big-core threads. The partial-offload 9B (D48: 2.71 tok/s
   decode at 8K with 8 threads) likely decodes faster this way, but its prefill (~30–40 tok/s) still fails the gate.
 - For the NPU candidate the host threads matter less (the NPU does the work), consistent with the +5 % decode
   seen for big-core affinity in the sweep; the final re-measurement compares exactly that (F vs A).

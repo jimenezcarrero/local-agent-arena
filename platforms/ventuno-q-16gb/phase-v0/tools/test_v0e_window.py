@@ -141,18 +141,36 @@ class CFake:
     """the tool continuation (D167, D168): /apply-template renders role, content, tool calls and the tool list (a
     consistent server: the chat prompt is counted from the same rendering); /tokenize counts characters / 4.
     drop_tool / drop_calls: the template (and so the server) omits tool messages / assistant tool calls.
-    resp: how the chat answer is damaged (no_completion, no_choices, empty_choices, no_finish, bad_finish, no_message)."""
+    resp: how the chat answer is damaged (no_completion, no_choices, empty_choices, no_finish, bad_finish, no_message).
+    D170: like the pinned server (server-common.cpp, prefill_assistant on), a message list ending in an assistant
+    message is a continuation: HTTP 400 when that message has tool calls or follows another assistant message.
+    fixed_tool: the template renders every tool message with a fixed text (it ignores the tool result)."""
 
-    def __init__(self, offset=0, drop_tool=False, drop_calls=False, c2=60, trunc=False, http=200, tmpl_http=200, resp=None):
+    def __init__(self, offset=0, drop_tool=False, drop_calls=False, c2=60, trunc=False, http=200, tmpl_http=200, resp=None,
+                 fixed_tool=False):
         self.offset, self.drop_tool, self.drop_calls, self.c2 = offset, drop_tool, drop_calls, c2
-        self.trunc, self.http, self.tmpl_http, self.resp = trunc, http, tmpl_http, resp
+        self.trunc, self.http, self.tmpl_http, self.resp, self.fixed_tool = trunc, http, tmpl_http, resp, fixed_tool
+
+    @staticmethod
+    def refusal(msgs):
+        if msgs and msgs[-1]["role"] == "assistant":
+            if len(msgs) >= 2 and msgs[-2]["role"] == "assistant":
+                return "Cannot have 2 or more assistant messages at the end of the list."
+            if msgs[-1].get("tool_calls"):
+                return "Cannot continue an assistant message that contains tool calls."
+        return None
 
     def render(self, msgs, tools):
-        parts = [f"<{m['role']}>{m.get('content') or ''}" + ("" if self.drop_calls else json.dumps(m.get("tool_calls") or ""))
+        content = lambda m: "TOOL OUTPUT" if self.fixed_tool and m["role"] == "tool" else (m.get("content") or "")
+        parts = [f"<{m['role']}>{content(m)}" + ("" if self.drop_calls else json.dumps(m.get("tool_calls") or ""))
                  for m in msgs if not (self.drop_tool and m["role"] == "tool")]
-        return json.dumps(tools) + "".join(parts) + "<assistant>"
+        cont = msgs and msgs[-1]["role"] == "assistant"
+        return json.dumps(tools) + "".join(parts) + ("" if cont else "<assistant>")
 
     def __call__(self, path, body, timeout=0):
+        why = self.refusal(body.get("messages") or [])
+        if path in ("/apply-template", "/v1/chat/completions") and why:
+            return 400, {"error": {"code": 400, "message": why, "type": "invalid_request_error"}}, 0.0
         if path == "/apply-template":
             return (200, {"prompt": self.render(body["messages"], body.get("tools"))}, 0.0) if self.tmpl_http == 200 \
                 else (500, {"error": "x"}, 0.0)
@@ -202,7 +220,9 @@ for name, m0, kw, want in [
         ("continuation: over the window", m_plain, {"c2": 32768}, False),
         ("continuation: truncated", m_plain, {"trunc": True}, False),
         ("continuation: http 500", m_plain, {"http": 500}, False),
-        ("continuation: apply-template unavailable", m_plain, {"tmpl_http": 500}, False)]:
+        ("continuation: apply-template unavailable", m_plain, {"tmpl_http": 500}, False),
+        ("continuation: template ignores the tool result (fixed text), server consistent", m_plain, {"fixed_tool": True}, False),
+        ("continuation: template ignores the tool result, code repeated in the visible text", m_echo, {"fixed_tool": True}, False)]:
     f = CFake(**kw)
     if name.endswith("finish=length"):
         orig = f.__call__
@@ -221,4 +241,15 @@ for name, m0, kw, want in [
     print(f"{'ok  ' if ok else 'FAIL'} {name}"); fails += not ok
     if not ok or os.environ.get("VERBOSE"):  # VERBOSE=1: the check's detail line for every case
         print("     " + "".join(l for l in buf.getvalue().splitlines(True) if "tool continuation" in l).strip())
+# D170: the mock refuses what the pinned server refuses (A32-3: /apply-template 400 on the D168 ablation, window.jsonl)
+fk = CFake(); full = msg0 + [m_plain, {"role": "tool", "tool_call_id": "Ud4d", "content": "x"}]
+for name, msgs, want in [
+        ("mock: conversation ending in an assistant tool call -> 400 as the server", full[:-1],
+         "Cannot continue an assistant message that contains tool calls."),
+        ("mock: two assistant messages at the end -> 400 as the server", full[:-1] + [{"role": "assistant", "content": "x"}],
+         "Cannot have 2 or more assistant messages at the end of the list."),
+        ("mock: conversation ending in a tool message is served", full, None)]:
+    c, d, _ = fk("/apply-template", {"messages": msgs, "tools": vw.TOOLS})
+    ok = (c == 400 and d["error"]["message"] == want) if want else (c == 200 and "prompt" in d)
+    print(f"{'ok  ' if ok else 'FAIL'} {name}"); fails += not ok
 print(f"failures: {fails}"); sys.exit(fails)

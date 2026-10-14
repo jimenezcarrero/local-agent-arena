@@ -1,3 +1,17 @@
+WITHDRAWN 2026-10-14 (D170, Codex review of 3b9b5c8). Do not file. The title's causal claim is unsupported: on the
+pinned loader (836d57176, src/llama-model.cpp:1591) -ngl 32 does NOT keep the output layer on the CPU. With 32 blocks,
+i_gpu_start = 33 - 32 = 1: block 0 runs on the CPU, blocks 1-31 and the output layer on the NPU (the model's tied
+token_embd.weight is duplicated as the OUTPUT tensor, llama-model-loader.cpp:1166). The -ngl 33 vs 32 difference is
+therefore block 0's placement, not the output layer's; the output layer was on the NPU in every arm, including the
+near-zero ones (-ngl 32 KLD 0.0024; -ngl 16 0.00028). Evidence: runs/placement-D170/placement.txt (loader rule,
+GGUF header, logged buffer sizes).
+What remains measured (unchanged): full offload departs from the CPU (KLD 0.817, PPL 2.30 vs 14.36) and grows with
+the ubatch (-ub 1 0.018, 64 0.18, 512 0.82); with -ngl 32 or -ngl 16 it is near zero; pi's first request 3/20 at
+full offload vs 20/20 at -ngl 32. No mechanism is localized, and none is proposed here: placing block 0 on the CPU
+also changes the graph splits and copies, so a causal claim needs a controlled comparison first (e.g. -ot overrides
+that move one thing at a time). The text below is kept as it was on 2026-10-13, superseded.
+
+----- original text (2026-10-13), superseded by the note above -----
 NOT FILED. Prepared 2026-10-12 for the owner (D161), updated 2026-10-13 (D167); filing is the owner's decision.
 Evidence: D145-D156, D159, D165, runs/v0q-op, runs/v0p-pi, runs/v0e-A32-2. Claims scoped as in D156 (Codex review of
 8265a10). Duplicate search 2026-10-13 (ggml-org/llama.cpp issues): none found; #29473 is a different fault (HMX

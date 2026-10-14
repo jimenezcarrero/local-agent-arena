@@ -117,8 +117,11 @@ def continuation(msg, p, d, m, calls, code_word):
     Complete response evidence (D168): HTTP 200, integer prompt_tokens > 0 and completion_tokens >= 0, a non-empty
     choices list whose first entry has a message and a finish reason in FINISH_OK. Each component's effect on the
     serialization is checked separately (D168): the tool result carries a marker of its own (RESULT-<hex>) that
-    must appear exactly once in the serialization and not at all without the tool message; the call must change the
-    serialization (dropping the assistant's tool_calls must give a shorter one with fewer code-word occurrences)."""
+    must appear exactly once in the serialization; the call must change the serialization (dropping the assistant's
+    tool_calls must give a shorter one with fewer code-word occurrences). D170: the result ablation keeps the tool
+    message and swaps its marker for a second one (RESULT-<hex2>): the first must then be absent and the second present
+    once. The server refuses a conversation ending in an assistant tool call (server-common.cpp: "Cannot continue an
+    assistant message that contains tool calls."), so the D168 ablation (tool message left out) could never pass."""
     c0 = d.get("usage", {}).get("completion_tokens") or 0
     rid = f"RESULT-{uuid.uuid4().hex[:12]}"
     call_msg = {"role": "assistant", "content": m.get("content") or "", "tool_calls": calls[:1]}
@@ -134,9 +137,11 @@ def continuation(msg, p, d, m, calls, code_word):
                 and fr2 in FINISH_OK)
     print(f"continuation: http={code2} {summary(d2)} finish={fr2} {dt2:.0f}s")
     ser = apply_template(msg, TOOLS); e2 = ntok_special(ser) if ser is not None else None
-    no_result = apply_template(msg[:-1], TOOLS)
+    rid2 = f"RESULT-{uuid.uuid4().hex[:12]}"
+    swapped = apply_template(msg[:-1] + [dict(tool_msg, content=f"{code_word}\n{rid2}\n")], TOOLS)
     no_call = apply_template(msg[:-2] + [{"role": "assistant", "content": call_msg["content"]}, tool_msg], TOOLS)
-    result_ok = ser is not None and no_result is not None and ser.count(rid) == 1 and rid not in no_result
+    result_ok = (ser is not None and swapped is not None and ser.count(rid) == 1 and rid2 not in ser
+                 and rid not in swapped and swapped.count(rid2) == 1)
     call_ok = (ser is not None and no_call is not None and len(no_call) < len(ser)
                and no_call.count(code_word) < ser.count(code_word))
     p2, c2 = (p2 if isint(p2) else 0), (c2 if isint(c2) else 0)
