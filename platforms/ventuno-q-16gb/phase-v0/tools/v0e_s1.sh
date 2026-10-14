@@ -4,7 +4,7 @@
 # go to $OUT/items.txt. Exit 0 only if every item passed.
 #   1a probe_toolcalls probe --stream (10/10)       1b probe_toolcalls agentic --stream (3/3)      1c pi_smoke.py
 #   2  v0e_window.py window (agreement, near-limit prompt, tool continuation)
-#   3  v0e_window.py cache (cached multi-turn reuse vs fresh prefix)
+#   3  v0e_window.py turns (D171: multi-turn correctness and cost; replaces the cache item, whose reuse was required)
 #   2/3 v0e_compact.sh (real-pi compaction at the window)
 set -uo pipefail
 WIN=${WIN:-32768}; PIM=${PIM:-local32k}; T=~/v0/measure/suite/tools; EV=$(dirname "$OUT")/probe.txt
@@ -18,6 +18,6 @@ item 1a-stream-probe python3 $T/probe_toolcalls.py probe "$LABEL" "$EV" --url "$
 item 1b-stream-agentic python3 $T/probe_toolcalls.py agentic "$LABEL" "$EV" --url "$URL" --stream
 item 1c-pi-smoke env PI_PROVIDER=bench PI_MODEL=$PIM python3 $T/pi_smoke.py "$LABEL" "$EV"
 item 2-window python3 ~/v0/v0e_window.py window "$OUT" "$OUT/server.log" $WIN $PIM
-item 3-cache python3 ~/v0/v0e_window.py cache "$OUT" "$OUT/server.log" $WIN $PIM
+item 3-turns python3 ~/v0/v0e_window.py turns "$OUT" "$OUT/server.log" $WIN $PIM
 item 23-compaction bash ~/v0/v0e_compact.sh "$LABEL" $PIM "$EV"
 echo "$(date -Is) items failed: $fails" | tee -a "$OUT/items.txt"; exit $fails
