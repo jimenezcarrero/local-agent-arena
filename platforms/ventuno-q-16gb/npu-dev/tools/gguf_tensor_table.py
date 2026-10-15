@@ -18,12 +18,27 @@ Allocation (--rule master = ggml-org master af0579c78, the plan's K1 base; --rul
 Placement (llama-model.cpp master :1618-1676, llama-model-loader.cpp :1167, :1202-1228):
   i_gpu_start = max(n_layer + 1 - ngl, 0), act = min(ngl, n_layer + 1); index il (blocks 0..n_layer-1, the output
   layer = n_layer) is on the CPU if il < i_gpu_start or il - i_gpu_start >= act; otherwise on NPU session
-  upper_bound(splits, (il - i_gpu_start) / act), splits the cumulative fractions of each session's reported free
-  memory, which the Hexagon backend reports equal for every session (get_memory :9267-9272: opt_mbuf_total).
+  upper_bound(splits, (il - i_gpu_start) / act) in float32, splits the normalized cumulative --tensor-split values
+  or, without them, each session's reported free memory. The Hexagon backend reports 0 (master get_memory
+  :9267-9272: opt_mbuf_total, 0 unless GGML_HEXAGON_MBUF sets it; the release: 0), so the loader falls back to the
+  host's free memory, read once per session (llama-model.cpp :1626-1634): nearly equal, not exactly. The default
+  split is computed with equal reads; an index exactly on a split point (a tie) goes to the next session with equal
+  reads or a lower earlier read, and stays with a higher one: ties are listed. Explicit splits (review of ec37672):
+  the best contiguous partition (lowest largest session of weights + KV) and the --tensor-split values (layer
+  counts) that give it, checked with the same float32 placement.
   Tensors outside a block are INPUT (CPU: token_embd, pos_embd, token_types) or OUTPUT (the output layer's device:
   output, output_norm, and lfm2/lfm2moe's token_embd_norm = LLM_TENSOR_OUTPUT_NORM_LFM2, llama-arch.cpp :467, :807);
   a block id >= n_layer (e.g. an MTP block) goes with the output (llama-model.cpp :2362). Tied embeddings (no
-  output.weight): token_embd.weight is created again as the OUTPUT tensor (loader :1167) and counted there too.
+  output.weight): token_embd.weight is requested again as the OUTPUT tensor (loader :1167) and gets its own
+  allocation only if the output's buffer type differs from the input's (loader :1370-1376: an existing tensor of the
+  same name in the same buffer-type context is reused). On the NPU it differs: counted again. On the CPU (--ngl
+  leaving the output layer there, or --output-cpu) the input is in the plain CPU buffer (GET_ROWS: the CPU repack
+  buffer takes only 2-D MUL_MAT and 3-D MUL_MAT_ID, ggml-cpu/repack.cpp :5179-5210), and the output projection goes
+  to the CPU repack buffer if the host's CPU repack selects its type (repack.cpp :4925-5129, by the build's CPU
+  features and ne1 divisibility: with dotprod and without i8mm, as this board's cores report, Q4_0, Q4_K, Q5_K,
+  Q6_K, IQ4_NL, MXFP4, Q8_0 and Q1_0, not Q2_K or Q3_K; to be confirmed by the CPU_REPACK line of a load log), a
+  separate copy; otherwise to the same plain CPU buffer, reused. --cpu-repack TYPES names the types the host's CPU repack selects (--cpu-repack
+  none: none, e.g. --no-repack); without it the CPU weights are given as a bound (shared - separate).
   --output-cpu models NPU-R' (plan K4): the output projection (output.weight, or the tied copy) on the CPU.
 Self-check: every tensor's computed file bytes must fit its offset gap (the gap to the next tensor, or to the end of
   the file, minus at most the alignment padding); a mismatch means an unknown type size and the run fails (exit 1).
@@ -33,7 +48,7 @@ KV estimate (--ctx): per attention layer, 2 x ctx x head_count_kv x head_dim x 2
   when it is a per-layer array (lfm2/lfm2moe: 0 for the convolution layers), else every layer. Recurrent and
   compute buffers are not derivable from the header and are not estimated (measured at load, plan R2).
 Output: the summary on stdout; --tsv <path> writes the per-tensor table. Exit 0 on a consistent header."""
-import argparse, json, re, struct, sys, urllib.request
+import argparse, bisect, json, re, struct, sys, urllib.request
 
 # ggml types: id -> (name, block size, type size), from gguf-py constants.py GGML_QUANT_SIZES (llama.cpp 836d57176)
 QK_K = 256
@@ -51,6 +66,44 @@ RULES = {"master": TILE, "release": dict(TILE, Q2_K=512)}
 ALIGN = 128
 VMEM = 3355443200   # HTP_OP_MAX_VMEM_DEFAULT, htp/htp-ops.h :138 (master): what one NPU session can address (F5)
 MiB = 1024 * 1024
+f32 = lambda v: struct.unpack("<f", struct.pack("<f", v))[0]   # the loader's float arithmetic
+
+
+def place(values, start, act, n_idx):
+    """llama-model.cpp :1617-1661: the device of each index 0..n_idx-1 (None = CPU) for split values <values> (one per
+    session), in float32 as the loader computes it; and the indices exactly on a split point (ties)"""
+    acc, cum = f32(0.0), []
+    for v in values:
+        acc = f32(acc + f32(v)); cum.append(acc)
+    splits = [f32(c / acc) for c in cum]
+    dev, ties = [], []
+    for il in range(n_idx):
+        if il < start or il - start >= act:
+            dev.append(None); continue
+        x = f32(f32(il - start) / f32(act))
+        dev.append(min(bisect.bisect_right(splits, x), len(values) - 1))
+        if x in splits[:-1]:
+            ties.append(il)
+    return dev, ties
+
+
+def best_partition(costs, ns):
+    """contiguous partition of <costs> into ns non-empty groups with the lowest largest group sum: the group sizes"""
+    n = len(costs); pre = [0]
+    for c in costs:
+        pre.append(pre[-1] + c)
+    INF = float("inf"); best = [[INF] * (n + 1) for _ in range(ns + 1)]; cut = [[0] * (n + 1) for _ in range(ns + 1)]
+    best[0][0] = 0
+    for g in range(1, ns + 1):
+        for j in range(g, n + 1):
+            for i in range(g - 1, j):
+                v = max(best[g - 1][i], pre[j] - pre[i])
+                if v < best[g][j]:
+                    best[g][j], cut[g][j] = v, i
+    sizes, j = [], n
+    for g in range(ns, 0, -1):
+        i = cut[g][j]; sizes.append(j - i); j = i
+    return sizes[::-1]
 
 
 class Source:
@@ -157,8 +210,11 @@ def main(argv=None):
     ap.add_argument("source"); ap.add_argument("--rule", choices=sorted(RULES), default="master")
     ap.add_argument("--ngl", type=int, default=999); ap.add_argument("--sessions", default="1,2,3,4")
     ap.add_argument("--ctx", type=int, default=16384); ap.add_argument("--output-cpu", action="store_true")
+    ap.add_argument("--cpu-repack", help="types the host's CPU repack selects for 2-D MUL_MAT (comma list, or none); "
+                    "decides whether a tied output on the CPU is a separate copy; unset: a bound")
     ap.add_argument("--tsv")
     a = ap.parse_args(argv)
+    repack = None if a.cpu_repack is None else {x.strip() for x in a.cpu_repack.split(",") if x.strip() and x.strip() != "none"}
     ver, kv, tensors, data_start, align, fsize = read_header(a.source)
     arch = kv.get("general.architecture"); n_layer = kv[f"{arch}.block_count"]
     unknown_types = sorted({t["type_id"] for t in tensors if t["type_id"] not in TYPES})
@@ -205,6 +261,8 @@ def main(argv=None):
         per[n_layer][0] += emb["bytes"]; per[n_layer][1] += emb["alloc"]
     if a.output_cpu and out_proj:   # NPU-R': the output projection (or its tied copy) on the CPU
         per[n_layer][0] -= out_proj["bytes"]; per[n_layer][1] -= out_proj["alloc"]
+    # a tied copy on the CPU: separate only in the CPU repack buffer (loader :1370-1376); None = unresolved
+    tied_sep = None if (repack is None or not tied or not emb) else emb["type"] in repack
     print("LAYER index file_MiB npu_alloc_MiB (index " + str(n_layer) + " = the output layer"
           + (", without the output projection (--output-cpu)" if a.output_cpu else "") + ")")
     for k in sorted(x for x in per if x != "input"):
@@ -230,26 +288,60 @@ def main(argv=None):
           f"head_dim {hd}); recurrent state and compute buffers not estimated")
     # sessions
     ngl = a.ngl; start = max(n_layer + 1 - ngl, 0); act = min(ngl, n_layer + 1)
+    out_on_cpu = a.output_cpu or not (start <= n_layer and n_layer - start < act)
     cpu_w = per.get("input", [0, 0])[0]
     if a.output_cpu and out_proj:
         cpu_w += out_proj["bytes"]
-    for ns in [int(x) for x in a.sessions.split(",") if x]:
-        splits = [(i + 1) / ns for i in range(ns)]
-        sess = [{"layers": [], "w": 0, "kv": 0} for _ in range(ns)]; cpu_layers = []
-        for il in range(n_layer + 1):
-            if il < start or il - start >= act:
-                cpu_layers.append(il); cpu_w += 0; continue
-            x = (il - start) / act; d = next((i for i, sp in enumerate(splits) if sp > x), ns - 1)
-            sess[d]["layers"].append(il); sess[d]["w"] += per.get(il, [0, 0])[1]; sess[d]["kv"] += kvl.get(il, 0)
-        cpu_extra = sum(per.get(il, [0, 0])[0] for il in cpu_layers)
+    dup = emb["bytes"] if (tied and emb and out_on_cpu) else 0   # the tied copy, counted once in the CPU weights
+    if dup:
+        print(f"TIED output on the CPU: the copy of token_embd.weight ({emb['type']}, {dup / MiB:.2f} MiB) is "
+              + ({True: f"separate (CPU repack selects {emb['type']}, --cpu-repack)",
+                  False: f"the input's own tensor, reused (CPU repack does not select {emb['type']}, --cpu-repack)",
+                  None: f"separate if the host's CPU repack selects {emb['type']}, else the input's own tensor (unresolved: "
+                        "give --cpu-repack); CPU weights as a bound, reused - separate"}[tied_sep]))
+    cost = lambda il: per.get(il, [0, 0])[1] + kvl.get(il, 0)
+
+    def show(label, devs, ns):
+        sess = [{"layers": [], "w": 0, "kv": 0} for _ in range(ns)]
+        cpu_layers = [il for il, d in enumerate(devs) if d is None]
+        for il, d in enumerate(devs):
+            if d is not None:
+                sess[d]["layers"].append(il); sess[d]["w"] += per.get(il, [0, 0])[1]; sess[d]["kv"] += kvl.get(il, 0)
+        cpu_hi = cpu_w + sum(per.get(il, [0, 0])[0] for il in cpu_layers)
+        cpu_lo = cpu_hi - (dup if tied_sep is not True else 0)
+        cpu_hi = cpu_hi if tied_sep is not False else cpu_lo
         line = []
         for i, s_ in enumerate(sess):
             ls = s_["layers"]; rng = f"{ls[0]}-{ls[-1]}" if ls else "none"
             tot = s_["w"] + s_["kv"]
             line.append(f"HTP0:{i} layers {rng} weights {s_['w'] / MiB:.0f} + KV {s_['kv'] / MiB:.0f} = {tot / MiB:.0f} MiB"
                         f" ({tot / VMEM:.0%} of {VMEM / MiB:.0f})")
-        print(f"SESSIONS {ns} (-ngl {ngl}): " + "; ".join(line) + f"; CPU weights {(cpu_w + cpu_extra) / MiB:.0f} MiB"
+        cpu = f"{cpu_lo / MiB:.0f}" if cpu_lo == cpu_hi else f"{cpu_lo / MiB:.0f}-{cpu_hi / MiB:.0f}"
+        print(f"SESSIONS {ns} {label}: " + "; ".join(line) + f"; CPU weights {cpu} MiB"
               + (f" incl. layers {cpu_layers}" if cpu_layers else ""))
+        return max(s_["w"] + s_["kv"] for s_ in sess)
+
+    fit = {}
+    for ns in [int(x) for x in a.sessions.split(",") if x]:
+        devs, ties = place([1.0] * ns, start, act, n_layer + 1)
+        show(f"default split (-ngl {ngl}" + (f"; ties at {ties}: next session with equal free-memory reads" if ties else "")
+             + ")", devs, ns)
+        npu = [il for il in range(n_layer + 1) if devs[il] is not None]
+        if ns > 1 and len(npu) >= ns:
+            sizes = best_partition([cost(il) for il in npu], ns)
+            devs2, _ = place(sizes, start, act, n_layer + 1)
+            want = [g for g, c in enumerate(sizes) for _ in range(c)]
+            ok = [devs2[il] for il in npu] == want
+            big = show(f"best explicit split (-ngl {ngl} --tensor-split {','.join(map(str, sizes))}"
+                       + ("" if ok else "; WARNING: the loader's float32 placement differs from the partition") + ")", devs2, ns)
+            fit[ns] = (big, ok)
+    if fit:
+        ok_ns = [ns for ns, (big, ok) in sorted(fit.items()) if ok and big <= VMEM]
+        tight = {ns: (VMEM - big) / MiB for ns, (big, ok) in fit.items()}
+        print("EXPLICIT weights + KV under one session's address space: " + "; ".join(
+            f"{ns} sessions {'yes' if tight[ns] >= 0 else 'no'} ({tight[ns]:+.1f} MiB on the fullest)" for ns in sorted(fit))
+            + (f"; fewest sessions {ok_ns[0]} of those tried" if ok_ns else "; none of those tried")
+            + " (necessary, not sufficient: recurrent state, compute and scratch buffers are not included)")
     if a.tsv:
         with open(a.tsv, "w") as f:
             f.write("name\tshape\ttype\tfile_bytes\tnpu_alloc_bytes\trole\toffset\n")
