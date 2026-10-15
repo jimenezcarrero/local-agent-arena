@@ -270,12 +270,14 @@ class TFake(CFake):
     D172 (Codex review of 370f7a2): kind_at=n with kind = args_name_only | bak | echo | extra_call | extra_key | no_type |
     empty_id | spaces | final_read_call (the answer carries a non-bash call); timing_at=n with timing = inflate_decode
     (predicted_ms = (wall + 1 s) * 1000) | nan_prefill | inf_decode | neg_decode | prefill_over_wall; short_wall=s
-    returns every wall time s seconds shorter."""
+    returns every wall time s seconds shorter. D175 (Codex review of 02385b1): tok_at={i: kind} answers the i-th plain
+    /tokenize call (no special tokens; i = 0: every call) with kind = http503 | empty | missing | strings | not_dict |
+    one (a single token); special_empty answers every special-token /tokenize with an empty list."""
 
     def __init__(self, rate=200.0, reuse=False, tok=None, **bad):
         super().__init__(drop_tool=bad.pop("drop_tool", False)); self.rate, self.reuse, self.bad = rate, reuse, bad
         self.tok = tok or (lambda text: len(text) // 4)   # D174: a tokenizer whose density can vary with the text
-        self.n, self.maxt, self.last = 0, [], {}
+        self.n, self.maxt, self.last, self.tn = 0, [], {}, 0
 
     def render(self, msgs, tools):
         content = lambda m: "" if self.drop_tool and m["role"] == "tool" else (m.get("content") or "")
@@ -285,7 +287,13 @@ class TFake(CFake):
 
     def __call__(self, path, body, timeout=0):
         if path == "/tokenize":
-            return 200, {"tokens": [0] * self.tok(body["content"])}, 0.0
+            if body.get("add_special"):
+                return 200, {"tokens": [] if self.bad.get("special_empty") else [0] * self.tok(body["content"])}, 0.0
+            self.tn += 1; kind = (self.bad.get("tok_at") or {}).get(self.tn, (self.bad.get("tok_at") or {}).get(0))
+            return {"http503": (503, {"error": "Loading model"}, 0.0), "empty": (200, {"tokens": []}, 0.0),
+                    "missing": (200, {"content": "x"}, 0.0), "strings": (200, {"tokens": ["a"] * 9000}, 0.0),
+                    "not_dict": (200, [1, 2, 3], 0.0), "one": (200, {"tokens": [0]}, 0.0)}.get(
+                kind, (200, {"tokens": [0] * self.tok(body["content"])}, 0.0))
         if path != "/v1/chat/completions":
             return super().__call__(path, body, timeout)
         self.n += 1; n, b, msgs = self.n, self.bad, body["messages"]; self.maxt.append(body.get("max_tokens"))
@@ -437,6 +445,60 @@ rc, text, maxt, files, cost = trun(reps=1)
 ok = rc == 1 and maxt == [] and "FAIL  rep 1 sizing" in text and "not started" in text and "try 3 of 3" in text
 print(f"{'ok  ' if ok else 'FAIL'} turns: a projected last request over the bound -> FAIL before any request (rc {rc})"); fails += not ok
 vw.TURNS_MARGIN, vw.corpus = saved, real_corpus
+# D175 (Codex review of 02385b1): a failed, empty, malformed or implausible token count while sizing fails before any
+# chat request, and the corpus text built stays bounded. Guard: any corpus() request over 1,000,000 characters stops
+# the test before allocating it (the bound is 5 * 5,894 * 8 = 235,760 plus the first slice's head start).
+GUARD, biggest = 1_000_000, [0]
+def guarded(chars):
+    biggest[0] = max(biggest[0], chars)
+    if chars > GUARD:
+        raise MemoryError(f"guard: corpus({chars}) requested")
+    return real_corpus(chars)
+vw.corpus = guarded
+# plain /tokenize calls with the default fake (4 characters per token): slice 1 takes calls 1-2, slice 2 calls 3-4,
+# slice 3 starts at call 5, the reported counts after sizing are calls 11-15
+for name, kw, where in [("HTTP 503 at the first count", {"tok_at": {1: "http503"}}, "slice 1 of 5: /tokenize answered HTTP 503"),
+                        ("HTTP 503 on a later slice", {"tok_at": {5: "http503"}}, "slice 3 of 5: /tokenize answered HTTP 503"),
+                        ("HTTP 503 on every count", {"tok_at": {0: "http503"}}, "slice 1 of 5: /tokenize answered HTTP 503"),
+                        ("an empty token list", {"tok_at": {2: "empty"}}, "slice 1 of 5: /tokenize answered HTTP 200"),
+                        ("no token list", {"tok_at": {3: "missing"}}, "slice 2 of 5: /tokenize answered HTTP 200"),
+                        ("string tokens", {"tok_at": {4: "strings"}}, "slice 2 of 5: /tokenize answered HTTP 200"),
+                        ("a non-object answer", {"tok_at": {6: "not_dict"}}, "slice 3 of 5: /tokenize answered HTTP 200 without"),
+                        ("an implausible count (1 token) on a later slice", {"tok_at": {7: "one"}}, "slice 4 of 5: "),
+                        ("a failure in the reported counts after sizing", {"tok_at": {13: "http503"}}, "rep 1 sizing: /tokenize answered HTTP 503")]:
+    biggest[0] = 0
+    try:
+        rc, text, maxt, files, cost = trun(reps=1, **kw); err = None
+    except MemoryError as e:
+        rc, text, maxt, err = None, "", None, e
+    sizing = next((l for l in text.splitlines() if "rep 1 sizing" in l), "")
+    ok = err is None and rc == 1 and maxt == [] and sizing.startswith("FAIL") and where in sizing \
+        and "not started: the slices could not be sized" in text and biggest[0] <= 5 * 5894 * 8 + 4096 * 8
+    print(f"{'ok  ' if ok else 'FAIL'} turns: {name} while sizing -> FAIL before any request, corpus bounded "
+          f"(rc {rc}, largest corpus {biggest[0]:,} characters)"); fails += not ok
+    if not ok:
+        print(err or sizing or text[-1500:])
+rc, text, maxt, files, cost = trun(reps=1, special_empty=True)
+ok = rc == 1 and maxt == [] and "FAIL  rep 1 sizing: no serialization" in text
+print(f"{'ok  ' if ok else 'FAIL'} turns: an empty special-token count of the projection -> FAIL before any request (rc {rc})"); fails += not ok
+# text_of (window, cache, wording): the same validation; main() records it as a sizing FAIL
+for kind, want in [("http503", "HTTP 503"), ("empty", "HTTP 200 without"), ("one", "characters per token, outside")]:
+    biggest[0] = 0; vw.checks.clear(); vw.post = TFake(tok_at={0 if kind == "http503" else 1: kind})
+    os.environ["WORDING_N"] = "1"
+    try:
+        with tempfile.TemporaryDirectory() as out, redirect_stdout(io.StringIO()) as buf:
+            rc = vw.main(["v0e_window.py", "wording", out, "/nonexistent", "32768", "local32k"])
+        text, err = buf.getvalue(), None
+    except MemoryError as e:
+        rc, text, err = None, "", e
+    del os.environ["WORDING_N"]
+    ok = err is None and rc == 1 and vw.post.n == 0 and f"FAIL  wording sizing: " in text and want in text \
+        and biggest[0] <= 8000 * 8
+    print(f"{'ok  ' if ok else 'FAIL'} text_of: {kind} -> wording sizing FAIL, no chat request, corpus bounded (rc {rc}, "
+          f"largest {biggest[0]:,})"); fails += not ok
+    if not ok:
+        print(err or text[-800:])
+vw.corpus = real_corpus
 rc, text, maxt, files, cost = trun(reps=1)
 ok = rc == 0 and len(maxt) == 6 and "turns-transcript-rep2.json" not in files
 print(f"{'ok  ' if ok else 'FAIL'} turns: TURNS_REPS=1 runs one conversation (rc {rc})"); fails += not ok
