@@ -42,10 +42,12 @@
 # correctness and cost item (v0e_window.py turns, every set from D171) and compaction recall is gated. Every set, after
 # each session: server_requests.py on the session's server log -> <run dir>/server-requests.txt and a "COST" status
 # line (reported: requests, tokens from the cache, forced full re-processing, largest prompt-cache state; never gated).
+# D174 (v0e-plan-A32-5.txt): "v0e_A_retry.sh A32 5" is A32's fifth attempt, phase v0e-A32-5, identical to attempt 4;
+# the change is in the turns item's sizing (v0e_window.py).
 # Overridable for tests: BR, CHECK_PROC, RUN_V0E, SESS_PAUSE + the runner's variables (RUN_ROUTE, MEMFLOOR, PROBE_WAIT...).
 set -uo pipefail
 S=${1:-AR}; case $S in AR) NAME=A-retry; CAP=7942; NGL=99;; A32) NAME=A32; CAP=5120; NGL=32;; *) echo "unknown set $S" >&2; exit 9;; esac
-ATT=${2:-1}; case $S/$ATT in */1) ;; A32/2) NAME=A32-2;; A32/3) NAME=A32-3;; A32/4) NAME=A32-4;; *) echo "unknown attempt $ATT for set $S" >&2; exit 9;; esac
+ATT=${2:-1}; case $S/$ATT in */1) ;; A32/2) NAME=A32-2;; A32/3) NAME=A32-3;; A32/4) NAME=A32-4;; A32/5) NAME=A32-5;; *) echo "unknown attempt $ATT for set $S" >&2; exit 9;; esac
 source ~/v0/v0d_lib.sh
 BR=${BR:-$HOME/bench-runs}; CHECK_PROC=${CHECK_PROC:-pgrep -f}
 RUN_V0E=${RUN_V0E:-$HOME/v0/run_v0e.sh}; SREQ=${SREQ:-python3 $HOME/v0/server_requests.py}
