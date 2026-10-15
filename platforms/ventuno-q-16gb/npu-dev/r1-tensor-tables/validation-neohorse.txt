@@ -1,4 +1,4 @@
-# validation on the campaign's NeoHorse-1-4B-q4_0-pure.gguf (sha256 f822fa26..., Q4_0: master and release rules agree) against the A32-3 S1 server log (-ngl 32, 2 sessions, -c 32768; runs/v0e-A32-3 in the campaign branch), 2026-10-15T00:20:50+02:00
+# validation on the campaign's NeoHorse-1-4B-q4_0-pure.gguf (sha256 f822fa26..., Q4_0: master and release rules agree) against the A32-3 S1 server log (-ngl 32, 2 sessions, -c 32768; runs/v0e-A32-3 in the campaign branch), regenerated 2026-10-15T07:03:04+02:00 with the reviewed tool (default split with ties, best explicit split)
 model NeoHorse-1-4B-q4_0-pure.gguf: GGUF v3, architecture qwen35, block_count 32, tensors 426, file 2380008192 bytes, data from 10967808; output.weight: no (tied: token_embd.weight duplicated as the OUTPUT tensor); rule master
 offset gaps consistent: 426/426
 TYPE count params_M file_MiB npu_alloc_MiB alloc/file
@@ -40,7 +40,9 @@ LAYER 31 57.68 57.68
 LAYER 32 341.03 341.03
 INPUT (CPU) file 341.02 MiB
 KV estimate at ctx 32768: 8 attention layers [3, 7, 11, 15, 19, 23, 27, 31], 1024.0 MiB (F16 K and V, head_dim 256); recurrent state and compute buffers not estimated
-SESSIONS 2 (-ngl 32): HTP0:0 layers 1-16 weights 959 + KV 512 = 1471 MiB (46% of 3200); HTP0:1 layers 17-32 weights 1239 + KV 512 = 1751 MiB (55% of 3200); CPU weights 402 MiB incl. layers [0]
+SESSIONS 2 default split (-ngl 32; ties at [17]: next session with equal free-memory reads): HTP0:0 layers 1-16 weights 959 + KV 512 = 1471 MiB (46% of 3200); HTP0:1 layers 17-32 weights 1239 + KV 512 = 1751 MiB (55% of 3200); CPU weights 402 MiB incl. layers [0]
+SESSIONS 2 best explicit split (-ngl 32 --tensor-split 18,14): HTP0:0 layers 1-18 weights 1081 + KV 512 = 1593 MiB (50% of 3200); HTP0:1 layers 19-32 weights 1118 + KV 512 = 1630 MiB (51% of 3200); CPU weights 402 MiB incl. layers [0]
+EXPLICIT weights + KV under one session's address space: 2 sessions yes (+1569.9 MiB on the fullest); fewest sessions 2 of those tried (necessary, not sufficient: recurrent state, compute and scratch buffers are not included)
 RESULT gguf-table: PASS (426 tensors; file 2259.29 MiB; NPU allocation of everything placeable 2259.29 MiB, rule master)
 rc=0
 ## logged (A32-3 S1 server.log):
@@ -68,6 +70,15 @@ ok   3 sessions, all layers: 0-2, 3-5, 6-8
 ok   3 sessions, -ngl 8: block 0 on the CPU, then 1-3, 4-6, 7-8
 ok   offset gap smaller than the computed size -> FAIL
 ok   unknown type id -> FAIL
+ok   tied on the CPU: --ngl 0, no CPU repack: one copy (reused)
+ok   tied on the CPU: --output-cpu, F32 not repacked: one copy
+ok   tied on the CPU: --ngl 0, --cpu-repack unset: a bound, reused - separate
+ok   tied on the CPU: the CPU repack selects Q8_0: a separate copy (two)
+ok   tied, output on the NPU: a separate copy in the output layer, CPU input once
+ok   best partition: lowest largest group
+ok   place: --tensor-split 4,1,1 gives indices 0-3 / 4 / 5 (float32, upper_bound)
+ok   equal split: ties at the split points listed (9 indices, 3 sessions: 3 and 6)
+ok   explicit split: the heavy blocks apart, the rest together (--tensor-split 1,6)
+ok   EXPLICIT line: fit per session count, labelled necessary, not sufficient
 ok   URL source with range requests gives the same table and summary
 failures: 0
-rc=0

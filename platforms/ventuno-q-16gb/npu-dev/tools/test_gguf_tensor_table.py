@@ -2,7 +2,7 @@
 """offline tests for gguf_tensor_table.py: small synthetic GGUF files (written here, zero data) with hand-computed
 allocations, placement and session splits; a local HTTP server with range support for the URL path. No network,
 no NPU. Usage: python3 test_gguf_tensor_table.py"""
-import contextlib, http.server, io, os, struct, sys, tempfile, threading
+import contextlib, http.server, io, os, re, struct, sys, tempfile, threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gguf_tensor_table as g
@@ -125,8 +125,41 @@ gguf(f"{T}/unk.gguf", "llama", 1, [("blk.0.bad.weight", (256, 32), "Q4_K")], bad
 rc, text, _ = run(f"{T}/unk.gguf")
 ok("unknown type id -> FAIL", rc == 1 and "unknown tensor types [99]" in text, text)
 
+# 6. review of ec37672: a tied embedding on the CPU is reused when the output selects the same buffer context (plain
+# CPU), separate in the CPU repack buffer; unresolved without --cpu-repack. A 4 MiB F32 embedding (1024 x 1024).
+emb4 = [("token_embd.weight", (1024, 1024), "F32"), ("blk.0.w.weight", (256, 32), "Q4_0"), ("output_norm.weight", (1024,), "F32")]
+gguf(f"{T}/t4.gguf", "llama", 1, emb4)
+cpu = lambda text, ns="1": re.search(rf"SESSIONS {ns} default split[^\n]*CPU weights ([0-9-]+) MiB", text).group(1)
+for args, want, what in [(["--ngl", "0", "--cpu-repack", "none"], "4", "--ngl 0, no CPU repack: one copy (reused)"),
+                         (["--output-cpu", "--cpu-repack", "Q4_0,Q8_0"], "4", "--output-cpu, F32 not repacked: one copy"),
+                         (["--ngl", "0"], "4-8", "--ngl 0, --cpu-repack unset: a bound, reused - separate")]:
+    rc, text, _ = run(f"{T}/t4.gguf", "--sessions", "1", *args)
+    ok(f"tied on the CPU: {what}", rc == 0 and cpu(text) == want, text)
+emb8 = [("token_embd.weight", (2048, 3072), "Q8_0"), ("blk.0.w.weight", (256, 32), "Q4_0"), ("output_norm.weight", (1024,), "F32")]
+gguf(f"{T}/t8.gguf", "llama", 1, emb8)       # Q8_0 2048 x 3072: 6,684,672 bytes = 6.375 MiB
+rc, text, _ = run(f"{T}/t8.gguf", "--sessions", "1", "--output-cpu", "--cpu-repack", "Q8_0")
+ok("tied on the CPU: the CPU repack selects Q8_0: a separate copy (two)", rc == 0 and cpu(text) == "13" and "separate (CPU repack" in text, text)
+rc, text, _ = run(f"{T}/t8.gguf", "--sessions", "1")
+ok("tied, output on the NPU: a separate copy in the output layer, CPU input once", rc == 0 and cpu(text) == "6"
+   and "TIED output on the CPU" not in text and next(l for l in text.splitlines() if l.startswith("LAYER 1 ")) == "LAYER 1 6.38 6.38", text)
 
-# 6. URL: the same table through HTTP range requests (a local server honouring Range; small chunks)
+# 7. explicit splits (review of ec37672): float32 placement, ties, the best contiguous partition and its --tensor-split
+ok("best partition: lowest largest group", g.best_partition([1, 1, 1, 1, 4, 4], 3) == [4, 1, 1]
+   and g.best_partition([5, 5, 5, 5], 2) == [2, 2], g.best_partition([1, 1, 1, 1, 4, 4], 3))
+devs, ties = g.place([4, 1, 1], 0, 6, 6)
+ok("place: --tensor-split 4,1,1 gives indices 0-3 / 4 / 5 (float32, upper_bound)", devs == [0, 0, 0, 0, 1, 2], devs)
+rc, text, _ = run(f"{T}/s.gguf", "--sessions", "3")
+ok("equal split: ties at the split points listed (9 indices, 3 sessions: 3 and 6)", "ties at [3, 6]" in text, text)
+heavy = [("token_embd.weight", (256, 64), "Q8_0")] + [(f"blk.{i}.w.weight", (256, 32 * (8 if i < 2 else 1)), "Q4_0") for i in range(6)]
+gguf(f"{T}/h.gguf", "llama", 6, heavy)          # blocks 0-1 eight times the others; output index 6 empty
+rc, text, _ = run(f"{T}/h.gguf", "--sessions", "2")
+ex = next(l for l in text.splitlines() if "best explicit split" in l)
+ok("explicit split: the heavy blocks apart, the rest together (--tensor-split 1,6)",
+   "--tensor-split 1,6)" in ex and "HTP0:0 layers 0-0 " in ex and "HTP0:1 layers 1-6 " in ex and "WARNING" not in ex, ex)
+ok("EXPLICIT line: fit per session count, labelled necessary, not sufficient", "EXPLICIT weights + KV" in text
+   and "necessary, not sufficient" in text, text)
+
+# 8. URL: the same table through HTTP range requests (a local server honouring Range; small chunks)
 class H(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_GET(self):
