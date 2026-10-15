@@ -2744,9 +2744,15 @@ D174 2026-10-15 V0e A32-4 (v0e-plan-A32-4.txt, D171-D173; PR #58 merged at 22faf
    Fix (v0e_window.py, not deployed): each slice calibrated on its own with /tokenize; before anything is sent, the
    last request is projected (the declared calls in place of the replies, ids and markers at their real lengths) and
    its serialization gives the overhead; slices = (window - 2,048 - 512 - overhead) / 5; the projection with the real
-   slices must be <= window - 2,048 - 256, or the conversation is not started (FAIL "sizing"). Tests
-   (runs/v0e-A32-5-offline/tests-D174.txt): test_v0e_window.py 86/86 (new: a corpus whose later part tokenizes
-   denser, which on the D173 checker runs out of window as A32-4 did; a projection over the bound fails before any
-   request); test_v0e_compact.sh 15/15. Driver: attempt 5 (as attempt 4), test SET=A32 ATT=5.
+   slices must be <= window - 2,048 - 256; over it, the slices shrink by the excess and are cut again (3 tries in
+   all: five slices within 64 tokens each can add up past the 256-token gap), else the conversation is not started
+   (FAIL "sizing"). Checked on the real tokenizer and template (runs/v0e-A32-5-offline/sizing-real-tokenizer.txt: a
+   CPU-only llama-server at 836d57176, NeoHorse, /tokenize and /apply-template only, no generation, no NPU): the D173
+   sizing gives slices of 5,898, 7,171, 6,772, 6,428, 5,970 tokens for 5,904 and projects the last request at 32,980
+   (A32-4 measured 32,971 and 32,974): the diagnosis reproduced; the D174 sizing gives 5,889-5,951 for 5,894 and
+   30,315 (bound 30,464, 85 % = 27,852). Tests (runs/v0e-A32-5-offline/tests-D174.txt): test_v0e_window.py 87/87
+   (new: a corpus whose later part tokenizes denser, which on the D173 checker runs out of window as A32-4 did; a
+   first projection over the bound shrinks and retries; a projection that cannot fit fails before any request);
+   test_v0e_compact.sh 15/15; driver attempt 5 (as attempt 4), test_v0e_A_retry.sh SET=A32 ATT=5 40/40.
    A32-5 declared for review (v0e-plan-A32-5.txt): A32-4 with this fix only. Nothing runs until the owner approves it.
    A32-4 stays NOT QUALIFIED. Nothing is GO.
