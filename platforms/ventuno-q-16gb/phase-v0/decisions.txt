@@ -2713,3 +2713,76 @@ D173 2026-10-14 Codex follow-up review of 5f58c99 (PR #58, D172): the timing and
    Tests (runs/v0e-A32-4-offline/tests-D173.txt): test_v0e_window.py 84/84, test_v0e_compact.sh 15/15 (unchanged);
    v0e_A_retry.sh unchanged since 370f7a2. The turns gate is verified offline only, not yet on a live server. A32-4
    is declared, not run; nothing ran on the NPU. Nothing is GO.
+
+D174 2026-10-15 V0e A32-4 (v0e-plan-A32-4.txt, D171-D173; PR #58 merged at 22faf09), run on the owner's go ("Do both
+   is you have time, try to be working uno till tomorrow morning", answering "Go A32-4" and "Start NPU plan R1
+   offline"), 00:11-02:24: NOT QUALIFIED (S1: the turns item, a sizing defect of the test harness; S2 PASS), no fault.
+   Launch checks (runs/v0e-A32-4/launch-checks.txt): the 7 D171-D173 files and the new server_requests.py deployed to
+   ~/v0; 100 deployed copies equal to 031e734 (0 differ); identities (model, llama-server, patched library, .farf);
+   admission latest and passing; health pass without drift; 7badb21 clean; 14 GB free. One line corrected there: the
+   "v0e drivers: 1" count was pgrep matching its own command line (ps: none running).
+   - Baseline probes 00:11 and 00:46: PASS.
+   - S1 (00:12-00:43, clean session, memory ADMIT L_min 9.30 GB): streaming probe 10/10, agentic 3/3, pi smoke 7/7;
+     window PASS 4/4 (the D170 continuation check, first live run: prompt 31,625 = serialization 31,625, result and
+     call serialized, reply 187, total 31,812); compaction PASS with recall now gated (both words in the final answer,
+     real tokens 20,065); turns FAIL 32/36. COST: 43 requests, 7.9 % of prompt tokens from the cache, full
+     re-processing forced 31 times, prompt cache up to 4,151 MiB. DSP retry events 2, longest run 1.
+   - S2 (00:47-02:24, PASS, memory ADMIT L_min 9.01 GB): 41 cycles, sustained summary VALID (prefill 242.9 -> 244.8
+     tok/s, decode 5.7 -> 5.6, NSP max 46.3 -> 45.2 C; no decline), speed invalid 0, pi smoke 41/41. COST: 262
+     requests, 46.5 % from the cache, forced 40, prompt cache 5,095 of 5,120 MiB. DSP retry events 1.
+   - Recomputed from the committed monitor export (recompute-20261015.txt): the 4 kernel audits and memory floors equal
+     the driver's. Monitor publish: appends only, except the 2026-10-14 export's last minute (10:22, 4 samples when last
+     exported, 6 now). Identifier checks over phase-v0: none.
+   The turns failure (confirmed from the server's own counts; a defect of my item, not of the model or the backend):
+     the item calibrated characters per token on the first corpus slice only and cut the other slices to the same
+     length. Later slices tokenize denser: the prompts grew 6,335 -> 13,579 -> 20,424 -> 26,928 (+7,244, +6,845,
+     +6,504 for 5,904-token slices plus about 100 tokens of call and wrapper), so before request 5 the server's
+     serialization was 32,971 (rep 1) and 32,974 (rep 2), over the 32,768 window; the item refused to send it (fail
+     closed, as declared) and the answer, recall and cold read were not run. What ran passed: 8/8 calls valid (whole
+     array, the declared command), every prompt equal to the serialization, time to first token at most 122.6 s at
+     26,930 tokens (limit 300), reuse 0 (reported). The offline mock counted 4 characters per token everywhere.
+   Fix (v0e_window.py, not deployed): each slice calibrated on its own with /tokenize; before anything is sent, the
+   last request is projected (the declared calls in place of the replies, ids and markers at their real lengths) and
+   its serialization gives the overhead; slices = (window - 2,048 - 512 - overhead) / 5; the projection with the real
+   slices must be <= window - 2,048 - 256; over it, the slices shrink by the excess and are cut again (3 tries in
+   all: five slices within 64 tokens each can add up past the 256-token gap), else the conversation is not started
+   (FAIL "sizing"). Checked on the real tokenizer and template (runs/v0e-A32-5-offline/sizing-real-tokenizer.txt: a
+   CPU-only llama-server at 836d57176, NeoHorse, /tokenize and /apply-template only, no generation, no NPU): the D173
+   sizing gives slices of 5,898, 7,171, 6,772, 6,428, 5,970 tokens for 5,904 and projects the last request at 32,980
+   (A32-4 measured 32,971 and 32,974): the diagnosis reproduced; the D174 sizing gives 5,889-5,951 for 5,894 and
+   30,315 (bound 30,464, 85 % = 27,852). Tests (runs/v0e-A32-5-offline/tests-D174.txt): test_v0e_window.py 87/87
+   (new: a corpus whose later part tokenizes denser, which on the D173 checker runs out of window as A32-4 did; a
+   first projection over the bound shrinks and retries; a projection that cannot fit fails before any request);
+   test_v0e_compact.sh 15/15; driver attempt 5 (as attempt 4), test_v0e_A_retry.sh SET=A32 ATT=5 40/40.
+   A32-5 declared for review (v0e-plan-A32-5.txt): A32-4 with this fix only. Nothing runs until the owner approves it.
+   A32-4 stays NOT QUALIFIED. Nothing is GO.
+
+D175 2026-10-15 Codex review of 02385b1 (PR #60): A32-4 correctly NOT QUALIFIED; its evidence reproduces (audits,
+   memory floors, the sustained summary byte for byte, 42 pi sessions, both COST reports, the live window and
+   compaction checks, monitor appends). One finding, P1, fixed here before A32-5 is approved:
+   - The calibration trusted any /tokenize answer. ntok() counted an HTTP error or an empty list as 0 tokens, and the
+     next length became chars * target / max(0, 1): one 503 after an 18,860-character request asked for 111,160,840
+     characters, and the corpus was doubled until it had them (the six-try limit bounded the tries, not the
+     allocation): an endpoint failure could become a host OOM during qualification. text_of() (window, cache,
+     wording) had the same step.
+   - Fix (v0e_window.py): ntok() accepts only HTTP 200 with a non-empty list of integer tokens, else SizingError;
+     ntok_special() returns None for an empty list as well (a projection of 0 tokens would have passed the bound);
+     every new length comes from calibrate(), which refuses a count implying fewer than 1 or more than 8 characters
+     per token (the real slices: about 2.6-3.2), so no text longer than target * 8 characters is built; slices()
+     builds the corpus to the length it needs (at most 5 * 5,894 * 8 = 235,760 characters for A32) instead of
+     doubling, refuses a target below 64 tokens and names the slice that failed. The turns item records a sizing
+     FAIL and sends nothing; window, cache and wording record "<mode> sizing" FAIL in main().
+   - Tests (runs/v0e-A32-5-offline/tests-D175.txt): test_v0e_window.py 100/100, 13 new, each with a guard that stops
+     the case before any corpus request over 1,000,000 characters: HTTP 503 at the first count, on a later slice, on
+     every count; an empty list; no list; string tokens; a non-object answer; an implausible count (1 token) on a later
+     slice; a failure in the counts reported after sizing; an empty special-token count of the projection; text_of
+     with 503, an empty list and 1 token (wording sizing FAIL, no chat request). On the D174 checker (02385b1) the
+     guard trips at 1,224,368 characters in 5 of them and a non-object answer raises AttributeError.
+   - The same real-tokenizer check rerun with the D175 tools (CPU-only llama-server as in D174, /tokenize and
+     /apply-template only, started and stopped, no NPU): slices 5,889-5,951 as before, projection 30,313 (random code
+     words and nonce: 2 tokens from D174's 30,315).
+   Codex's other notes, recorded: the CPU tokenizer check is testing-agent evidence, not repeated by the reviewer; the
+   revised conversation is live-unverified; the 512-token margin does not bound arbitrary visible text in the model's
+   replies, so every actual request's checks (serialization, counters, window) stay authoritative. A32-5's plan gains
+   D175; the PR description now carries the full execution brief. A32-4 stays NOT QUALIFIED; nothing of it is
+   reused. Nothing is GO.
