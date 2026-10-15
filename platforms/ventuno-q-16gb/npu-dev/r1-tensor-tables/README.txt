@@ -41,8 +41,8 @@ against one session's address space of 3,200 MiB (HTP_OP_MAX_VMEM_DEFAULT, F5). 
                                                                                        3 sessions               4 sessions
   NANI-Nithin Q2_K (default-mix)      Q2_K 160, Q3_K 60, Q6_K 1        8,394   8,927  3,313 / 3,148 (15,13,13)  2,370 / 2,370
   bartowski Q2_K (another mix)        Q2_K 94, Q4_K 13, Q8_0 50, ...   8,745   9,031  3,417 / 3,184 (12,15,14)  2,809 / 2,406 (9,11,11,10)
-  NANI-Nithin Q3_K_S                  Q3_K 220, Q6_K 1                 9,939   11,542 4,267 / 3,942             3,052 / 3,052
-  LiquidAI QAD-Q4_0 (official)        Q4_0 220, Q6_K 1                 12,941  12,955 4,784 / 4,307             3,421 / 3,421
+  NANI-Nithin Q3_K_S                  Q3_K 220, Q6_K 1                 9,939   11,542 4,267 / 4,056 (15,13,13)  3,052 / 3,052
+  LiquidAI QAD-Q4_0 (official)        Q4_0 220, Q6_K 1                 12,941  12,955 4,784 / 4,546 (15,13,13)  3,421 / 3,421
   (NPU = every NPU allocation, the tied copy included; the explicit split's --tensor-split values in brackets where
   they differ from the default; ties: none in these four.)
 On the release rule the Q2_K files grow to 11,542 (NANI) and 12,133 (bartowski): the release tiles Q2_K at 1.52x the
@@ -51,8 +51,9 @@ at 4 sessions and over 3,200 at 3.
 Readings, for the R1 decision on M2 (not made here). Three separate limits:
   1. Per session (weights + KV against 3,200): with the best explicit split, the Q2_K files fit on 3 sessions with
      51.5 (NANI) and 15.8 (bartowski) left on the fullest session, before recurrent state and compute buffers: too
-     little to count on, and unresolved until R2 measures those buffers; on 4 sessions with 830 and 794 left. The
-     default split needs 4 (3 sessions: 3,313 and 3,417). Q3_K_S fits on 4 sessions with 148 left (default and
+     little to count on, and unresolved until R2 measures those buffers; on 4 sessions with 830 and 794 left (best
+     explicit split; bartowski's default split leaves 391). The default split needs 4 (3 sessions: 3,313 and
+     3,417). Q3_K_S fits on 4 sessions with 148 left (default and
      explicit agree), not on 3. Q4_0 does not fit on 4 (fullest 3,421, 221 over, explicit split included). Earlier
      wording ("a Q2_K needs 4 sessions"; "Q3_K_S and Q4_0 do not fit") held for the default split only, and the
      Q3_K_S part was wrong even there (89-95 % at 4 sessions): corrected here.
