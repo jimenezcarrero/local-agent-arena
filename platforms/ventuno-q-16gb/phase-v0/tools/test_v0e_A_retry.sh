@@ -14,7 +14,8 @@ pgrep -x llama-server > /dev/null && { echo "a llama-server is running; not test
 # D171: SET=A32 ATT=4 runs them against "v0e_A_retry.sh A32 4" (as attempt 3 without S0: the attempt-2 sequences);
 # every set: a passing session's server log gets a COST status line (server_requests.py, reported). Run with HOME at a
 # scratch tree holding the revision's tools as ~/v0 (the deployed copy is updated only at an approved launch).
-SET=${SET:-AR}; ATT=${ATT:-1}; case $SET/$ATT in AR/1) NAME=A-retry;; A32/1) NAME=A32;; A32/2) NAME=A32-2;; A32/3) NAME=A32-3;; A32/4) NAME=A32-4;; *) echo "SET/ATT must be AR/1, A32/1, A32/2, A32/3 or A32/4"; exit 9;; esac
+# D174: SET=A32 ATT=5 runs them against "v0e_A_retry.sh A32 5" (as attempt 4).
+SET=${SET:-AR}; ATT=${ATT:-1}; case $SET/$ATT in AR/1) NAME=A-retry;; A32/1) NAME=A32;; A32/2) NAME=A32-2;; A32/3) NAME=A32-3;; A32/4) NAME=A32-4;; A32/5) NAME=A32-5;; *) echo "SET/ATT must be AR/1, A32/1, A32/2, A32/3, A32/4 or A32/5"; exit 9;; esac
 ARGS="$SET"; [ $ATT -ge 2 ] && ARGS="$SET $ATT"
 fails=0
 # fake run_route (baseline probes) and run_v0e (sessions); behaviour per label from $T/mode-<S1|S2|probe>:
@@ -96,7 +97,7 @@ case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
       chk "V0e $NAME: QUALIFIED at window 32768" $st
       # D161: the baseline probe command: release library (attempt 1, AR), patched library (A32 attempt 2); otherwise
       # the unchanged health check
-      b=$(grep -m1 '^probe ' $T/cmds); case $ATT in 1) lib="ADSP_LIBRARY_PATH=$HOME/v0/hexpkg/pkg-linux/lib ";; 2|3|4) lib="ADSP_LIBRARY_PATH=$T/farf;$T/htpr;$HOME/v0/hexpkg/pkg-linux/lib ";; esac
+      b=$(grep -m1 '^probe ' $T/cmds); case $ATT in 1) lib="ADSP_LIBRARY_PATH=$HOME/v0/hexpkg/pkg-linux/lib ";; 2|3|4|5) lib="ADSP_LIBRARY_PATH=$T/farf;$T/htpr;$HOME/v0/hexpkg/pkg-linux/lib ";; esac
       [[ "$b" == *"$lib"*"-c 40960 --cache-ram 8192 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0"* ]] \
         && [ "$(grep -c '^probe ' $T/cmds)" = "$(grep -c "^probe .*$lib" $T/cmds)" ] || { echo "FAIL $name: baseline command: $b"; fails=$((fails+1)); }
       chk "attempt $ATT," $st

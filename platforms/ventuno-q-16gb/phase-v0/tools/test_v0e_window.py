@@ -270,11 +270,14 @@ class TFake(CFake):
     D172 (Codex review of 370f7a2): kind_at=n with kind = args_name_only | bak | echo | extra_call | extra_key | no_type |
     empty_id | spaces | final_read_call (the answer carries a non-bash call); timing_at=n with timing = inflate_decode
     (predicted_ms = (wall + 1 s) * 1000) | nan_prefill | inf_decode | neg_decode | prefill_over_wall; short_wall=s
-    returns every wall time s seconds shorter."""
+    returns every wall time s seconds shorter. D175 (Codex review of 02385b1): tok_at={i: kind} answers the i-th plain
+    /tokenize call (no special tokens; i = 0: every call) with kind = http503 | empty | missing | strings | not_dict |
+    one (a single token); special_empty answers every special-token /tokenize with an empty list."""
 
-    def __init__(self, rate=200.0, reuse=False, **bad):
+    def __init__(self, rate=200.0, reuse=False, tok=None, **bad):
         super().__init__(drop_tool=bad.pop("drop_tool", False)); self.rate, self.reuse, self.bad = rate, reuse, bad
-        self.n, self.maxt, self.last = 0, [], {}
+        self.tok = tok or (lambda text: len(text) // 4)   # D174: a tokenizer whose density can vary with the text
+        self.n, self.maxt, self.last, self.tn = 0, [], {}, 0
 
     def render(self, msgs, tools):
         content = lambda m: "" if self.drop_tool and m["role"] == "tool" else (m.get("content") or "")
@@ -283,12 +286,20 @@ class TFake(CFake):
                                            for m in msgs) + ("" if cont else "<assistant>")
 
     def __call__(self, path, body, timeout=0):
+        if path == "/tokenize":
+            if body.get("add_special"):
+                return 200, {"tokens": [] if self.bad.get("special_empty") else [0] * self.tok(body["content"])}, 0.0
+            self.tn += 1; kind = (self.bad.get("tok_at") or {}).get(self.tn, (self.bad.get("tok_at") or {}).get(0))
+            return {"http503": (503, {"error": "Loading model"}, 0.0), "empty": (200, {"tokens": []}, 0.0),
+                    "missing": (200, {"content": "x"}, 0.0), "strings": (200, {"tokens": ["a"] * 9000}, 0.0),
+                    "not_dict": (200, [1, 2, 3], 0.0), "one": (200, {"tokens": [0]}, 0.0)}.get(
+                kind, (200, {"tokens": [0] * self.tok(body["content"])}, 0.0))
         if path != "/v1/chat/completions":
             return super().__call__(path, body, timeout)
         self.n += 1; n, b, msgs = self.n, self.bad, body["messages"]; self.maxt.append(body.get("max_tokens"))
         if b.get("http_at") == n:
             return 500, {"error": "x"}, 0.0
-        p = len(self.render(msgs, body.get("tools"))) // 4 + (40 if b.get("offset_at") == n else 0)
+        p = self.tok(self.render(msgs, body.get("tools"))) + (40 if b.get("offset_at") == n else 0)
         key = msgs[0]["content"][:60]; prev = self.last.get(key, 0); self.last = {key: p}
         cn = prev if self.reuse and prev <= p else 0
         if b.get("warm_fresh_at") == n:
@@ -382,7 +393,7 @@ for name, kw, want, failing, line in [
         ("turns: decode time infinite", {"timing_at": 2, "timing": "inf_decode"}, 1, "rep 1 request 2 counters", None),
         ("turns: decode time negative", {"timing_at": 2, "timing": "neg_decode"}, 1, "rep 1 request 2 counters", None),
         ("turns: prefill longer than the wall time", {"timing_at": 3, "timing": "prefill_over_wall"}, 1, "rep 1 request 3 counters", None),
-        ("turns: wall time 0.9 s short of prefill + decode, slow prefill still fails on the prefill", {"rate": 90.0, "short_wall": 0.9}, 1, "rep 1 request 5 latency", "the prefill 332.3s")] + [
+        ("turns: wall time 0.9 s short of prefill + decode, slow prefill still fails on the prefill", {"rate": 90.0, "short_wall": 0.9}, 1, "rep 1 request 5 latency", "the prefill 335.3s")] + [
         (f"turns: command with {k.replace('_', ' ')} {v!r}", {"kind_at": 2, "kind": k}, 1, "rep 1 request 2 call", None) for k, v in WS.items()]:
     rc, text, maxt, files, cost = trun(**kw)
     failed = [l[6:].split(":")[0] for l in text.splitlines() if l.startswith("FAIL  ")]
@@ -403,6 +414,91 @@ for name, kw, want, failing, line in [
 rc, text, maxt, files, cost = trun(kind_at=2, kind="spaces")
 ok = rc == 0 and not [l for l in text.splitlines() if l.startswith("FAIL")]
 print(f"{'ok  ' if ok else 'FAIL'} turns: extra ASCII spaces and tabs in the declared command pass (rc {rc})"); fails += not ok
+# D174 (A32-4 S1): a corpus whose later part tokenizes denser than its start. Plain words at 4 characters per token,
+# then digits at 2; calibrating only the first slice (D171-D173) overflowed the window before the answer
+real_corpus = vw.corpus
+dense = "plain words of reference text. " * 800 + "1234 5678 9012 3456 7890 " * 20000
+vw.corpus = lambda chars: (dense * (chars // len(dense) + 1))[:chars]
+dtok = lambda text: sum(c.isdigit() for c in text) // 2 + sum(not c.isdigit() for c in text) // 4
+rc, text, maxt, files, cost = trun(reps=1, tok=dtok)
+sizing = next((l for l in text.splitlines() if "rep 1 sizing" in l), "")
+ok = rc == 0 and len(maxt) == 6 and sizing.startswith("PASS") and all(0.85 * 32768 <= x["prompt"] <= 32768 - 512
+                                                                      for x in cost if x["label"].endswith(("5", "fresh")))
+print(f"{'ok  ' if ok else 'FAIL'} turns: later corpus slices denser than the first: each slice calibrated, the last request fits (rc {rc})"); fails += not ok
+if not ok:
+    print(text[-2500:])
+# calibration error that puts the first projection over the bound: the slices shrink and the run goes ahead
+real_slices, calls_ = vw.slices, []
+def big_first(tokens, n):
+    calls_.append(tokens); return real_slices(tokens + (400 if len(calls_) == 1 else 0), n)
+vw.slices = big_first
+rc, text, maxt, files, cost = trun(reps=1)
+sizing = next((l for l in text.splitlines() if "rep 1 sizing" in l), "")
+ok = rc == 0 and len(calls_) == 2 and calls_[1] < calls_[0] and sizing.startswith("PASS") and "try 2 of 3" in sizing
+print(f"{'ok  ' if ok else 'FAIL'} turns: a first projection over the bound shrinks the slices and retries (rc {rc})"); fails += not ok
+if not ok:
+    print(sizing)
+vw.slices = real_slices
+# a projection that cannot fit fails before anything is sent
+vw.TURNS_MARGIN, saved = -4000, vw.TURNS_MARGIN
+rc, text, maxt, files, cost = trun(reps=1)
+ok = rc == 1 and maxt == [] and "FAIL  rep 1 sizing" in text and "not started" in text and "try 3 of 3" in text
+print(f"{'ok  ' if ok else 'FAIL'} turns: a projected last request over the bound -> FAIL before any request (rc {rc})"); fails += not ok
+vw.TURNS_MARGIN, vw.corpus = saved, real_corpus
+# D175 (Codex review of 02385b1): a failed, empty, malformed or implausible token count while sizing fails before any
+# chat request, and the corpus text built stays bounded. Guard: any corpus() request over 1,000,000 characters stops
+# the test before allocating it (the bound is 5 * 5,894 * 8 = 235,760 plus the first slice's head start).
+GUARD, biggest = 1_000_000, [0]
+def guarded(chars):
+    biggest[0] = max(biggest[0], chars)
+    if chars > GUARD:
+        raise MemoryError(f"guard: corpus({chars}) requested")
+    return real_corpus(chars)
+vw.corpus = guarded
+# plain /tokenize calls with the default fake (4 characters per token): slice 1 takes calls 1-2, slice 2 calls 3-4,
+# slice 3 starts at call 5, the reported counts after sizing are calls 11-15
+for name, kw, where in [("HTTP 503 at the first count", {"tok_at": {1: "http503"}}, "slice 1 of 5: /tokenize answered HTTP 503"),
+                        ("HTTP 503 on a later slice", {"tok_at": {5: "http503"}}, "slice 3 of 5: /tokenize answered HTTP 503"),
+                        ("HTTP 503 on every count", {"tok_at": {0: "http503"}}, "slice 1 of 5: /tokenize answered HTTP 503"),
+                        ("an empty token list", {"tok_at": {2: "empty"}}, "slice 1 of 5: /tokenize answered HTTP 200"),
+                        ("no token list", {"tok_at": {3: "missing"}}, "slice 2 of 5: /tokenize answered HTTP 200"),
+                        ("string tokens", {"tok_at": {4: "strings"}}, "slice 2 of 5: /tokenize answered HTTP 200"),
+                        ("a non-object answer", {"tok_at": {6: "not_dict"}}, "slice 3 of 5: /tokenize answered HTTP 200 without"),
+                        ("an implausible count (1 token) on a later slice", {"tok_at": {7: "one"}}, "slice 4 of 5: "),
+                        ("a failure in the reported counts after sizing", {"tok_at": {13: "http503"}}, "rep 1 sizing: /tokenize answered HTTP 503")]:
+    biggest[0] = 0
+    try:
+        rc, text, maxt, files, cost = trun(reps=1, **kw); err = None
+    except MemoryError as e:
+        rc, text, maxt, err = None, "", None, e
+    sizing = next((l for l in text.splitlines() if "rep 1 sizing" in l), "")
+    ok = err is None and rc == 1 and maxt == [] and sizing.startswith("FAIL") and where in sizing \
+        and "not started: the slices could not be sized" in text and biggest[0] <= 5 * 5894 * 8 + 4096 * 8
+    print(f"{'ok  ' if ok else 'FAIL'} turns: {name} while sizing -> FAIL before any request, corpus bounded "
+          f"(rc {rc}, largest corpus {biggest[0]:,} characters)"); fails += not ok
+    if not ok:
+        print(err or sizing or text[-1500:])
+rc, text, maxt, files, cost = trun(reps=1, special_empty=True)
+ok = rc == 1 and maxt == [] and "FAIL  rep 1 sizing: no serialization" in text
+print(f"{'ok  ' if ok else 'FAIL'} turns: an empty special-token count of the projection -> FAIL before any request (rc {rc})"); fails += not ok
+# text_of (window, cache, wording): the same validation; main() records it as a sizing FAIL
+for kind, want in [("http503", "HTTP 503"), ("empty", "HTTP 200 without"), ("one", "characters per token, outside")]:
+    biggest[0] = 0; vw.checks.clear(); vw.post = TFake(tok_at={0 if kind == "http503" else 1: kind})
+    os.environ["WORDING_N"] = "1"
+    try:
+        with tempfile.TemporaryDirectory() as out, redirect_stdout(io.StringIO()) as buf:
+            rc = vw.main(["v0e_window.py", "wording", out, "/nonexistent", "32768", "local32k"])
+        text, err = buf.getvalue(), None
+    except MemoryError as e:
+        rc, text, err = None, "", e
+    del os.environ["WORDING_N"]
+    ok = err is None and rc == 1 and vw.post.n == 0 and f"FAIL  wording sizing: " in text and want in text \
+        and biggest[0] <= 8000 * 8
+    print(f"{'ok  ' if ok else 'FAIL'} text_of: {kind} -> wording sizing FAIL, no chat request, corpus bounded (rc {rc}, "
+          f"largest {biggest[0]:,})"); fails += not ok
+    if not ok:
+        print(err or text[-800:])
+vw.corpus = real_corpus
 rc, text, maxt, files, cost = trun(reps=1)
 ok = rc == 0 and len(maxt) == 6 and "turns-transcript-rep2.json" not in files
 print(f"{'ok  ' if ok else 'FAIL'} turns: TURNS_REPS=1 runs one conversation (rc {rc})"); fails += not ok
