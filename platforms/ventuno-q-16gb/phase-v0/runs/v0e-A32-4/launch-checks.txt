@@ -1,0 +1,35 @@
+launch checks A32-4 2026-10-15T00:11:06+02:00 (22:11:06 UTC); plan v0e-plan-A32-4.txt sections 5-6; PR #58 merged (22faf09) after Codex's follow-up review of 031e734 (no merge-blocking finding)
+owner explicit execution go: "Do both is you have time, try to be working uno till tomorrow morning" (2026-10-15, answering: approve "Go A32-4" and "Start NPU plan R1 offline")
+repo HEAD 22faf09, origin/main 22faf09; reviewed revision 031e734
+tools/ unchanged between 031e734 and HEAD: yes
+## deployment: 8 files copied from tools/ to ~/v0 (cp -p): test_v0e_A_retry.sh test_v0e_compact.sh test_v0e_window.py v0e_A_retry.sh v0e_compact.sh v0e_s1.sh v0e_window.py server_requests.py
+## ~/v0 and ~/v0/monitor copies against git show 031e734:<tools/file> (regular files present in ~/v0)
+100 compared, 0 differ
+present ~/v0/v0e_A_retry.sh
+present ~/v0/v0e_window.py
+present ~/v0/v0e_s1.sh
+present ~/v0/v0e_compact.sh
+present ~/v0/server_requests.py
+present ~/v0/run_v0e.sh
+present ~/v0/v0e_sustained.sh
+## A32 admission (latest admission status: v0d-admit-A32-status.txt)
+2026-10-12T13:16:34+02:00 GATE A32: PASS median 16K prefill 235.7 (>= 145), decode 5.25 (>= 4.4); A32-s1-r1 18038 tok 235.8/5.25, A32-s1-r2 18021 tok 223.2/5.29, A32-s1-r3 18029 tok 235.7/5.20
+2026-10-12T13:16:34+02:00 admission A32 done rc=0 (faults 0)
+## runtime
+llama processes: 0
+v0e drivers: 1
+sampler running
+watchdog running
+measure: 7badb21 dirty=0
+OK htp-retry sha256 aa2ae2a978d95935..., farf 0x1f
+OK model sha256 f822fa26...
+OK llama-server sha256 815b22bb...
+health_rc=0
+no ALERT or drift line
+run dirs absent: 0 existing; compact dirs: 0 existing
+Mem:              14           1           4           0           9          13
+/dev/mmcblk0p71   55G   40G   14G  75% /
+note: "v0e drivers: 1" above is pgrep -f matching the check's own shell command line; ps shows no bash process running v0e_A_retry.sh (0)
+present ~/v0/v0d_runner.sh (sourced, mode -rw-rw-r--, as before)
+llama processes: 0
+launch: cd ~/bench-runs && setsid bash ~/v0/v0e_A_retry.sh A32 4 > ~/bench-runs/v0/v0d/v0e-A32-4-driver.log 2>&1 < /dev/null & at 2026-10-15T00:11:27+02:00
