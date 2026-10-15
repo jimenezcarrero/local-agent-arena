@@ -2756,3 +2756,33 @@ D174 2026-10-15 V0e A32-4 (v0e-plan-A32-4.txt, D171-D173; PR #58 merged at 22faf
    test_v0e_compact.sh 15/15; driver attempt 5 (as attempt 4), test_v0e_A_retry.sh SET=A32 ATT=5 40/40.
    A32-5 declared for review (v0e-plan-A32-5.txt): A32-4 with this fix only. Nothing runs until the owner approves it.
    A32-4 stays NOT QUALIFIED. Nothing is GO.
+
+D175 2026-10-15 Codex review of 02385b1 (PR #60): A32-4 correctly NOT QUALIFIED; its evidence reproduces (audits,
+   memory floors, the sustained summary byte for byte, 42 pi sessions, both COST reports, the live window and
+   compaction checks, monitor appends). One finding, P1, fixed here before A32-5 is approved:
+   - The calibration trusted any /tokenize answer. ntok() counted an HTTP error or an empty list as 0 tokens, and the
+     next length became chars * target / max(0, 1): one 503 after an 18,860-character request asked for 111,160,840
+     characters, and the corpus was doubled until it had them (the six-try limit bounded the tries, not the
+     allocation): an endpoint failure could become a host OOM during qualification. text_of() (window, cache,
+     wording) had the same step.
+   - Fix (v0e_window.py): ntok() accepts only HTTP 200 with a non-empty list of integer tokens, else SizingError;
+     ntok_special() returns None for an empty list as well (a projection of 0 tokens would have passed the bound);
+     every new length comes from calibrate(), which refuses a count implying fewer than 1 or more than 8 characters
+     per token (the real slices: about 2.6-3.2), so no text longer than target * 8 characters is built; slices()
+     builds the corpus to the length it needs (at most 5 * 5,894 * 8 = 235,760 characters for A32) instead of
+     doubling, refuses a target below 64 tokens and names the slice that failed. The turns item records a sizing
+     FAIL and sends nothing; window, cache and wording record "<mode> sizing" FAIL in main().
+   - Tests (runs/v0e-A32-5-offline/tests-D175.txt): test_v0e_window.py 100/100, 13 new, each with a guard that stops
+     the case before any corpus request over 1,000,000 characters: HTTP 503 at the first count, on a later slice, on
+     every count; an empty list; no list; string tokens; a non-object answer; an implausible count (1 token) on a later
+     slice; a failure in the counts reported after sizing; an empty special-token count of the projection; text_of
+     with 503, an empty list and 1 token (wording sizing FAIL, no chat request). On the D174 checker (02385b1) the
+     guard trips at 1,224,368 characters in 5 of them and a non-object answer raises AttributeError.
+   - The same real-tokenizer check rerun with the D175 tools (CPU-only llama-server as in D174, /tokenize and
+     /apply-template only, started and stopped, no NPU): slices 5,889-5,951 as before, projection 30,313 (random code
+     words and nonce: 2 tokens from D174's 30,315).
+   Codex's other notes, recorded: the CPU tokenizer check is testing-agent evidence, not repeated by the reviewer; the
+   revised conversation is live-unverified; the 512-token margin does not bound arbitrary visible text in the model's
+   replies, so every actual request's checks (serialization, counters, window) stay authoritative. A32-5's plan gains
+   D175; the PR description now carries the full execution brief. A32-4 stays NOT QUALIFIED; nothing of it is
+   reused. Nothing is GO.
