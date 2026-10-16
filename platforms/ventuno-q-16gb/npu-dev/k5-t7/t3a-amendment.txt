@@ -16,20 +16,24 @@ What 2048 was for
   0.817 mean KLD / 66.0 % top-1). A second, different ubatch size checks that parity holds across the kernels' batch
   tilings and tail handling, not just at one size.
 
-Options (the review and the owner choose one; the proposal's recommendation first)
-  A. (recommended) T3a at ubatch 512 and 256, on the admitted configuration (NPU-R', four sessions), each against the
+Options (the review and the owner choose one; the proposal's recommendation first). Revised after Codex's review of
+0f5f399: 1,024-token chunks divide evenly by 512 and by 256, so a pair of those sizes never runs a remainder (tail)
+ubatch; and the former option C (1024 on NPU-R') had no positive margin under the conservative bound (-160.9 MiB), so
+it is withdrawn.
+  A. (recommended) T3a at ubatch 512 and 384, on the admitted configuration (NPU-R', four sessions), each against the
      matched same-file CPU arms (K4), on the frozen text and token ids of k5-t7/ (the same 20 x 1,024 tokens, so every
-     scored position is identical between arms and sizes). Both are admitted by the ledger with the same tools and
-     rules: 512 at +595.6 MiB on the fullest session (+410.9 under the every-other-session bound), 256 at +758.3
-     (+675.8), board +1,932.7 (r1-budget/budget.txt and budget-clone-all.txt, row s4-rp-ub256, added for this
-     proposal); and master's own Hexagon support code accepts every NPU node at 256 as at 512 (support/
-     s4-rp-ub256.support.txt: 7,752 nodes, 89 signatures, 0 refused at 8 MiB VTCM; the fail-closed tests 17/17). Both
-     are multi-token, and 256 exercises a different tiling and tail. 2048 is removed with the ledger as the reason; 1024
-     may be added only if R2's measured mapped peaks leave room, and only before any T3a result.
-  B. T3a at ubatch 512 only. Simplest; loses the second-size check.
-  C. T3a at 512 and 1024 on NPU-R' only, conditional on R2's measured mapped peak (own buffers plus clones) leaving at
-     least the ledger's every-other-session margin at 1024. Closest to the original intent, but it makes T3a depend on
-     an R2 measurement and uses the thinnest admitted margin.
+     scored position is identical between arms and sizes). With 384 each 1,024-token chunk runs as 384 + 384 + 256: a
+     second, different multi-token size and a remainder ubatch in every chunk. Both are admitted by the ledger with
+     the same tools and rules (r1-budget/budget.txt, budget-clone-all.txt): 512 at +595.6 MiB on the fullest session
+     (+410.9 under the every-other-session bound), 384 at +692.4 (+553.8), board +1,789.8 for 384; and master's own
+     Hexagon support code accepts every NPU node at 384 as at 512 (support/s4-rp-ub384.support.txt: 7,752 nodes, 89
+     signatures, 0 refused at 8 MiB VTCM; the fail-closed tests 17/17).
+  A2. T3a at ubatch 512 and 256: also admitted (256 at +758.3 / +675.8 MiB; support/s4-rp-ub256.support.txt: 0 refused)
+     and a different tiling, but with 1,024-token chunks neither size leaves a remainder ubatch: this option does not
+     test tail handling, and says so.
+  B. T3a at ubatch 512 only. Simplest; loses the second-size and tail checks.
+  2048 is removed under every option, with the ledger as the reason; a larger size (1024) may be proposed again only
+  with measured R2 peaks that give it a positive conservative margin, and only before any T3a result.
   Under every option: thresholds as frozen (mean KLD <= 0.01, 99th-percentile KLD <= 0.10, top-1 >= 97 %, every value
   finite), never enlarged after NPU results; CPU-A vs CPU-B and a CPU repeat reported as the noise floor; perplexity
   secondary.

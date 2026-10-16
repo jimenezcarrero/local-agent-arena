@@ -28,10 +28,15 @@ tools/r1_t7_x86.sh from a reviewed commit; nothing runs before the review and th
   positions      llama-perplexity's own rule at -c 1024: chunk k covers tokens [1024k, 1024k + 1024); position 0's token
                  is replaced by BOS at evaluation; logits are scored at positions 512..1022 (predicting tokens 513..1023),
                  511 per chunk, 10,220 in all.
-  T5 requests    t5-requests.json, sha256 32058f2e4f24ca86db2b28c432af8e25559dc882ebca32aaa21d85f53aebae35: one system
-                 prompt (after a nonce line), ten tools (JSON schemas, additionalProperties false), 20 requests, two per
-                 tool, each with its expected tool and argument values and how each value is compared (exact, ci, nows,
-                 num). The nonce of a trial is the first 16 hex of sha256("<label>:<request id>").
+  T5 requests    t5-requests.json, version r1-t5-requests v2, sha256
+                 3bd50358087e702758c029b3fd762d41f068a4a983b93e34859250ed65922b35: one system prompt (after a nonce
+                 line), ten tools (JSON schemas, additionalProperties false), 20 requests, two per tool, each with its
+                 expected tool and argument values and how each value is compared: exact, ci (case-insensitive), shell
+                 (equal shlex word lists, nothing executed), expr (equal arithmetic token lists), num. The nonce of a
+                 request is the first 16 hex of sha256("r1-t5:<request id>"), the same for both models: REF and M2 are
+                 sent byte-identical requests, and the run checks it (r1_t5_screen.py --compare). Changed after Codex's
+                 review of 0f5f399: v1 hashed the arm label into the nonce (different prompts per model) and matched
+                 commands and expressions with all whitespace removed (it accepted "ls -l a/tmp", "d f -h", "1 7*23").
   tools          ../tools/r1_t7_x86.sh (the run), r1_t7_compare.cpp (logits comparator), r1_t5_screen.py (T5 client),
                  r1_t7_tokens.cpp (token ids); the run fetches the companions from the commit named in it and checks their
                  sha256 (filled in by the commit that pins them).
@@ -47,13 +52,15 @@ tools/r1_t7_x86.sh from a reviewed commit; nothing runs before the review and th
   r1_t5_screen.py --server http://127.0.0.1:18080 --requests t5-requests.json --label REF|M2
      per request: POST /slots/0?action=erase (master needs --slot-save-path for any slot action, erase included), then
      POST /v1/chat/completions with tools, tool_choice auto, temperature 0, top_k 1, seed 1, max_tokens 1024.
+  r1_t5_screen.py --compare REF-trials.jsonl M2-trials.jsonl               (the paired requests byte-identical, or stop)
   No environment variable is set by the run.
 
 3. Rule (plan section 5, T7; fixed now, not adjusted after results)
   PASS only if all hold:
     - top-1 agreement (llama-perplexity's "Same top p", M2 vs REF) >= 90 %;
     - every reported statistic finite (mean and 99th-percentile KLD, top-1);
-    - both T5 runs valid: 20 trials each, every trial fresh (cache_n 0 and prompt_n equal to the whole prompt);
+    - both T5 runs valid: 20 trials each, every trial fresh (cache_n 0 and prompt_n equal to the whole prompt), and
+      the two runs' 20 serialized requests byte-identical;
     - M2's T5 passes >= 17/20 and >= REF's passes - 2.
   A trial passes only if the reply has exactly one tool call, with an id and type "function", the expected tool, JSON
   object arguments with exactly the schema's properties of the declared types (and within the enum where declared),
@@ -71,13 +78,17 @@ tools/r1_t7_x86.sh from a reviewed commit; nothing runs before the review and th
     PASS 17 vs 19; invalid runs, each for its own reason, on a non-finite or missing statistic, a non-fresh trial,
     different tokens in the logits files, model sha256 and size mismatches, a companion file mismatch, a token pin
     mismatch and a text mismatch.
-  - test_r1_t5_screen.py: 28/28 (21 call checks: exact, ci, nows and num matching, wrong tool, missing or extra
-    argument, wrong enum value, two calls, no call, missing id, wrong type, unparseable or non-object arguments,
-    non-string or boolean values; 7 runs against a loopback fake server: 20/20, 17/20, and invalid runs on cache_n > 0,
-    prompt_n short, missing timings, a failed erase, no server).
+  - test_r1_t5_screen.py: 40/40 (30 call checks: exact, ci, shell and expr matching with legitimate spacing variants,
+    the review's false passes "ls -l a/tmp", "d f -h" and "1 7*23" now failing, an unbalanced quote, a non-arithmetic
+    token, wrong tool, missing or extra argument, wrong enum value, two calls, no call, missing id, wrong type,
+    unparseable or non-object arguments, non-string or boolean values; 10 runs and comparisons against a loopback fake
+    server: 20/20, 17/20, two arms with different labels sending byte-identical requests, a changed nonce and a short
+    arm rejected by --compare, and invalid runs on cache_n > 0, prompt_n short, missing timings, a failed erase, no
+    server).
   - r1_t7_compare.cpp against an independent Python implementation on synthetic files: identical token sha256, top-1,
     ranks and KLD; it rejects a wrong token pin and a truncated file.
   - The T5 client against a real master llama-server (af0579c78, CPU build, clean tree) on the board, with the
     campaign's NeoHorse file read-only as a stand-in model: the mechanics (slot erase with --slot-save-path, cache_n 0,
-    prompt_n equal to prompt_tokens, tool-call parsing) - t5-integration.txt. A check of the client only; NeoHorse's
+    prompt_n equal to prompt_tokens, tool-call parsing) - t5-integration.txt. A check of the client only, run with the
+    v1 client and requests (before the review's nonce and matcher fixes, which do not touch these mechanics); NeoHorse's
     passes say nothing about M2 or REF.
