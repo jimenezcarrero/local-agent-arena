@@ -28,3 +28,22 @@ instrumentation (local only, instrumentation.diff): the scheduler's GGML_SCHED_D
 runs: GGML_SCHED_DEBUG=2 r1_dryrun_ledger -m <sparse M2> [--rpc <3|4 devices>] -c 16384 -b 2048 -np 1 -fa on -ub <U>
   -ngl 999|0 [-ts <split>] [-ot 'token_embd\.weight=CPU']  ->  ledger/<config>.out (bytes) and .splits (the split
   record: each split's inputs, and the graph's node count); configurations as named in ../tools/r1_budget.py.
+
+## third pass: offline Hexagon support check (review of 5d1ff55), 2026-10-16 22:4x-23:1x, same workspace
+instrumentation extended (instrumentation.diff, logging only): with R1_NODE_DUMP=<file> the scheduler also writes one
+  machine-readable record per node (op, type, ne, nb, flags, view, buffer presence, name, op params; the same for
+  each source by slot); libggml-base rebuilt:
+  933ac6b178259f82d39ec4d7e084b20a370a0e6e0b9945c10dbae4d80c3a1f0e  libggml-base.so.0.26.0 (instrumented, third pass)
+node dumps: R1_NODE_DUMP=... GGML_SCHED_DEBUG=2 r1_dryrun_ledger -m <sparse M2> --rpc <4 devices> -c 16384 -b 2048
+  -np 1 -fa on -ngl 999 -ts 11,10,10,10 -ub 512 [-ot 'token_embd\.weight=CPU'] -> support/<config>.nodes.txt.gz
+  (6 graphs each: the prompt and single-token reservations); their byte figures equal ledger/s4-r-ub512.out.
+harness: ../tools/r1_hex_support.cpp, which compiles master's ggml/src/ggml-hexagon/ggml-hexagon.cpp unchanged
+  against ../tools/r1-hex-stub/ (declarations only; every SDK function defined in the harness aborts if called):
+  c++ -O1 -std=c++17 -w -I<tools>/r1-hex-stub -I<tree>/ggml/include -I<tree>/ggml/src -I<tree>/ggml/src/ggml-hexagon
+      -I<tree>/ggml/src/ggml-hexagon/htp -I<tree>/ggml/src/ggml-cpu r1_hex_support.cpp -L<build>/bin -lggml-base -lggml
+      -Wl,-rpath,<build>/bin -o r1_hex_support
+  817c5dd83e02e7c9d21e3f246982d2d1e93018d70d25498eb75f649bd883bf88  r1_hex_support
+hardware values (the stand-in session): n_threads 4, n_hvx 4, n_hmx 1, vtcm 8 MB, as this board's own hwinfo query
+  logged them (ggml-hex "HTP0 hwinfo: threads 4, hvx 4, hmx 1, vtcm 8 MB"), committed in the campaign record:
+  phase-v0/runs/v0b-7badb21/geniex-npu-sanity/server.log.txt and phase-v0/runs/v0q-op/t1-htp0.log ("HTP0:0 hwinfo:
+  threads 4, hvx 4, hmx 1, vtcm 8 MB"). The MB figure is floored (vtcm / 1 MiB), so 8 MiB is a lower bound.

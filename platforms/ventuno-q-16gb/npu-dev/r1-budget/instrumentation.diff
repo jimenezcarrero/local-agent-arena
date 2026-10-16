@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-backend.cpp b/ggml/src/ggml-backend.cpp
-index ffbcba3..a31a9f2 100644
+index ffbcba3..06b7ab9 100644
 --- a/ggml/src/ggml-backend.cpp
 +++ b/ggml/src/ggml-backend.cpp
-@@ -1168,6 +1168,17 @@ static void ggml_backend_sched_print_assignments(ggml_backend_sched_t sched, str
+@@ -1168,6 +1168,34 @@ static void ggml_backend_sched_print_assignments(ggml_backend_sched_t sched, str
              GGML_LOG_DEBUG("node #%3d (%10.10s): %20.20s (%5.5s) [%5.5s %8.8s] use=%d,c=%d:", i, ggml_op_desc(node), node->name,
                  fmt_size(ggml_nbytes(node)), tensor_backend ? ggml_backend_name(tensor_backend) : "NULL", GET_CAUSE(node),
                  graph->use_counts[ggml_hash_find(&graph->visited_hash_set, node)], node->flags & GGML_TENSOR_FLAG_COMPUTE ? 1 : 0);
@@ -16,6 +16,23 @@ index ffbcba3..a31a9f2 100644
 +                        (long long) s->ne[2], (long long) s->ne[3], ggml_is_contiguous(s) ? "c" : "nc");
 +                }
 +                GGML_LOG_DEBUG(" ENDTYPES");
++            }
++            {   // R1 ledger instrumentation (local only): one machine-readable record per node for the support harness
++                static FILE * r1f = nullptr; static int r1init = 0;
++                if (!r1init) { r1init = 1; const char * p = getenv("R1_NODE_DUMP"); if (p) r1f = fopen(p, "a"); }
++                if (r1f) {
++                    auto rec = [&](const char * tag, int j, const struct ggml_tensor * t) {
++                        fprintf(r1f, "%s %d op=%d type=%d ne=%lld,%lld,%lld,%lld nb=%zu,%zu,%zu,%zu flags=%d view=%d buf=%d name=%s params=",
++                            tag, j, (int) t->op, (int) t->type, (long long) t->ne[0], (long long) t->ne[1], (long long) t->ne[2], (long long) t->ne[3],
++                            t->nb[0], t->nb[1], t->nb[2], t->nb[3], (int) t->flags, t->view_src ? 1 : 0, t->buffer ? 1 : 0, t->name);
++                        for (int k = 0; k < GGML_MAX_OP_PARAMS / 4; k++) fprintf(r1f, "%s%d", k ? "," : "", t->op_params[k]);
++                        fprintf(r1f, "\n");
++                    };
++                    fprintf(r1f, "NODE %d backend=%s\n", i, tensor_backend ? ggml_backend_name(tensor_backend) : "NULL");
++                    rec("T", -1, node);
++                    for (int j = 0; j < GGML_MAX_SRC; j++) { if (node->src[j]) rec("S", j, node->src[j]); }
++                    fflush(r1f);
++                }
 +            }
              for (int j = 0; j < GGML_MAX_SRC; j++) {
                  struct ggml_tensor * src = node->src[j];
