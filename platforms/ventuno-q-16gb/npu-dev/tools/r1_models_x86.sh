@@ -13,13 +13,17 @@
 #   and sha256 like a download, and nothing is downloaded.
 #   Download (no BF16=): into ~/r1-downloads/, the one location this script reuses across runs: an interrupted
 #   download stays there as <file>.part and the next run resumes it (curl -C -); a complete file there is reused; both
-#   are checked against the pinned size and sha256 before use (a wrong .part fails the check: delete it and rerun).
+#   are checked against the pinned size and sha256 before use; a downloaded .part becomes the complete file only after
+#   both checks pass (a failing file is named in the message: delete it and rerun).
+#   Disk admission (review of 17130d9) after the source is known: 36 GiB for the outputs and build (REF 23.7 GiB, M2
+#   about 8.2, the clone and build about 1.5), plus the bytes still to download (none with BF16= or a complete cached
+#   file; the size minus the .part for a partial one; the whole size otherwise).
 #   Every run uses a NEW directory; nothing existing is touched. Every step is checked; any failure stops.
 #   Run it as a whole file, from a reviewed commit (not the moving branch):
 #     curl -fsSL https://raw.githubusercontent.com/jimenezcarrero/local-agent-arena/<commit>/platforms/ventuno-q-16gb/npu-dev/tools/r1_models_x86.sh -o r1_models_x86.sh
 #     bash r1_models_x86.sh            # or: BF16=/path/to/LFM2.5-24B-A2B-BF16.gguf bash r1_models_x86.sh
 #   Overridable for the mocked test only (the manifest then says TEST and the run is not evidence): REPO_URL,
-#   BF16_URL, BF16_SIZE, BF16_SHA, TABLE_URL, TABLE_SHA, NEED_GIB.
+#   BF16_URL, BF16_SIZE, BF16_SHA, TABLE_URL, TABLE_SHA.
 set -euo pipefail
 COMMIT=af0579c78a07a555d84830d01da7b61cfadbc7ef   # ggml-org master, 2026-10-14T06:23:44Z (K1, the same as K2)
 P_REPO_URL=https://github.com/ggml-org/llama.cpp
@@ -52,12 +56,19 @@ for c in git cmake c++ curl sha256sum python3 tar df; do command -v $c >/dev/nul
 [ ! -e "$W" ] && [ ! -e "$TAR" ] || die "$W or $TAR already exists; not touching it"
 if [ -n "${BF16:-}" ]; then  # review of 702739a: resolved here, before any cd; every later step uses this file
   [ -f "$BF16" ] || die "BF16=$BF16 is not a file"
-  BF16=$(realpath -e -- "$BF16") || die "cannot resolve BF16"; need=${NEED_GIB:-35}
-else need=${NEED_GIB:-80}; fi
-DL=$HOME/r1-downloads
-free=$(( $(df -B1 --output=avail "$HOME" | tail -1) / 1024**3 ))
-[ "$free" -ge "$need" ] || die "$free GiB free under $HOME, need $need"
-mkdir -p "$W" "$M" "$E"; echo "host OK: $free GiB free (need $need); test overrides: $TEST"
+  BF16=$(realpath -e -- "$BF16") || die "cannot resolve BF16"
+fi
+DL=$HOME/r1-downloads; DLF=$DL/$(basename "$BF16_URL")
+RESERVE=$((36 * 1024**3))   # REF + M2 + clone and build
+if [ -n "${BF16:-}" ]; then src="existing copy $BF16"; rest=0
+elif [ -f "$DLF" ]; then src="complete cached download $DLF"; rest=0
+elif [ -f "$DLF.part" ]; then p=$(stat -c %s "$DLF.part"); src="partial cached download $DLF.part ($p bytes)"
+  [ "$p" -le "$BF16_SIZE" ] || die "$DLF.part is $p bytes, more than $BF16_SIZE: delete it and rerun"; rest=$((BF16_SIZE - p))
+else src="a new download"; rest=$BF16_SIZE; fi
+need=$((RESERVE + rest)); free=$(df -B1 --output=avail "$HOME" | tail -1)
+gib() { awk -v b="$1" 'BEGIN { printf "%.1f", b / 1024^3 }'; }
+[ "$free" -ge "$need" ] || die "$(gib "$free") GiB free under $HOME, need $(gib "$need") (BF16 source: $src; $(gib "$rest") GiB still to download)"
+mkdir -p "$W" "$M" "$E"; echo "host OK: $(gib "$free") GiB free, need $(gib "$need") (BF16 source: $src); test overrides: $TEST"
 
 step "1. fresh clone at $COMMIT and a host CPU build of llama-quantize and llama-perplexity (log $E/host-build.log)"
 git clone -q --no-checkout "$REPO_URL" "$SRC"
@@ -89,21 +100,26 @@ curl -fsSL "$TABLE_URL" -o "$E/gguf_tensor_table.py"
 T() { python3 -I "$E/gguf_tensor_table.py" "$@"; }
 
 step "3. BF16 source"
+got=
 if [ -n "${BF16:-}" ]; then
   B=$BF16; echo "using the existing $B (not downloaded)"
 else
-  mkdir -p "$DL"; B=$DL/$(basename "$BF16_URL")
+  mkdir -p "$DL"; B=$DLF
   if [ -f "$B" ]; then echo "reusing the earlier complete download $B (checked below)"
   else
     [ -f "$B.part" ] && echo "resuming $B.part ($(stat -c %s "$B.part") bytes)" || echo "downloading $BF16_URL"
     curl -fL --retry 5 --retry-delay 10 -C - -o "$B.part" "$BF16_URL" || die "download failed; rerun to resume $B.part"
-    [ "$(stat -c %s "$B.part")" = "$BF16_SIZE" ] || die "$B.part is $(stat -c %s "$B.part") bytes, expected $BF16_SIZE; rerun to resume (or delete it)"
-    mv "$B.part" "$B"
+    [ "$(stat -c %s "$B.part")" = "$BF16_SIZE" ] || die "$B.part is $(stat -c %s "$B.part") bytes, expected $BF16_SIZE; rerun to resume (or delete $B.part)"
+    echo "hashing $B.part ..."; got=$(sha "$B.part")
+    [ "$got" = "$BF16_SHA" ] || die "$B.part sha256 $got, expected $BF16_SHA: delete $B.part and rerun"
+    mv "$B.part" "$B"   # promoted only after its size and sha256 passed
   fi
 fi
-[ "$(stat -c %s "$B")" = "$BF16_SIZE" ] || die "$B is $(stat -c %s "$B") bytes, expected $BF16_SIZE"
-echo "hashing $B ..."; got=$(sha "$B")
-[ "$got" = "$BF16_SHA" ] || die "$B sha256 $got, expected $BF16_SHA"
+if [ -z "$got" ]; then   # an existing or cached complete file (a fresh download was checked before promotion)
+  [ "$(stat -c %s "$B")" = "$BF16_SIZE" ] || die "$B is $(stat -c %s "$B") bytes, expected $BF16_SIZE$([ "$B" = "$DLF" ] && echo ": delete $B and rerun")"
+  echo "hashing $B ..."; got=$(sha "$B")
+  [ "$got" = "$BF16_SHA" ] || die "$B sha256 $got, expected $BF16_SHA$([ "$B" = "$DLF" ] && echo ": delete $B and rerun")"
+fi
 T "$B" --sessions 1 > "$E/table-BF16.txt" || { tail -3 "$E/table-BF16.txt"; die "BF16 header check failed"; }
 grep -q "architecture lfm2moe, block_count 40," "$E/table-BF16.txt" || die "BF16 header is not lfm2moe with 40 blocks"
 echo "BF16 OK: $BF16_SIZE bytes, sha256 $got, lfm2moe, 40 blocks"

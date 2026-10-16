@@ -83,13 +83,14 @@ printf '#!/bin/bash\n# fake llama-quantize <src> <dst> <type> <n>\n[ "$(cat $T/q
 printf '#!/bin/bash\nexit 0\n' > build-host/bin/llama-perplexity; echo "fake lib" > build-host/bin/libllama.so
 chmod +x build-host/bin/*; echo "[100%] Built target llama-quantize"; exit 0
 EOF
+  printf '#!/bin/bash\necho Avail; cat $T/free\n' > "$1/df"   # bytes available, from the case
   printf '#!/bin/bash\necho "c++ (fake) 13.0"\n' > "$1/c++"; printf '#!/bin/bash\necho "cc (fake) 13.0"\n' > "$1/cc"
   chmod +x "$1"/*; }
 
 setup() {  # setup <kv>...: defaults then overrides; fresh T
   T=$(mktemp -d); export T; mkdir -p $T/home
   for kv in arch=x86_64 imageid=sha256:41b710ee5f99d21f0fb9d83a1f815ecffb7708315b4218a11cd0baeb5ecf4c14 tc=ok buildrc=0 \
-            sdkline=yes elf=aarch64 htp=yes "flags=-march=armv8.2a+fp16+dotprod" hostbuild=ok qrc=0 m2exp=Q2_K "$@"; do
+            sdkline=yes elf=aarch64 htp=yes free=1099511627776 "flags=-march=armv8.2a+fp16+dotprod" hostbuild=ok qrc=0 m2exp=Q2_K "$@"; do
     echo "${kv#*=}" > $T/${kv%%=*}; done
   mkfakes $T/bin; }
 
@@ -133,12 +134,18 @@ k3() {  # k3 <name> <want ok|fail> <bf16 mode: path|url> [mode=value ...]; BF16 
   local size=${BFSIZE:-$(stat -c %s $bf)} sha=${BFSHA:-$(sha256sum $bf | cut -d' ' -f1)}
   local tsha=${TSHA:-$(sha256sum $D/gguf_tensor_table.py | cut -d' ' -f1)}
   local env=(HOME=$T/home PATH=$T/bin:$PATH REPO_URL=file://$SRC BF16_SIZE=$size BF16_SHA=$sha TABLE_URL=file://$D/gguf_tensor_table.py
-             TABLE_SHA=$tsha NEED_GIB=${NEED:-0} BF16_URL=file://$bf)
+             TABLE_SHA=$tsha BF16_URL=file://$bf)
+  local R=$((36 * 1024**3)) part=1000000   # the script's reserve; the size of a prepared .part
+  case ${FREE:-} in  # free bytes for the disk admission (default 1 TiB); the real guard, no bypass
+    exact) echo $R > $T/free;; short) echo $((R - 1)) > $T/free;;
+    exact-part) echo $((R + size - part)) > $T/free;; short-part) echo $((R + size - part - 1)) > $T/free;;
+    short-new) echo $((R + size - 1)) > $T/free;; exact-new) echo $((R + size)) > $T/free;;
+  esac
   [ $how = path ] && env+=(BF16=$bf)
   if [ $how = relpath ]; then mkdir -p "$T/my models"; cp $bf "$T/my models/"; env+=("BF16=my models/$(basename $bf)"); fi
   mkdir -p $T/home/r1-downloads
-  [ $how = part ] && head -c 1000000 $bf > $T/home/r1-downloads/$(basename $bf).part
-  [ $how = badpart ] && { head -c 1000000 /dev/urandom > $T/home/r1-downloads/$(basename $bf).part; }
+  [ $how = part ] && head -c $part $bf > $T/home/r1-downloads/$(basename $bf).part
+  [ $how = badpart ] && { head -c $part /dev/urandom > $T/home/r1-downloads/$(basename $bf).part; }
   [ $how = done ] && cp $bf $T/home/r1-downloads/
   (cd $T && env "${env[@]}" bash "$D/r1_models_x86.sh" > $T/out.txt 2>&1); local rc=$?
   local tars=$(ls $T/home/r1-k3-evidence-*.tar.gz 2>/dev/null | wc -l) ok=1
@@ -157,6 +164,7 @@ k3() {  # k3 <name> <want ok|fail> <bf16 mode: path|url> [mode=value ...]; BF16 
       *) [ -s $T/home/r1-downloads/LFM2.5-24B-A2B-BF16.gguf ] && [ ! -e $T/home/r1-downloads/LFM2.5-24B-A2B-BF16.gguf.part ] || ok=0;;
     esac
   else [ $rc != 0 ] && [ $tars = 0 ] && ! grep -qx DONE $T/out.txt || ok=0; fi
+  [ $how = badpart ] && { [ ! -e $T/home/r1-downloads/LFM2.5-24B-A2B-BF16.gguf ] || ok=0; }   # never promoted
   [ -n "${WANT_MSG:-}" ] && { grep -qF "$WANT_MSG" $T/out.txt || ok=0; }
   res "K3 $name (rc $rc)" $ok $T/out.txt
   rm -rf "$T"
@@ -166,13 +174,21 @@ k3 downloaded-bf16 ok url
 WANT_MSG="using the existing" k3 relative-bf16-path-with-spaces ok relpath
 WANT_MSG="resuming" k3 download-resumes-an-earlier-part ok part
 WANT_MSG="reusing the earlier complete download" k3 complete-download-reused ok done
-WANT_MSG="sha256" k3 corrupt-earlier-part-fails-the-hash fail badpart
+WANT_MSG=".part and rerun" k3 corrupt-earlier-part-fails-the-hash-before-promotion fail badpart
 BFSHA=$(printf 0%.0s {1..64}) WANT_MSG="sha256" k3 bf16-sha-differs fail path
 BFSIZE=123 WANT_MSG="bytes, expected 123" k3 bf16-size-differs fail url
 TSHA=$(printf 1%.0s {1..64}) WANT_MSG="gguf_tensor_table.py sha256 differs" k3 table-tool-sha-differs fail path
 BFARCH=llama WANT_MSG="BF16 header is not lfm2moe" k3 bf16-not-lfm2moe fail path
 WANT_MSG="an expert tensor is not an NPU type" k3 m2-expert-not-npu-type fail path m2exp=Q5_0
-NEED=100000 WANT_MSG="need 100000" k3 low-disk fail path
+# disk admission by source (review of 17130d9): the 36 GiB reserve plus what is still to download
+FREE=exact WANT_MSG="BF16 source: existing copy" k3 disk-existing-copy-needs-only-the-reserve ok path
+FREE=short WANT_MSG="need 36.0" k3 disk-existing-copy-short-by-one-byte fail path
+FREE=exact WANT_MSG="BF16 source: complete cached download" k3 disk-complete-cache-needs-only-the-reserve ok done
+FREE=short WANT_MSG="0.0 GiB still to download" k3 disk-complete-cache-short-by-one-byte fail done
+FREE=exact-part WANT_MSG="BF16 source: partial cached download" k3 disk-partial-cache-needs-the-remainder ok part
+FREE=short-part WANT_MSG="still to download" k3 disk-partial-cache-short-by-one-byte fail part
+FREE=exact-new WANT_MSG="BF16 source: a new download" k3 disk-new-download-needs-the-whole-size ok url
+FREE=short-new WANT_MSG="BF16 source: a new download" k3 disk-new-download-short-by-one-byte fail url
 WANT_MSG="not x86_64" k3 not-x86 fail path arch=aarch64
 WANT_MSG="host build failed" k3 host-build-fails fail path hostbuild=fail
 WANT_MSG="REF quantize failed" k3 quantize-fails fail path qrc=1
