@@ -1,0 +1,61 @@
+Error handling between the CPU and the Hexagon NPU: design notes for a possible fix of ggml-org/llama.cpp#30309
+
+Written 2026-10-16 as background for a future PR, only if one is requested (no maintainer has asked as of that date).
+Code references are to ggml-org/llama.cpp master 7182ef71e (2026-10-16). Upstream's rules: the code may be
+AI-assisted (disclosed in the PR template); the PR text, commit message and replies must be the owner's own words.
+
+1. The bug in plain English
+  For each NPU session a loop runs on the NPU (htp_main_thread, ggml/src/ggml-hexagon/htp/main.c:1436). It waits
+  for work from the CPU on a shared queue (dspqueue_peek), runs it, and posts the answer back. When the wait
+  returns any error other than "nothing yet" or "timed out", the loop logs one FARF line and exits (main.c:1451-1453).
+  Nothing tells the CPU. The CPU posts its next piece of work and waits for an answer that never comes: llama-server
+  freezes with no crash and no message. On v75 (QCS8275, Arduino VENTUNO Q) the wait sometimes returns AEE_ENOMORE
+  (0x2f) in the middle of a decode; it is passing: the next wait works.
+
+2. Three rules of error handling it breaks
+  a. An error must reach someone who can act on it. Here it reaches only a FARF log that is off by default.
+  b. Nobody waits forever. The CPU side reads answers with a 1 s timeout (DSPQUEUE_TIMEOUT 1000000 us on Linux,
+     htp-drv.h:88), but on a timeout it loops again with no limit (ggml-hexagon.cpp:2651-2656), so the timeout never
+     ends the wait. A dead or silent NPU therefore means an endless wait.
+  c. Passing errors and permanent errors are handled differently: retry a passing error (a limited number of times);
+     report a permanent one and stop. The loop treats a passing error as fatal, and handles a fatal one silently.
+
+3. Why "just tell the CPU" is not trivial
+  - The messenger is what broke: the queue that returned the error is the same channel used to answer. Posting an
+    error answer on it may still work for a peek error, but that is not guaranteed.
+  - If the NPU crashes or restarts, it cannot send anything. So the waiting side must protect itself; it cannot
+    depend only on the other side to report a failure. Our campaign's npu_stall_watchdog.sh is such a limit, added
+    from outside the process (300 s without progress while a thread waits on FastRPC, then SIGKILL).
+
+4. A complete fix in three layers
+  Layer 1, NPU: retry known passing errors, with a cap (count or time). Our patch retries, without a cap.
+  Layer 2, NPU: after the cap, or on an unknown error, tell the CPU, then stop the loop. Existing infrastructure to
+    reuse: the answer packet already carries a status; the CPU side already handles rsp.status > HTP_STATUS_OK
+    (ggml-hexagon.cpp:2667-2670: logs it, stores last_error, and synchronize then aborts with the DSP error, :7056).
+    So the NPU could answer the pending request with an error status instead of exiting silently.
+  Layer 3, CPU: give the wait a real limit. After N consecutive timeouts with work outstanding, treat the session
+    as failed (GGML_ABORT, as the code already does for a dspqueue_read error at :2659). A loud crash is better
+    than a silent hang: a supervisor (systemd, a watchdog, the user) sees it and restarts. The limit must exceed
+    the longest legitimate op (a large prefill batch), so it needs a generous value or an op-aware one.
+  Layers 2 and 3 matter most. Layer 3 alone also covers an NPU crash, which layer 2 cannot.
+
+5. What our patch does and its weak point
+  Patch: runs/v0f-hang/htp-retry-build/patch-applied.diff on the campaign branch (applies to 7182ef71e with an 89
+  line offset). It is layer 1 only, without a cap: on any non-timeout peek error it logs (the first 8, then every
+  1000th) and retries after qurt_sleep(1000) (1 ms); htp_iface_stop still ends the loop through ctx->killed.
+  Evidence: our runs logged 3 retry events, each "(1 in a row)", with service continuing; firepinn's runs showed 0
+  hangs in 1,317 patched requests against 1-4 per ~600 turns unpatched (their FARF was off, so retries uncounted).
+  Weak point: an error that never clears now loops forever (logged): still a hang. Consecutive persistent errors
+  were never exercised. Minimum improvement: cap the retries, then do layer 2 (or exit, letting layer 3 act).
+
+6. Questions to settle before a PR (the owner must be able to answer them without help)
+  - Which dspqueue_peek errors are passing and which permanent? Only AEE_ENOMORE is observed. Retry only that, or
+    all non-timeout errors with a cap?
+  - Cap value and sleep: why 1 ms; how many consecutive errors (or how long) before giving up?
+  - Layer 2 message: which pending request gets the error status, and what if the write also fails?
+  - Layer 3 limit: what timeout is safe for the longest op on v73-v81 and in opt_oppoll mode (timeout 0)?
+  - Does htp_iface_stop always end the loop, including when the host process dies (FastRPC session teardown)?
+  - Regression test: upstream asks bug-fix PRs for a test that fails before and passes after. A fault-injection
+    hook (force one peek error) could make the passing case testable; otherwise explain why no test is possible.
+  - Scope: one small PR (layer 1 with a cap, plus layer 2 or 3), or layer 1 first and the rest discussed with the
+    Hexagon maintainers.
