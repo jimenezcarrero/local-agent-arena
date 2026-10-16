@@ -7,8 +7,8 @@
 #     (--kl-divergence: mean, 99th-percentile KLD, top-1 agreement "Same top p"); then M2's own logits, and the
 #     comparator adds the rank of REF's top token in M2 and cross-checks top-1 and KLD from both files.
 #   Part 2 (T5's fresh-prefix screening on the host CPU): llama-server per model (-np 1, --cache-ram 0, slot erased
-#     before each trial), the 20 frozen tool-call requests, a trial counted only with cache_n 0 and the whole prompt
-#     evaluated.
+#     before each trial), the 20 frozen tool-call requests (byte-identical for both models: the run checks it), a trial
+#     counted only with cache_n 0 and the whole prompt evaluated.
 #   Rule (plan section 5, fixed before any result): PASS only if top-1 agreement >= 90 % (llama-perplexity's Same top
 #     p), every reported value finite, both T5 runs valid, M2 passes >= 17/20 and >= REF's passes - 2. Mean KLD, 99th
 #     percentile and rank are reported (they are T3a's measures; T7's rule does not threshold them).
@@ -26,8 +26,8 @@ set -euo pipefail
 COMMIT=af0579c78a07a555d84830d01da7b61cfadbc7ef   # ggml-org master, 2026-10-14T06:23:44Z (K1, as K2 and K3)
 P_REPO_URL=https://github.com/ggml-org/llama.cpp
 # companion files at the commit that holds them as reviewed (filled in by the K5 commit; sha256 checked)
-P_TOOLS_BASE=https://raw.githubusercontent.com/jimenezcarrero/local-agent-arena/23f36a236689c0531d5cf5599a01112ac9869d6f/platforms/ventuno-q-16gb/npu-dev
-P_CMP_SHA=e2639e820eae32b28f1a2f33f80123a9b13f72770196b96b1300051b9b0cfbaa; P_SCREEN_SHA=2789d2c85b2be5b12285204c606a047e8a1d1678f88479ed1e7e0b259231628c; P_REQ_SHA=32058f2e4f24ca86db2b28c432af8e25559dc882ebca32aaa21d85f53aebae35; P_TOKTOOL_SHA=5ee422d747ca02f76ab70a52336d9e8566849568f6ca520290a62acfb200ad6b
+P_TOOLS_BASE=https://raw.githubusercontent.com/jimenezcarrero/local-agent-arena/2070a6248d0641ef1a358b30a3a721a9cfdaf282/platforms/ventuno-q-16gb/npu-dev
+P_CMP_SHA=e2639e820eae32b28f1a2f33f80123a9b13f72770196b96b1300051b9b0cfbaa; P_SCREEN_SHA=f0428ac857b15b45d32030b121b98d69afb6c9861b2923dfdcaf06ff6a6b01f4; P_REQ_SHA=3bd50358087e702758c029b3fd762d41f068a4a983b93e34859250ed65922b35; P_TOKTOOL_SHA=5ee422d747ca02f76ab70a52336d9e8566849568f6ca520290a62acfb200ad6b
 # WikiText-2 raw test, as llama.cpp's scripts/get-wikitext-2.sh fetches it, at a pinned dataset revision
 P_WT_URL=https://huggingface.co/datasets/ggml-org/ci/resolve/927b3642933080f1b0e811e2f916e14c292992f9/wikitext-2-raw-v1.zip
 P_WT_ZIP_SHA=ef7edb566e3e2b2d31b29c1fdb0c89a4cc683597484c3dc2517919c615435a11
@@ -162,6 +162,9 @@ screen() {  # <label> <model>
   kill "$SERVER_PID"; wait "$SERVER_PID" 2>/dev/null || true; SERVER_PID=
 }
 screen REF "$REF"; screen M2 "$M2"
+# the paired arms must have been sent byte-identical requests (review of 0f5f399): only the model differs
+python3 -I "$T/r1_t5_screen.py" --compare "$E/REF-trials.jsonl" "$E/M2-trials.jsonl" > "$E/t5-compare.txt" \
+  || { cat "$E/t5-compare.txt"; die "the REF and M2 T5 requests differ"; }
 P_REF=$(sed -n 's/^T5 REF: passes \([0-9]*\)\/20, valid 20\/20$/\1/p' "$E/REF-summary.txt")
 P_M2=$(sed -n 's/^T5 M2: passes \([0-9]*\)\/20, valid 20\/20$/\1/p' "$E/M2-summary.txt")
 [ -n "$P_REF" ] && [ -n "$P_M2" ] || die "T5 summaries missing or invalid"
