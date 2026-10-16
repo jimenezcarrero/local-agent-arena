@@ -1,36 +1,38 @@
-# end-to-end check of npu_dev_run.sh + r2_load_probe.sh on the real system, all defaults (test=no), 2026-10-17
+# end-to-end check of npu_dev_run.sh + r2_load_probe.sh on the real system, all defaults (test=no), 2026-10-17, after the review of fd6297f
 # payload: the clean af0579c78 CPU-only llama-server (no Hexagon backend) with the campaign's NeoHorse file read-only; no NPU
-# command: npu_dev_run.sh --stage wrapper-selftest --run e2e-cpu-001627 --timeout 900 --expect-dsp no --hash <llama-server>
+# command: npu_dev_run.sh --stage wrapper-selftest --run e2e-cpu-002843 --timeout 900 --expect-dsp no --hash <llama-server>
 #   --env LD_LIBRARY_PATH=<clean build bin> -- r2_load_probe.sh <evidence>/probe 18091 300 -- <llama-server> -m <NeoHorse>
 #   -c 4096 -np 1 -t 6 -lv 5 --no-webui
 ## run.txt
-2026-10-17T00:16:27+02:00 START stage=wrapper-selftest run=e2e-cpu-001627 boot=9ec116fa-cc81-4cd4-939e-2a82da93ca98 test=no timeout=900 floor_mib=1536 stall_s=120 expect_dsp=no
-2026-10-17T00:16:27+02:00 COMMAND bash ~/Repositories/laa-npu-dev/platforms/ventuno-q-16gb/npu-dev/tools/r2_load_probe.sh ~/bench-runs/npu-dev/wrapper-selftest/e2e-cpu-001627/probe 18091 300 -- ~/npu-dev/r1-budget/llama.cpp-clean/build-cpu/bin/llama-server -m ~/v0/models/q40/NeoHorse-1-4B-q4_0-pure.gguf -c 4096 -np 1 -t 6 -lv 5 --no-webui 
-2026-10-17T00:16:27+02:00 ENVIRONMENT clean: HOME PATH LANG=C.UTF-8 and LD_LIBRARY_PATH=~/npu-dev/r1-budget/llama.cpp-clean/build-cpu/bin 
-2026-10-17T00:16:27+02:00 HASH a8e728507a3b8934ca2c8f893c74f458345470eb540a1c2b3b4d86521ee7304a  ~/npu-dev/r1-budget/llama.cpp-clean/build-cpu/bin/llama-server
-2026-10-17T00:16:27+02:00 KAUDIT 72da8e8f6e664cc766a6e1c5870eede46ae5ef9f7b0fd498653dd10183964131  ~/v0/kernel_audit.py
-2026-10-17T00:16:27+02:00 PREFLIGHT ok: snapshot valid, exclusive, journal readable, sampler and watchdog running, MemAvailable 13723 MiB, watchdog lines 19
-2026-10-17T00:16:27+02:00 PID 1373422
-2026-10-17T00:16:27+02:00 MEMBER 1373422 bash ~/Repositories/laa-npu-dev/platforms/ventuno-q-16gb/npu-dev/tools/r2_load_probe.sh ~/bench-runs/npu-dev/wrapper-selftest/e2e-cpu-001627/probe 18091 300 -- ~/npu-dev/r1-budget/llama.cpp-clean/build-cpu/bin/llama-server -m ~/v0/models/q40/NeoHorse-1-4B-q4_0-pure.gguf -c 4096 -np 1 -t 6 -lv 5 --no-webui
-2026-10-17T00:16:28+02:00 MEMBER 1373429 ~/npu-dev/r1-budget/llama.cpp-clean/build-cpu/bin/llama-server -m ~/v0/models/q40/NeoHorse-1-4B-q4_0-pure.gguf -c 4096 -np 1 -t 6 -lv 5 --no-webui --host 127.0.0.1 --port 18091
-2026-10-17T00:16:28+02:00 MEMBER 1373455 sleep 1
-2026-10-17T00:16:30+02:00 MEMBER 1373483 sleep 1
-2026-10-17T00:16:31+02:00 MEMBER 1373644 curl -s -o ~/bench-runs/npu-dev/wrapper-selftest/e2e-cpu-001627/probe/generation.json -w %{http_code} -H Content-Type: application/json -d {"prompt": "The capital of France is", "n_predict": 32, "temperature": 0, "top_k": 1, "seed": 1, "cache_prompt": false} --max-time 600 http://127.0.0.1:18091/completion
-2026-10-17T00:16:41+02:00 MEMBER 1373972 sleep 1
-2026-10-17T00:16:42+02:00 END rc=0 reason=none duration=15s members=6
-2026-10-17T00:17:06+02:00 VERDICT PASS
+2026-10-17T00:28:43+02:00 START stage=wrapper-selftest run=e2e-cpu-002843 boot=9ec116fa-cc81-4cd4-939e-2a82da93ca98 test=no timeout=900 floor_mib=1536 stall_s=120 expect_dsp=no
+2026-10-17T00:28:43+02:00 COMMAND bash ~/Repositories/laa-npu-dev/platforms/ventuno-q-16gb/npu-dev/tools/r2_load_probe.sh ~/bench-runs/npu-dev/wrapper-selftest/e2e-cpu-002843/probe 18091 300 -- ~/npu-dev/r1-budget/llama.cpp-clean/build-cpu/bin/llama-server -m ~/v0/models/q40/NeoHorse-1-4B-q4_0-pure.gguf -c 4096 -np 1 -t 6 -lv 5 --no-webui 
+2026-10-17T00:28:43+02:00 ENVIRONMENT clean: HOME PATH LANG=C.UTF-8 and LD_LIBRARY_PATH=~/npu-dev/r1-budget/llama.cpp-clean/build-cpu/bin 
+2026-10-17T00:28:44+02:00 HASH a8e728507a3b8934ca2c8f893c74f458345470eb540a1c2b3b4d86521ee7304a  ~/npu-dev/r1-budget/llama.cpp-clean/build-cpu/bin/llama-server
+2026-10-17T00:28:44+02:00 KAUDIT 72da8e8f6e664cc766a6e1c5870eede46ae5ef9f7b0fd498653dd10183964131  ~/v0/kernel_audit.py
+2026-10-17T00:28:44+02:00 PREFLIGHT ok: snapshot valid, exclusive, journal readable, sampler and watchdog running, MemAvailable 13694 MiB, watchdog lines 19
+2026-10-17T00:28:44+02:00 PID 1393183
+2026-10-17T00:28:44+02:00 MEMBER 1393183 leader (recorded at launch)
+2026-10-17T00:28:44+02:00 MEMBER 1393189 ~/npu-dev/r1-budget/llama.cpp-clean/build-cpu/bin/llama-server -m ~/v0/models/q40/NeoHorse-1-4B-q4_0-pure.gguf -c 4096 -np 1 -t 6 -lv 5 --no-webui --host 127.0.0.1 --port 18091
+2026-10-17T00:28:45+02:00 MEMBER 1393221 sleep 1
+2026-10-17T00:28:46+02:00 MEMBER 1393329 sleep 1
+2026-10-17T00:28:47+02:00 MEMBER 1393482 curl -s -o ~/bench-runs/npu-dev/wrapper-selftest/e2e-cpu-002843/probe/generation.json -w %{http_code} -H Content-Type: application/json -d {"prompt": "The capital of France is", "n_predict": 32, "temperature": 0, "top_k": 1, "seed": 1, "cache_prompt": false} --max-time 600 http://127.0.0.1:18091/completion
+2026-10-17T00:28:58+02:00 MEMBER 1393833 sleep 1
+2026-10-17T00:28:59+02:00 END rc=0 reason=none duration=15s members=6
+2026-10-17T00:29:34+02:00 VERDICT PASS
 ## verdict.txt
 PASS
 ## journal-check.txt
 ok: 6 members, 0 lines
+## dsp-classes.txt
+fault 0 benign_modtable 0 benign_retry 0 info 0
 ## kernel-audit.txt
-pass (window 2026-10-17T00:16:27 .. +45s)
+pass (window 2026-10-17T00:28:43 .. +46s)
 ## watchdog.txt (empty: no intervention)
 ## probe/probe.txt
-2026-10-17T00:16:27+02:00 server pid 1373429
-2026-10-17T00:16:30+02:00 ready after 4 s
-2026-10-17T00:16:41+02:00 generation: http 200, valid yes
-2026-10-17T00:16:42+02:00 server exited on SIGTERM (status 0)
-2026-10-17T00:16:42+02:00 PROBE OK
-## memory.tsv: 13 samples, min MemAvailable 13371 MiB
+2026-10-17T00:28:44+02:00 server pid 1393189
+2026-10-17T00:28:47+02:00 ready after 4 s
+2026-10-17T00:28:57+02:00 generation: http 200, valid yes
+2026-10-17T00:28:58+02:00 server exited on SIGTERM (status 0)
+2026-10-17T00:28:58+02:00 PROBE OK
+## memory.tsv: 13 samples, min MemAvailable 13334 MiB
 ## -lv 5 debug lines in the server log: loader assignment lines 66
