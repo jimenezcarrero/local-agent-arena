@@ -92,3 +92,14 @@ ledger: r1_dryrun_ledger at -ub 384 (cpu-ub384, s4-rp-ub384) with the node dump 
   budget-clone-all.txt regenerate with every earlier row byte-identical.
 support: 15f4053fc6cc05a16cafa9c717576d9c42014636704202562253be7fc861c0d0  support/s4-rp-ub384.nodes.txt.gz
   6 graphs, 7,752 NPU nodes, 89 signatures, 0 refused at 8 MiB VTCM; test_r1_hex_support.sh 17/17.
+
+## production-logger dry run for the R2 checkers' tests (review of fdb7292), 2026-10-17 00:09:15 (file time)
+clean tree: the git worktree ~/npu-dev/r1-budget/llama.cpp-clean at af0579c78 (no local change), build-cpu reconfigured
+  with -DGGML_RPC=ON; targets ggml-rpc ggml-rpc-server llama-common llama.
+tool: ../tools/r1_dryrun_ledger.cpp with R1_COMMON_LOG=1 (common_init(): llama-server's own logger), built against the
+  clean tree: bcb548e11c0a3e16365ca2b6f6ae4d7fdf2c2971829b837da952f9f99a931a4d  r1_dryrun_ledger_clean
+run: R1_COMMON_LOG=1 GGML_SCHED_DEBUG=2 r1_dryrun_ledger_clean -m <sparse M2> --rpc <4 loopback devices, the clean
+  tree's ggml-rpc-server, stopped afterwards by PID> -c 16384 -b 2048 -np 1 -fa on -ub 512 -ngl 999 -ts 11,10,10,10
+  -ot 'token_embd\.weight=CPU' -lv 5; the RPC device names renamed to HTP0:0..3 -> k5-r2/fixtures/
+  s4-rp-ub512-production.log.gz. Finding: at af0579c78 -lv 4 is "trace"; debug (the loader, the scheduler record, the
+  Hexagon mapping lines) needs -lv 5 (a first run at -lv 4 had none of them).
