@@ -4,7 +4,7 @@
 # too-small VTCM is refused (exit 1), and every broken input is rejected (exit 3): missing dump, missing manifest,
 # empty dump, truncated dump, a graph removed, a one-node dump (and its own manifest differing from the capture's), a
 # bad record, an unknown record, a NODE without its T,
-# a wrong GRAPH_END count, a repeated name field, a manifest from another dump. Temporary files are removed on exit.
+# a wrong GRAPH_END count, a repeated name field, a repeated numeric field, a manifest from another dump. Temporary files are removed on exit.
 set -uo pipefail
 H=$1; DUMP=$2; HERE=$(cd "$(dirname "$0")" && pwd)
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
@@ -41,5 +41,6 @@ awk '/^T -1 / && !done { done = 1; next } { print }' "$DUMP" > "$W/noT"; expect 
 sed '0,/^GRAPH_END logged=/s/^GRAPH_END logged=\([0-9]*\)/GRAPH_END logged=1\1/' "$DUMP" > "$W/badend"
 expect "wrong GRAPH_END count" 3 "$H" "$W/badend" "$W/m"
 sed '0,/^T -1 /s/ params=/ name=again params=/' "$DUMP" > "$W/dupname"; expect "repeated name field" 3 "$H" "$W/dupname" "$W/m"
+sed '0,/^T -1 op=/s/^T -1 op=/T -1 op=999 op=/' "$DUMP" > "$W/dupop"; expect "repeated numeric field (op)" 3 "$H" "$W/dupop" "$W/m"
 sed '3s/n_nodes [0-9]*/n_nodes 1/' "$W/m" > "$W/m-other"; expect "manifest of another dump" 3 "$H" "$DUMP" "$W/m-other"
 echo "failures: $fails of $n"; exit $fails
