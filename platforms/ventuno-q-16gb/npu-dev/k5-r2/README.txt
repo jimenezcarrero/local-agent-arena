@@ -51,11 +51,14 @@ owner's explicit approval of staging and of the run. Values marked PROPOSED are 
      larger one stops R2: the ledger's model of the run is then wrong. (Checked against the real A32-5 NPU log's line
      formats: there the CPU compute buffer is named "CPU", not "<session>-HOST", so the checker counts every
      non-session compute line as the CPU's; R1's ledger counted it in session 0's mappings, which stays conservative.)
-  d. Placement (plan K7): the loader's per-layer assignment (layers 0-10 HTP0:0, 11-20 HTP0:1, 21-30 HTP0:2, 31-39 and
-     the output norm HTP0:3), token_embd.weight on the CPU in both roles (input and the tied output projection), and the
-     scheduler's split record (CPU embeddings, sessions 0 -> 1 -> 2 -> 3, the output projection on the CPU) equal to
-     r1-budget/ledger/s4-rp-ub512.splits; every MUL_MAT / MUL_MAT_ID of blocks 0-39 on its session. A difference makes
-     the run invalid for R2's purpose. (Checker to be written after review, reusing the support harness's node records.)
+  d. Placement (plan K7): tools/r2_placement.py $O/probe/server.log --split 11,10,10,10 --variant "NPU-R'" must say
+     PLACED: the loader puts layers 0-10 on HTP0:0, 11-20 on HTP0:1, 21-30 on HTP0:2, 31-39 and the output layer on
+     HTP0:3; every reserved graph's splits are CPU (embeddings), the four sessions in order, then CPU (the output
+     projection, result_output, with token_embd.weight on the CPU); every block-indexed MUL_MAT / MUL_MAT_ID on its
+     block's session (a block's last ADD may run on the next session, as the dry run shows; the short-convolution
+     matmuls carry no block index and are covered by the split sequence). The scheduler's node lines cut the backend
+     name to 5 characters, so a node's device is read from the split it is printed under. Checked against R1's own dry
+     run of this configuration (fixtures/s4-rp-ub512-placement.log.gz): PLACED. A difference makes the run invalid.
   e. The generation: 1..32 tokens, finite timings (r2_load_probe.sh); its text is recorded, no quality claim (T7 is the
      quality gate).
   f. Memory: the minimum MemAvailable in memory.tsv reported against the board budget (r1-budget/budget.txt: board
@@ -70,4 +73,4 @@ owner's explicit approval of staging and of the run. Values marked PROPOSED are 
 
 Tools in this proposal (tested offline, no NPU): tools/npu_dev_run.sh (test_npu_dev_run.sh 24/24), tools/r2_load_probe.sh
 (test_r2_load_probe.sh 7/7), tools/r2_mapped_peak.py (test_r2_mapped_peak.sh 10/10), tools/r2_logged_buffers.py
-(test_r2_logged_buffers.sh 12/12). Still to write after review: the placement checker (check d).
+(test_r2_logged_buffers.sh 12/12), tools/r2_placement.py (test_r2_placement.sh 9/9).
