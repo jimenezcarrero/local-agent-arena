@@ -59,3 +59,17 @@ AI-assisted (disclosed in the PR template); the PR text, commit message and repl
     hook (force one peek error) could make the passing case testable; otherwise explain why no test is possible.
   - Scope: one small PR (layer 1 with a cap, plus layer 2 or 3), or layer 1 first and the rest discussed with the
     Hexagon maintainers.
+
+7. Review feedback (Codex review of a7b6223, PR #64; design suggestions, nothing approved for upstream)
+  - Layer 3: use a monotonic elapsed-time (no-progress) deadline while work is outstanding, not a count of timeouts.
+    In opt_oppoll mode the read timeout is 0, so a counter does not stand for a stable duration. Reset progress only
+    on an accepted response; cover nested and peer-session waits; confirm the underlying blocking call is bounded.
+  - Layer 2: only possible with a valid dequeued request. A peek failure has no request sequence or buffer to answer.
+    The CPU path checks the response shape and buffer count, pops the queued resources and asserts the sequence order
+    (ggml-hexagon.cpp:2634 on), so a bare status packet cannot stand in for that protocol. Define a terminal
+    session-error notice or a valid correlated response, and keep layer 3 for when the error report itself fails.
+    This corrects section 4's "answer the pending request with an error status": after a peek error there may be no
+    pending request to answer.
+  - Fault injection should cover: one passing error, persistent errors, no response, failure to send the error
+    reply, shutdown, both polling modes, and several sessions. An abort and restart contains the failure; it does not
+    prove the DSP is healthy enough for an automatic retry.
