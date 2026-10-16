@@ -43,6 +43,6 @@ Tests (tests.txt): test_r1_host_scripts.sh 27/27, mocked (review of 702739a: 4 n
 host, wrong image id, missing or wrong toolchain, a failed build, no SDK line, a non-aarch64 binary, a missing
 libggml-htp-v75.so, i8mm or other compile flags. K3 with an existing and with a downloaded BF16, a relative BF16 path with a space, a download resumed
 from an earlier .part, a complete earlier download reused; the host identity in the manifest; failures for a
-corrupt earlier .part,  for BF16
+corrupt earlier .part, a BF16
 sha256 or size, the table tool's sha256, a non-lfm2moe header, an expert tensor of a non-NPU type (Q5_0), low disk,
 a non-x86 host, a failed host build, a failed quantize. Each failure is checked for its own message.
