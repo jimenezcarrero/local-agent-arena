@@ -1,4 +1,4 @@
-# test_r1_host_scripts.sh, 2026-10-16T07:42:52+02:00, on the board (aarch64; uname, docker, cmake and c++ mocked; no network, no Docker): SRC = a shallow fetch of ggml-org/llama.cpp af0579c78a07a555d84830d01da7b61cfadbc7ef; the real gguf_tensor_table.py reads synthetic GGUF files
+# test_r1_host_scripts.sh, 2026-10-16T08:02:37+02:00, on the board (aarch64; uname, docker, cmake, cc and c++ mocked; no network, no Docker): SRC = a shallow fetch of ggml-org/llama.cpp af0579c78a07a555d84830d01da7b61cfadbc7ef; the real gguf_tensor_table.py reads synthetic GGUF files; each case removes its own temp directory
 ok   K2 normal (rc 0)
 ok   K2 a second run makes its own directory and tarball, the first kept
 ok   K2 not-x86 (rc 1)
@@ -13,6 +13,10 @@ ok   K2 flags-i8mm (rc 1)
 ok   K2 flags-other (rc 1)
 ok   K3 existing-bf16 (rc 0)
 ok   K3 downloaded-bf16 (rc 0)
+ok   K3 relative-bf16-path-with-spaces (rc 0)
+ok   K3 download-resumes-an-earlier-part (rc 0)
+ok   K3 complete-download-reused (rc 0)
+ok   K3 corrupt-earlier-part-fails-the-hash (rc 1)
 ok   K3 bf16-sha-differs (rc 1)
 ok   K3 bf16-size-differs (rc 1)
 ok   K3 table-tool-sha-differs (rc 1)
@@ -23,3 +27,13 @@ ok   K3 not-x86 (rc 1)
 ok   K3 host-build-fails (rc 1)
 ok   K3 quantize-fails (rc 1)
 failures: 0
+rc=0
+## the same test file against the K3 script of 702739a (review finding reproduced: a relative BF16 path fails at stat after the cd)
+     stat: cannot statx 'my models/LFM2.5-24B-A2B-BF16.gguf': No such file or directory
+FAIL K3 complete-download-reused (rc 0)
+FAIL K3 corrupt-earlier-part-fails-the-hash (rc 0)
+FAIL K3 download-resumes-an-earlier-part (rc 0)
+FAIL K3 downloaded-bf16 (rc 0)
+FAIL K3 existing-bf16 (rc 0)
+FAIL K3 relative-bf16-path-with-spaces (rc 1)
+failures: 6
