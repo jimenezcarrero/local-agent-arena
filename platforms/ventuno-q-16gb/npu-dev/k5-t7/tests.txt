@@ -1,4 +1,4 @@
-# tests for T7's tools, 2026-10-16T23:17:24+02:00, on the board (no model, no network for the mocked run)
+# tests for T7's tools, 2026-10-16T23:48:22+02:00, on the board (no model, no network for the mocked run)
 ## test_r1_t7_x86.sh (SRC = a clean af0579c78 tree)
 ok   all good: PASS, evidence written (rc 0, verdict 'PASS')
 ok   top-1 exactly 90.000: PASS (boundary) (rc 0, verdict 'PASS')
@@ -33,14 +33,26 @@ ok   wrong type fails
 ok   unparseable arguments fail
 ok   non-object arguments fail
 ok   non-string argument fails
-ok   whitespace-insensitive command passes (nows)
+ok   extra spaces between shell words pass (shell)
+ok   quoted shell word passes (shell)
 ok   different command fails
-ok   expression with spaces passes (nows)
+ok   r03 'ls -l a/tmp' fails (review of 0f5f399)
+ok   r13 'd f -h' fails (review of 0f5f399)
+ok   r13 'df -h' passes
+ok   unbalanced quote fails
+ok   expression with spaces passes (expr)
+ok   r05 '1 7*23' fails (review of 0f5f399)
+ok   r05 '17x23' fails (not an arithmetic token)
+ok   r14 '(1024 + 512) / 3' passes (expr)
+ok   r14 '(1024+512)*3' fails
 ok   numeric amount 250.0 passes (num)
 ok   string amount fails
 ok   boolean amount fails
 ok   currency outside the enum fails
 ok   all-correct run: rc 0, 20/20, an erase before every trial
+ok   two arms (different labels) send byte-identical requests: --compare rc 0
+ok   a different nonce in one arm: --compare rc 3
+ok   an arm with 19 trials: --compare rc 3
 ok   three wrong calls: rc 0 (valid run), 17/20
 ok   a trial with cache_n > 0 makes the run invalid (rc 3)
 ok   prompt_n below prompt_tokens makes the run invalid (rc 3)
