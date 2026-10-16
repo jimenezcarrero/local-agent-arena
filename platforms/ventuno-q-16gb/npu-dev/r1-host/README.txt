@@ -49,5 +49,5 @@ libggml-htp-v75.so, i8mm or other compile flags. K3 with an existing and with a 
 from an earlier .part, a complete earlier download reused; the host identity in the manifest; failures for a
 corrupt earlier .part (never promoted), the disk admission for each source (an existing copy, a complete
 or partial cached download, a new download: enough, and one byte short), a BF16
-sha256 or size, the table tool's sha256, a non-lfm2moe header, an expert tensor of a non-NPU type (Q5_0), low disk,
+sha256 or size, the table tool's sha256, a non-lfm2moe header, an expert tensor of a non-NPU type (Q5_0),
 a non-x86 host, a failed host build, a failed quantize. Each failure is checked for its own message.
