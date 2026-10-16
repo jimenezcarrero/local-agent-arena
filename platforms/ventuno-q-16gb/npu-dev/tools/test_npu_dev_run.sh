@@ -90,6 +90,26 @@ expect "the campaign watchdog intervening during the run: STOP" 2 "STOP: the cam
   bash -c "sleep 1; echo '2026-10-17T00:00:00+02:00 NPU-WATCHDOG killed hung llama-server pid 1' >> '$W/wd-status'"
 expect "journal read failure: STOP" 2 "STOP: journal read failed" base FAKE_J=bad bash "$R" --stage t --run j --timeout 30 -- sleep 1
 expect "--expect-dsp yes without DSP lines: STOP" 2 "STOP: DSP evidence missing" base bash "$R" --stage t --run dsp0 --timeout 30 --expect-dsp yes -- sleep 1
+# the review of fd6297f: the DSP line classifier (with the library-open evidence present) and fast or unobserved payloads
+OPEN='x llama-server[1]: adsprpc 2;0001:1: CDSP0: Successfully opened file libggml-htp-v75.so\nx llama-server[1]: adsprpc 2;0002:1: CDSP0: htp-main-thread: started\n'
+dsp() {  # <name> <want rc> <want prefix> <extra journal lines (printf format)> [wrapper options]
+  local name=$1 want=$2 pre=$3 extra=$4; shift 4
+  expect "$name" "$want" "$pre" base bash "$R" --stage t --run dspc$n --timeout 30 --expect-dsp yes "$@" -- \
+    bash -c "sleep 3 & c=\$!; printf '$OPEN$extra' > '$W/journal.d/'\$c; wait"; }
+dsp "the benign module-table error line: PASS" 0 PASS 'x llama-server[1]: adsprpc 3;0003:1: CDSP0: Error 0x4e: open_mod_table_handle_invoke failed for handle 0x1, sc 0x2\n'
+dsp "Error callback (htp/main.c:782): STOP" 2 "STOP: DSP fault lines" 'x llama-server[1]: adsprpc 3;0004:1: CDSP0: Error callback: 0x0000002f\n'
+dsp "error setting HMX clock (:626): STOP" 2 "STOP: DSP fault lines" 'x llama-server[1]: adsprpc 3;0005:1: CDSP0: ggml-hex: error setting HMX clock.\n'
+dsp "mmap failed after defragmentation (:1159): STOP" 2 "STOP: DSP fault lines" 'x llama-server[1]: adsprpc 3;0006:1: CDSP0: prep-bufs : mmap failed after defragmentation (fd 7 size 1024)\n'
+dsp "an unknown ERROR-level DSP line: STOP (fail-closed)" 2 "STOP: DSP fault lines" 'x llama-server[1]: adsprpc 3;0007:1: CDSP0: something new went wrong\n'
+dsp "the known-fault text without a level field: STOP" 2 "STOP: DSP fault lines" 'x CDSP0: ggml-hex: error setting HMX clock.\n'
+dsp "logged retries with --dsp-retry-patched yes: PASS" 0 PASS 'x llama-server[1]: adsprpc 3;0008:1: CDSP0: Error 0x2f: wait_signal_locked failed for queue 0x1 signal 3\nx llama-server[1]: adsprpc 3;0009:1: CDSP0: dspqueue_peek failed: 0x0000002f (1 in a row), retrying\n' --dsp-retry-patched yes
+dsp "the same retries without it (the unpatched package): STOP" 2 "STOP: DSP fault lines" 'x llama-server[1]: adsprpc 3;0008:1: CDSP0: Error 0x2f: wait_signal_locked failed for queue 0x1 signal 3\nx llama-server[1]: adsprpc 3;0009:1: CDSP0: dspqueue_peek failed: 0x0000002f (1 in a row), retrying\n'
+dsp "a non-retrying dspqueue_peek failure even with --dsp-retry-patched yes: STOP" 2 "STOP: DSP fault lines" 'x llama-server[1]: adsprpc 3;000a:1: CDSP0: dspqueue_peek failed: 0x0000002f\n' --dsp-retry-patched yes
+expect "a payload that exits at once (true): PASS" 0 PASS base bash "$R" --stage t --run fast0 --timeout 30 -- true
+expect "a payload that fails at once (false): FAIL" 1 "FAIL: command exit 1" base bash "$R" --stage t --run fast1 --timeout 30 -- false
+expect "a failed membership snapshot: STOP" 2 "STOP: a membership snapshot failed" base MEMBERS_PS=false bash "$R" --stage t --run memfail --timeout 30 -- sleep 2
+n=$((n + 1)); ok3=1; for r in fast0 fast1 memfail; do f="$W/br/npu-dev/t/$r"; grep -q '^\S* END rc=' "$f/run.txt" && [ -s "$f/verdict.txt" ] && grep -q '^\S* MEMBER [0-9]* leader' "$f/run.txt" || ok3=0; done
+[ "$ok3" = 1 ] && echo "ok   fast and unobserved payloads: END record, verdict.txt and the leader recorded in each" || { echo "FAIL fast payload records"; fails=$((fails + 1)); }
 expect "kernel audit fault: STOP" 2 "STOP: kernel audit rc 1" base FAKE_KA=fault bash "$R" --stage t --run kf --timeout 30 -- sleep 1
 expect "kernel read late, then present: PASS" 0 PASS base FAKE_KA=late bash "$R" --stage t --run kl --timeout 30 -- sleep 1
 n=$((n + 1)); r="$W/br/npu-dev/t/pass/run.txt"

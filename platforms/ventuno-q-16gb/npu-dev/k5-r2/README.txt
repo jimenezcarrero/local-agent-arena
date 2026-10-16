@@ -42,8 +42,15 @@ owner's explicit approval of staging and of the run. Values marked PROPOSED are 
    declared board figure, r1-budget/budget.txt's s4-rp-ub512 server row, is within MemAvailable minus the floor.)
 
 3. Checks after load 1 (the stage stops at the first failure; a fault is never repeated; recovery is the owner's)
-  a. The wrapper's verdict PASS (command exit 0; DSP journal with the library opened and CDSP0 lines and no dspqueue
-     error or fatal line; kernel audit pass; floor and stall never hit).
+  a. The wrapper's verdict PASS: command exit 0; the DSP journal of every process-group member with the library opened
+     and CDSP0 lines, and no DSP fault line. Every DSP line is classified (dsp-classes.txt): the named faults (a non-
+     retrying dspqueue_peek failure, the error callback, HMX clock or power errors, mmap failures, dspqueue write or
+     read failures, sync-wait failures, unknown ops, VTCM allocation failures, fatal/crash/exception/abort) and every
+     other ERROR/FATAL-level line are faults, except the module-table probe line seen in nearly every campaign run. R2
+     runs the unpatched master package, so --dsp-retry-patched is not set and logged peek retries would be faults too.
+     Validated over every DSP export in the campaign record (dsp-classifier-validation.txt: with the retry library's
+     setting, only the unpatched hang run v0f-F-1 shows a fault, its exit line). Also: kernel audit pass; floor, stall,
+     orphans and interruption never hit; no campaign-watchdog intervention; the membership snapshot never failed.
   b. Mapped peak per session (the parser's line format is taken from master's source, ggml-hexagon.cpp :745/:763; no
      campaign log has verbose mapping lines to check it against, so it fails closed on any session without lines):
      tools/r2_mapped_peak.py $O/probe/server.log 2594.0,2501.5,2491.7,2236.7 --sessions
@@ -83,7 +90,7 @@ owner's explicit approval of staging and of the run. Values marked PROPOSED are 
 5. Evidence: ~/bench-runs/npu-dev/r2/load1-npu-r-prime/ (the wrapper's files, probe/server.log, generation.json), then
    a written result in this folder: the checks' outputs, the staging hashes, the identity records before and after.
 
-Tools in this proposal (tested offline, no NPU): tools/npu_dev_run.sh (test_npu_dev_run.sh 40/40), tools/r2_load_probe.sh
+Tools in this proposal (tested offline, no NPU): tools/npu_dev_run.sh (test_npu_dev_run.sh 53/53), tools/r2_load_probe.sh
 (test_r2_load_probe.sh 9/9), tools/r2_mapped_peak.py (test_r2_mapped_peak.sh 10/10), tools/r2_logged_buffers.py
 (test_r2_logged_buffers.sh 17/17), tools/r2_placement.py (test_r2_placement.sh 14/14). End to end on the real system
 (all defaults, the real journal, sampler, watchdog and kernel audit; a CPU-only master server as the payload, no NPU):
