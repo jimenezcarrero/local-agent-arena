@@ -18,7 +18,7 @@ measure: 7badb21 dirty=0 (~/v0/measure)
 Mem:              14           1           9           0           3          13
 /dev/mmcblk0p71   55G   41G   12G  78% /
 sampler running: 2
-OK htp-retry/farf/model/llama-server identities: checked by the driver at prebase (rsha + D176)
+identities checked by the driver at prebase and around every session: the patched DSP library and .farf (rsha) and the release package including bin/llama-server (D176 pkg_identity.py). CORRECTED 2026-10-16 (Codex review of 82a6aa3): this line first read "OK htp-retry/farf/model/llama-server identities: checked by the driver at prebase (rsha + D176)"; that overstated it: neither rsha nor pkg_identity.py hashes the model (models/q40 is outside pkg-linux), and no model hash was taken before this launch. See the retrospective model check at the end.
 pre-launch: llama processes 0, v0e drivers 0, run dir absent, status absent
 launch: cd ~/bench-runs && setsid bash ~/v0/v0e_A_retry.sh A32 5 > ~/bench-runs/v0/v0d/v0e-A32-5-driver.log 2>&1 < /dev/null & at 2026-10-16T18:06:43+02:00
 launch 1 stopped at once, before any NPU use: "2026-10-16T18:06:43+02:00 STOP: NPU stall watchdog not running" (exit 6; the stall watchdog was not restarted after the board's shutdown; only the sampler starts @reboot). Log kept as v0e-A32-5-driver-launch1.log; status file and run dir: 3 created
@@ -31,3 +31,7 @@ launch 2: cd ~/bench-runs && setsid bash ~/v0/v0e_A_retry.sh A32 5 > ~/bench-run
    As in D87, D101, D119, D126 and D164: dpkg baseline reset (previous kept as ~/bench-runs/monitor/dpkg-baseline-20261016-pre-unattended.txt; 23 lines differ), health rerun: rc 0, no ALERT or drift line.
    launch 2 files kept: ~/bench-runs/v0/v0e-A32-5-launch2/ (probe-180743, speed.txt, pkg-identity-last.txt), v0d/v0e-A32-5-status-launch2.txt, v0d/v0e-A32-5-driver-launch2.log
 pre-launch 3: llama processes 0, drivers 0; launch 3: cd ~/bench-runs && setsid bash ~/v0/v0e_A_retry.sh A32 5 > ~/bench-runs/v0/v0d/v0e-A32-5-driver.log 2>&1 < /dev/null & at 2026-10-16T18:11:15+02:00
+## retrospective model identity check (after the attempt; NOT a pre-launch result) 2026-10-16T20:47:35+02:00, by hand: sha256sum and stat of /home/arduino/v0/models/q40/NeoHorse-1-4B-q4_0-pure.gguf
+sha256 f822fa2602af45d802e54bac518bab3f62b08943029626114a474afc3d8f3049 (expected f822fa2602af45d802e54bac518bab3f62b08943029626114a474afc3d8f3049, v0e-plan-A32.txt:28): MATCH
+size 2380008192; mtime 2026-10-04 17:39:52.872694699 +0200; ctime 2026-10-04 19:35:41.768765596 +0200
+supporting evidence: mtime and ctime (2026-10-04) predate the attempt (2026-10-16 18:11-20:33), so the file's content and metadata were not changed after 2026-10-04 by ordinary writes; every session's server log loads this path (procs.txt / run.txt). Limitation: this does not prove the hash at launch time; it corroborates that the declared file ran.
