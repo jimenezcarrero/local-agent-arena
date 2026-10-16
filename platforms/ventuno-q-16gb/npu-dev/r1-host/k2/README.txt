@@ -7,8 +7,8 @@ Owner's exceptions to the R1 run rules, both recorded before use:
     <absolute docker path>" (as for D131), the credential kept alive by a background "sudo -n -v" loop ended by a trap.
     The script itself is unchanged; the container ran as the owner's uid (-u). The agent did not use sudo.
   - This records tarball (text only: the files below; no binary) was copied to ~/r1-incoming/ on the board for
-    committing. sha256 2aad911b61fcf3288ec56c782f1725bb26d34db9b07e30012818b78b7435e2b3 (read on the board after the
-    copy; the laptop's own sha256 of the source file is still to be confirmed against it). The package tarball and
+    committing. sha256 2aad911b61fcf3288ec56c782f1725bb26d34db9b07e30012818b78b7435e2b3 (on the board after the copy, and
+    the same on the laptop's source file: the copy is exact). The package tarball and
     the models stay on the laptop; staging for R2 needs its own approval.
 
 Files: manifest.txt, pkg-unpatched-af0579c7.sha256 (132 files), compile-flags.txt, toolchain.txt, k2-output-tail.txt
