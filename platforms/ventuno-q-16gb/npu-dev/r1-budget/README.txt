@@ -1,10 +1,12 @@
 R1 pre-load memory ledger for M2 (NPU dev plan section 6, R1), 2026-10-16; second pass after Codex's review of
 6403ce1 (PR #65). Offline: no NPU, nothing staged; the model's weights were never read.
 
-Status: an estimate built on master's own loader, scheduler and allocator, NOT yet a demonstrated conservative
-admission. One gap remains open (below: whether the NPU refuses any op for a VTCM or kernel-parameter reason).
-Four sessions are the leading candidate; three sessions are out under this surrogate and the tested splits. Nothing
-here is decided until the review and the owner accept it.
+Status (third pass, after Codex's follow-up review of 5d1ff55): the op-support gap is closed offline (below):
+master's own Hexagon support code accepts every node this graph places on an NPU session, with about 4x VTCM
+headroom, so the Hexagon partition is the dry run's and the ledger's import graph and buffers stand for it.
+Proposed R1 admission (for review and the owner): NPU-R', 4 sessions, --tensor-split 11,10,10,10, ubatch 512,
+HMX on (the default). Three sessions are out under this ledger and the tested splits. T3a's 2048 replacement, K5
+and T7 remain; nothing on the NPU before them and the owner's approval.
 
 Method
   - Weights per session: exact bytes from the K3 tensor table (master's tiled NPU allocation, padded to 128).
@@ -50,20 +52,26 @@ Results (MiB; budget.txt = split-record clone rule, budget-clone-all.txt = every
   All-logits workloads (T3a, T7-style comparisons on the NPU) at -b 2048 would add ~750 MiB of output buffer to
   the board: they are budgeted at -b 512.
 
-Open (the review's P1 remainder): op support beyond types and layouts
-  Every op of the graph (20 kinds, 32 type signatures in the split record) is in the NPU's supports_op list
-  (:9381 on) and meets its type and layout conditions. Several also require a kernel plan that fits the session's
-  VTCM (MUL_MAT / MUL_MAT_ID, binary ops, ROPE, GET_ROWS, ARGSORT, SSM_CONV, CPY, CONCAT, FLASH_ATTN_EXT); those
-  plans depend on the session's VTCM size, which our NPU logs do not record. An op refused there would run on the
-  CPU and add HTP<->CPU copies; the session-0 CPU bound covers the CPU buffer, but a mixed partition's copy buffers
-  are not proven bounded. Ways to close it, for the owner and the review to choose:
-    a. Offline: evaluate the kernel-plan functions on the host with the v75 VTCM size (the backend's fallback is
-       8 MiB when the query fails, :4925; the real size needs a source), for this graph's exact shapes.
-    b. A separately reviewed, minimal NPU check: open the sessions without loading the model and ask
-       ggml_backend_dev_supports_op for this graph's ops and shapes (no weights, no compute). NPU work: the owner's
-       approval.
-  R2's validation must then also compare each session's mapped peak (own buffers plus clones), not only the logged
-  owner buffers.
+Op support on the NPU (third pass; closes the review's P1 remainder)
+  tools/r1_hex_support.cpp compiles master's ggml-hexagon.cpp unchanged against stub SDK headers (tools/r1-hex-stub/:
+  declarations only; every SDK function aborts if called) and calls its own ggml_backend_hexagon_device_supports_op
+  (:9381) for every node the dry run placed on a session, each rebuilt from the scheduler's record of it (type,
+  shape, strides, flags, op params, sources by slot; support/<config>.nodes.txt.gz, six graphs per configuration:
+  prompt and single-token reservations). The stand-in session carries the board's own hwinfo: threads 4, hvx 4,
+  hmx 1, vtcm 8 MB (two committed campaign logs; the MB figure is floored, so 8 MiB is a lower bound).
+  Result (support/<config>.support.txt, every distinct signature with its verdict and count):
+    NPU-R', 4 sessions, ub512: 7,752 NPU nodes, 89 signatures, 0 unsupported.
+    NPU-R,  4 sessions, ub512: 7,758 NPU nodes, 91 signatures, 0 unsupported.
+  Controls (support/controls.txt): the same nodes are refused when VTCM is too small (64 KiB: 2,746; 1 MiB: 72, the
+  dense FFN's Q3_K MUL_MAT and SSM_CONV); the smallest passing VTCM is 1,984 KiB (1,920 KiB: 4 refused), about a
+  quarter of the board's 8 MiB. With HMX off (GGML_HEXAGON_NHMX=0) 228 MUL_MAT_ID nodes are refused, so the
+  candidate keeps HMX on (the default; the configuration pins it).
+  Consequence: no op of this graph falls back to the CPU on the NPU sessions, so there is no mixed CPU/NPU partition;
+  the split record (CPU embeddings, then sessions 0 -> 1 -> 2 -> 3) and the ledger above describe the Hexagon run.
+  Limits of the check: the rebuilt tensors carry no buffers or Hexagon extras (they matter to GET_ROWS on repacked
+  weights, which no NPU node here does, and to repack bookkeeping, not to the verdict); n_threads is the recorded 4.
+  R2's validation still compares each session's mapped peak (own buffers plus clones) and the op placement in its
+  load log with this record.
 
 Proposed plan amendments (for review; the thresholds and matched arms stay as frozen)
   - T4 speed: ubatch 512 only (1024 is over for NPU-R and over under the every-other bound for NPU-R'; 2048 over).
