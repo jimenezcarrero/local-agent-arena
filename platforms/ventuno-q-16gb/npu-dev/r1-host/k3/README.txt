@@ -20,6 +20,9 @@ Identities (manifest.txt):
   - llama.cpp af0579c78 (master, fresh clone, clean), host CPU build (Release, GGML_NATIVE=OFF), GCC 16.2.1.
   - M2: LFM2.5-24B-A2B-M2-Q2_K-af0579c7.gguf, 8,809,757,984 bytes, sha256
     43b42f90f64ed2c8ce46bf92a76adcc112dd69842d6c8c43f0fc44935bd914e7.
+  - M2's sha256 and size equal the Hub's for NANI-Nithin/LFM2.5-24B-A2B-GGUF revision de4f7110 LFM2.5-24B-A2B-Q2_K.gguf
+    (../../r1-tensor-tables/NANI-Nithin-LFM2.5-24B-A2B-Q2_K.txt): the same default-mix quantization of the same
+    source gave the same bytes. Noted 2026-10-16 for the R1 budget, which reads M2's header from that Hub file.
   - REF: LFM2.5-24B-A2B-REF-Q8_0-af0579c7.gguf, 25,493,732,640 bytes, sha256
     f09bf094a8a138c5b645598ca1abb6696a0fde26662d7af649b0713fdef330b6.
 
