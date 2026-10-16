@@ -33,12 +33,19 @@ compute and scratch buffers not included):
       4 sessions +829.5 MiB (default and explicit 11,10,10,10 agree);
     release rule: 3 sessions -856.0 (no), 4 sessions +147.7;
     NPU-R' (output on the CPU): 3 sessions +115.3, 4 sessions +829.5.
-    So on master M2 needs 4 sessions to keep a usable margin; 3 is unresolved until R2 measures the compute buffers.
+    These are weights + KV margins only, not a runtime fit (review of a7b6223): recurrent state, compute and scratch
+    buffers, host-side residency and the whole-board reserve are not counted. 4 sessions on master is the stronger
+    candidate; both the 3- and the 4-session full fit stay unresolved until R1's conservative per-session and
+    whole-board budget is recorded (plan section 6).
   - REF (Q8_0, 24,304.85 MiB) does not fit any tried session count (3: -5,267.1; 4: -3,172.2; NPU-R' 3: -5,086.4).
     That is expected: REF is the CPU-side reference for T7 and is never staged on the NPU.
   - Reading note (2026-10-16): the owner's paste of the run's last lines showed REF's NPU-R' line, which was first
     misread here as M2's; the full manifest shows the M2 figures above.
 
-Next (R1): M2's session count from these tables plus R2's measured buffers; T7 on the laptop after K5 pins its text,
-token ids and settings. Models and the BF16 source stay on the laptop until those steps; staging M2 on the board
-needs its own approval.
+Next (R1, plan section 6; review of a7b6223): the conservative pre-load budget for 3 and 4 sessions (weights per
+layer split, KV, recurrent state, compute and scratch, host residency, the whole-board reserve) against F5/F7, then the
+session-count decision and the pinned candidate configuration; K5 freezes T7's text, token ids and settings; T7 for M2
+on the laptop. R2 runs only after R1 admits a candidate and M2 passes T7, to confirm the measured buffers; it does not
+supply its own admission. If a bound cannot be set offline, a bounded probe is a separately reviewed plan change. R2
+also needs its reviewed manifest, wrapper and reserve and the owner's approval. Models and the BF16 source stay on the
+laptop until then.
