@@ -92,7 +92,7 @@ static rec parse(const std::string & line0, size_t lineno) {
         auto eq = kv.find('=');
         if (eq == std::string::npos) reject(lineno, "field without '='");
         std::string k = kv.substr(0, eq), v = kv.substr(eq + 1);
-        seen.insert(k);
+        if (!seen.insert(k).second) reject(lineno, "repeated field " + k);   // before any assignment (review of dd5e9d8)
         if (k == "op") r.op = (int) num(v, "op"); else if (k == "type") r.type = (int) num(v, "type");
         else if (k == "ne") list(v, r.ne, 4, "ne"); else if (k == "nb") list(v, r.nb, 4, "nb");
         else if (k == "flags") r.flags = (int) num(v, "flags"); else if (k == "view") r.view = (int) num(v, "view");
