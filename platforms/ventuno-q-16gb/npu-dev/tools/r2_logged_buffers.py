@@ -18,8 +18,8 @@ Limits, per session s, from the committed ledger (tools/r1_budget.py's CONFIGS a
               to less; R1 bounded the difference at 127 B per node, 2,177 nodes: 0.26 MiB)
   host compute (any "-HOST" compute buffer) <= the whole-graph CPU compute bound for the ubatch
 Each logged figure is rounded to 0.01 MiB, so it may exceed its exact value by 0.005 MiB per line: allowed.
-Exit 0 WITHIN; 1 OVER (each excess named); 3 invalid input (unreadable log, unknown config, a session with no model or
-compute line, a buffer name outside the configuration's sessions)."""
+Exit 0 WITHIN; 1 OVER (each excess named); 3 invalid input (unreadable log, unknown config, a session missing any of
+its model, KV, RS or compute lines, a malformed buffer-size line, a buffer name outside the configuration's sessions)."""
 import os, re, sys
 
 LINE = re.compile(r"(load_tensors|llama_kv_cache|llama_memory_recurrent|sched_reserve):\s+(\S+)\s+(model|KV|RS|compute) buffer size =\s+([0-9.]+) MiB")
@@ -49,13 +49,18 @@ def main():
     except OSError as e:
         bad(f"cannot read {log}: {e}")
     got = {(s, k): 0.0 for s in names for k in ("model", "KV", "RS", "compute")}
+    cnt = {(s, k): 0 for s in names for k in ("model", "KV", "RS", "compute")}
     host_compute, lines = 0.0, {s: 0 for s in names}
+    # a line that names a buffer size but does not parse is malformed evidence, not something to skip
+    for i, l in enumerate(text.splitlines(), 1):
+        if re.search(r"\b(model|KV|RS|compute) buffer size", l) and not LINE.search(l):
+            bad(f"line {i}: malformed buffer-size line")
     n_host = 0
     for m in LINE.finditer(text):
         _, buf, kind, mib = m.groups()
         if buf.startswith("HTP") and not buf.endswith("-HOST"):
             if buf not in names: bad(f"buffer {buf} is not one of {names}")
-            got[(buf, kind)] += float(mib); lines[buf] += 1
+            got[(buf, kind)] += float(mib); cnt[(buf, kind)] += 1; lines[buf] += 1
         elif kind == "compute":   # the CPU's compute buffer: logged as "CPU" (a real release log) or "<session>-HOST"
             if buf.endswith("-HOST") and buf[:-5] not in names: bad(f"host buffer {buf} outside the sessions")
             host_compute += float(mib); n_host += 1
@@ -64,8 +69,11 @@ def main():
     over = []
     tol = lambda k: 0.005 * max(1, text.count(f" {k} buffer size"))
     for i, s in enumerate(names):
-        if got[(s, "model")] == 0 or got[(s, "compute")] == 0:
-            bad(f"session {s} has no model or no compute buffer line (was -lv 4 set and the load complete?)")
+        # every component this configuration allocates on every session must be logged (review of fdb7292): each
+        # session holds blocks with attention (KV) and short-convolution (RS) layers (r1-budget/ledger/<config>.out)
+        missing = [k for k in ("model", "KV", "RS", "compute") if cnt[(s, k)] == 0]
+        if missing:
+            bad(f"session {s} has no {', '.join(missing)} buffer line (was -lv 4 set and the load complete?)")
         checks = [("model", got[(s, "model")], w[i] / MiB, tol("model")),
                   ("KV+RS", got[(s, "KV")] + got[(s, "RS")], devs[i][1] / MiB, tol("KV") + tol("RS")),
                   ("compute", got[(s, "compute")], devs[i][2] / MiB + 1, tol("compute"))]

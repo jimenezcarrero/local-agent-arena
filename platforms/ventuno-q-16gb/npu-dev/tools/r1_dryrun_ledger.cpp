@@ -20,7 +20,11 @@ int main(int argc, char ** argv) {
     if (!common_params_parse(argc, argv, params, LLAMA_EXAMPLE_FIT_PARAMS)) {
         return 1;
     }
-    llama_log_set([](ggml_log_level, const char * text, void *) { fputs(text, stderr); }, nullptr);
+    if (getenv("R1_COMMON_LOG")) {
+        common_init();   // the production logger, as llama-server sets it up (timestamp and level prefixes); -lv applies
+    } else {
+        llama_log_set([](ggml_log_level, const char * text, void *) { fputs(text, stderr); }, nullptr);
+    }
     llama_backend_init();
 
     auto mparams = common_model_params_to_llama(params);

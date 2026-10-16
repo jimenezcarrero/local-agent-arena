@@ -7,20 +7,31 @@
 #
 # Exit 0 only if: the server answered /health within the ready timeout, POST /completion (a fixed prompt, n_predict 32,
 # temperature 0, top_k 1, seed 1) returned 200 with 1..32 predicted tokens and finite timings, and the server then
-# exited on SIGTERM within 60 s. Output in <out dir>: server.log (the server's stdout and stderr, -lv 4 expected),
-# generation.json (the response), probe.txt (one line per step). Any failure: the server is stopped, exit 1.
+# exited on SIGTERM within 60 s with status 0 or 143 (it was still running when asked; it is reaped). Output in <out dir>:
+# server.log (the server's stdout and stderr, -lv 4 expected), generation.json (the response), probe.txt (one line per
+# step). Any failure, and any exit path including a signal from the wrapper: the server is stopped and reaped, exit 1.
 set -uo pipefail
 OUT=$1 PORT=$2 READY=$3; shift 3; [ "${1:-}" = -- ] && shift
 [[ "$PORT" =~ ^[0-9]+$ ]] && [[ "$READY" =~ ^[0-9]+$ ]] && [ $# -gt 0 ] || { echo "usage error" >&2; exit 2; }
 [ ! -e "$OUT" ] && mkdir -p "$OUT" || { echo "$OUT exists or cannot be created (every probe writes a new directory)" >&2; exit 2; }
 say() { echo "$(date -Is) $*" | tee -a "$OUT/probe.txt"; }
 "$@" --host 127.0.0.1 --port "$PORT" > "$OUT/server.log" 2>&1 &
-SPID=$!; say "server pid $SPID"
-stop() { kill -TERM "$SPID" 2>/dev/null; for _ in $(seq 1 60); do kill -0 "$SPID" 2>/dev/null || return 0; sleep 1; done
-  say "server did not exit within 60 s of SIGTERM"; kill -KILL "$SPID" 2>/dev/null; return 1; }
+SPID=$!; say "server pid $SPID"; STOPPED=0
+# stop(): the server must still be running when asked to stop (an earlier exit is a failure, with its status), must
+# exit within 60 s of SIGTERM (else SIGKILL, a failure), and is reaped with its exit status recorded (review of fdb7292)
+stop() { local i st
+  [ "$STOPPED" = 1 ] && return 0; STOPPED=1
+  if ! kill -0 "$SPID" 2>/dev/null; then wait "$SPID" 2>/dev/null; st=$?; say "server had already exited (status $st) before shutdown"; return 1; fi
+  kill -TERM "$SPID" 2>/dev/null
+  for i in $(seq 1 60); do kill -0 "$SPID" 2>/dev/null || break; sleep 1; done
+  if kill -0 "$SPID" 2>/dev/null; then say "server did not exit within 60 s of SIGTERM"; kill -KILL "$SPID" 2>/dev/null; wait "$SPID" 2>/dev/null; return 1; fi
+  wait "$SPID" 2>/dev/null; st=$?; say "server exited on SIGTERM (status $st)"
+  [ "$st" = 0 ] || [ "$st" = 143 ]; }
+# on every exit path (an error, a signal from the wrapper) the server is stopped and reaped
+trap 'stop > /dev/null 2>&1' EXIT; trap 'say "probe interrupted"; stop; exit 1' INT TERM HUP
 up=0
 for i in $(seq 1 "$READY"); do
-  kill -0 "$SPID" 2>/dev/null || { say "server exited before ready"; wait "$SPID"; exit 1; }
+  kill -0 "$SPID" 2>/dev/null || { wait "$SPID" 2>/dev/null; say "server exited before ready (status $?)"; STOPPED=1; exit 1; }
   curl -fs "http://127.0.0.1:$PORT/health" > /dev/null 2>&1 && { up=1; say "ready after ${i} s"; break; }; sleep 1
 done
 [ "$up" = 1 ] || { say "not ready after $READY s"; stop; exit 1; }
