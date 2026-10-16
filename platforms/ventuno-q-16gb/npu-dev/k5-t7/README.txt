@@ -89,6 +89,7 @@ tools/r1_t7_x86.sh from a reviewed commit; nothing runs before the review and th
     ranks and KLD; it rejects a wrong token pin and a truncated file.
   - The T5 client against a real master llama-server (af0579c78, CPU build, clean tree) on the board, with the
     campaign's NeoHorse file read-only as a stand-in model: the mechanics (slot erase with --slot-save-path, cache_n 0,
-    prompt_n equal to prompt_tokens, tool-call parsing) - t5-integration.txt. A check of the client only, run with the
+    prompt_n equal to prompt_tokens, tool-call parsing) - t5-integration.txt: 14 of 20 trials (the outer time limit I set
+    ended the client during trial 15), all 14 fresh and parsed. A check of the client only, run with the
     v1 client and requests (before the review's nonce and matcher fixes, which do not touch these mechanics); NeoHorse's
     passes say nothing about M2 or REF.
