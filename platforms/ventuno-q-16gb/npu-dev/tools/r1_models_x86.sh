@@ -8,8 +8,12 @@
 #   Output: ~/r1-k3-<stamp>/ (models/ holds the .gguf files; they stay on this host) and the small evidence tarball
 #   ~/r1-k3-evidence-<stamp>.tar.gz (manifest, tables, logs; no model) to send back for the record.
 #   Not done here: T7 (its text, token ids and settings are pinned in K5 first), M3 (Track O), anything on the board.
-#   Disk: about 45 GiB for the BF16 download, 24 GiB REF, 8 GiB M2, 1 GiB build. With BF16=<path> an existing copy
-#   is used (checked against the pinned size and sha256 like a download) and nothing is downloaded.
+#   Disk: about 45 GiB for the BF16 download, 24 GiB REF, 8 GiB M2, 1 GiB build. With BF16=<path> (relative or
+#   absolute, spaces allowed; resolved before anything else) an existing copy is used, checked against the pinned size
+#   and sha256 like a download, and nothing is downloaded.
+#   Download (no BF16=): into ~/r1-downloads/, the one location this script reuses across runs: an interrupted
+#   download stays there as <file>.part and the next run resumes it (curl -C -); a complete file there is reused; both
+#   are checked against the pinned size and sha256 before use (a wrong .part fails the check: delete it and rerun).
 #   Every run uses a NEW directory; nothing existing is touched. Every step is checked; any failure stops.
 #   Run it as a whole file, from a reviewed commit (not the moving branch):
 #     curl -fsSL https://raw.githubusercontent.com/jimenezcarrero/local-agent-arena/<commit>/platforms/ventuno-q-16gb/npu-dev/tools/r1_models_x86.sh -o r1_models_x86.sh
@@ -46,7 +50,11 @@ step "0. host"
 [ "$(uname -m)" = x86_64 ] || die "this host is $(uname -m), not x86_64"
 for c in git cmake c++ curl sha256sum python3 tar df; do command -v $c >/dev/null || die "$c not found"; done
 [ ! -e "$W" ] && [ ! -e "$TAR" ] || die "$W or $TAR already exists; not touching it"
-if [ -n "${BF16:-}" ]; then [ -f "$BF16" ] || die "BF16=$BF16 is not a file"; need=${NEED_GIB:-35}; else need=${NEED_GIB:-80}; fi
+if [ -n "${BF16:-}" ]; then  # review of 702739a: resolved here, before any cd; every later step uses this file
+  [ -f "$BF16" ] || die "BF16=$BF16 is not a file"
+  BF16=$(realpath -e -- "$BF16") || die "cannot resolve BF16"; need=${NEED_GIB:-35}
+else need=${NEED_GIB:-80}; fi
+DL=$HOME/r1-downloads
 free=$(( $(df -B1 --output=avail "$HOME" | tail -1) / 1024**3 ))
 [ "$free" -ge "$need" ] || die "$free GiB free under $HOME, need $need"
 mkdir -p "$W" "$M" "$E"; echo "host OK: $free GiB free (need $need); test overrides: $TEST"
@@ -63,7 +71,15 @@ git checkout -q --detach "$COMMIT"
   > "$E/host-build.log" 2>&1 || { tail -5 "$E/host-build.log"; die "host build failed; see $E/host-build.log"; }
 Q=$SRC/build-host/bin/llama-quantize
 [ -x "$Q" ] && [ -x "$SRC/build-host/bin/llama-perplexity" ] || die "llama-quantize or llama-perplexity not built"
-{ cmake --version | head -1; c++ --version | head -1; } > "$E/host-toolchain.txt"
+# the host reference runtime's identity (review of 702739a): CMake's selected compilers and flags, and the sha256 of
+# the two tools and of every shared library in the build's output (the libraries they load)
+CC_=$(sed -n 's/^CMAKE_C_COMPILER:[A-Z]*=//p' build-host/CMakeCache.txt); CXX_=$(sed -n 's/^CMAKE_CXX_COMPILER:[A-Z]*=//p' build-host/CMakeCache.txt)
+[ -n "$CC_" ] && [ -n "$CXX_" ] || die "no compiler in build-host/CMakeCache.txt"
+{ cmake --version | head -1; echo "CMAKE_C_COMPILER $CC_: $("$CC_" --version | head -1)"; echo "CMAKE_CXX_COMPILER $CXX_: $("$CXX_" --version | head -1)"
+  grep -E '^(CMAKE_BUILD_TYPE|CMAKE_C_FLAGS|CMAKE_CXX_FLAGS|GGML_NATIVE|BUILD_SHARED_LIBS)(_RELEASE)?:' build-host/CMakeCache.txt
+  (cd build-host/bin && find . -maxdepth 1 -type f \( -name 'llama-quantize' -o -name 'llama-perplexity' -o -name '*.so*' \) -exec sha256sum {} + | sort -k2)
+} > "$E/host-toolchain.txt"
+grep -q '  ./llama-quantize$' "$E/host-toolchain.txt" || die "llama-quantize not hashed"
 [ -z "$(git status --porcelain --untracked-files=no)" ] || die "the build changed tracked files"
 echo "build OK"; cat "$E/host-toolchain.txt"
 
@@ -76,9 +92,14 @@ step "3. BF16 source"
 if [ -n "${BF16:-}" ]; then
   B=$BF16; echo "using the existing $B (not downloaded)"
 else
-  B=$M/$(basename "$BF16_URL"); echo "downloading $BF16_URL"
-  curl -fL --retry 5 --retry-delay 10 -C - -o "$B.part" "$BF16_URL" || die "download failed (rerunning resumes only in the same directory: use BF16=<path> for a complete copy)"
-  mv "$B.part" "$B"
+  mkdir -p "$DL"; B=$DL/$(basename "$BF16_URL")
+  if [ -f "$B" ]; then echo "reusing the earlier complete download $B (checked below)"
+  else
+    [ -f "$B.part" ] && echo "resuming $B.part ($(stat -c %s "$B.part") bytes)" || echo "downloading $BF16_URL"
+    curl -fL --retry 5 --retry-delay 10 -C - -o "$B.part" "$BF16_URL" || die "download failed; rerun to resume $B.part"
+    [ "$(stat -c %s "$B.part")" = "$BF16_SIZE" ] || die "$B.part is $(stat -c %s "$B.part") bytes, expected $BF16_SIZE; rerun to resume (or delete it)"
+    mv "$B.part" "$B"
+  fi
 fi
 [ "$(stat -c %s "$B")" = "$BF16_SIZE" ] || die "$B is $(stat -c %s "$B") bytes, expected $BF16_SIZE"
 echo "hashing $B ..."; got=$(sha "$B")
@@ -120,7 +141,7 @@ step "6. manifest and evidence"
   [ $TEST = yes ] && echo "TEST RUN with overridden sources: NOT EVIDENCE"
   echo "host: $(uname -srm)"; sed 's/^/host toolchain: /' "$E/host-toolchain.txt"
   echo "llama.cpp: $COMMIT (master, fresh clone, clean); host build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF, targets llama-quantize llama-perplexity"
-  echo "BF16 source: $BF16_URL"; echo "BF16: $(basename "$B") bytes $BF16_SIZE sha256 $BF16_SHA$([ -n "${BF16:-}" ] && echo ' (existing copy, checked)')"
+  echo "BF16 source: $BF16_URL"; echo "BF16: $B bytes $BF16_SIZE sha256 $BF16_SHA$([ -n "${BF16:-}" ] && echo ' (existing copy, checked)')"
   echo "table tool: $TABLE_URL sha256 $TABLE_SHA"
   echo "commands: llama-quantize <BF16> <REF> Q8_0 $(nproc); llama-quantize <BF16> <M2> Q2_K $(nproc)"
   for f in "$M2" "$REF"; do echo "$(basename "$f") bytes $(stat -c %s "$f") sha256 $(sha "$f")"; done
