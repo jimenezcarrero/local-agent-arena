@@ -37,15 +37,20 @@ owner's explicit approval of staging and of the run. Values marked PROPOSED are 
 3. Checks after load 1 (the stage stops at the first failure; a fault is never repeated; recovery is the owner's)
   a. The wrapper's verdict PASS (command exit 0; DSP journal with the library opened and CDSP0 lines and no dspqueue
      error or fatal line; kernel audit pass; floor and stall never hit).
-  b. Mapped peak per session: tools/r2_mapped_peak.py $O/probe/server.log 2594.0,2501.5,2491.7,2236.7 --sessions
+  b. Mapped peak per session (the parser's line format is taken from master's source, ggml-hexagon.cpp :745/:763; no
+     campaign log has verbose mapping lines to check it against, so it fails closed on any session without lines):
+     tools/r2_mapped_peak.py $O/probe/server.log 2594.0,2501.5,2491.7,2236.7 --sessions
      HTP0:0,HTP0:1,HTP0:2,HTP0:3 must say WITHIN: each session's own buffers plus clones at or below the ledger's
      figure for s4-rp-ub512 (r1-budget/budget.txt, split-record rule, which already includes the CPU compute bound in
      session 0), and its total including the op queue below 3,200 MiB. Also reported: the peaks against the
      every-other-session figures (2778.7, 2625.9, 2656.7, 2398.1). PROPOSED: a peak above the split-record figure stops R2.
   c. Logged buffers (-lv 4) per session: model, KV, recurrent state and compute buffer sizes, each at or below the ledger's
      component (exact weights from the K3 table; context and compute from ledger/s4-rp-ub512.out, which used CPU
-     alignment: + 1 MiB per session allowed for HTP's 128-byte alignment). A larger one stops R2: the ledger's model of
-     the run is then wrong. (Parser to be written after this manifest's review.)
+     alignment: + 1 MiB per session allowed for HTP's 128-byte alignment), and the CPU's compute buffer at or below the
+     whole-graph CPU bound: tools/r2_logged_buffers.py <npu-dev> $O/probe/server.log s4-rp-ub512 must say WITHIN. A
+     larger one stops R2: the ledger's model of the run is then wrong. (Checked against the real A32-5 NPU log's line
+     formats: there the CPU compute buffer is named "CPU", not "<session>-HOST", so the checker counts every
+     non-session compute line as the CPU's; R1's ledger counted it in session 0's mappings, which stays conservative.)
   d. Placement (plan K7): the loader's per-layer assignment (layers 0-10 HTP0:0, 11-20 HTP0:1, 21-30 HTP0:2, 31-39 and
      the output norm HTP0:3), token_embd.weight on the CPU in both roles (input and the tied output projection), and the
      scheduler's split record (CPU embeddings, sessions 0 -> 1 -> 2 -> 3, the output projection on the CPU) equal to
@@ -64,4 +69,5 @@ owner's explicit approval of staging and of the run. Values marked PROPOSED are 
    a written result in this folder: the checks' outputs, the staging hashes, the identity records before and after.
 
 Tools in this proposal (tested offline, no NPU): tools/npu_dev_run.sh (test_npu_dev_run.sh 24/24), tools/r2_load_probe.sh
-(test_r2_load_probe.sh 7/7), tools/r2_mapped_peak.py (test_r2_mapped_peak.sh 10/10).
+(test_r2_load_probe.sh 7/7), tools/r2_mapped_peak.py (test_r2_mapped_peak.sh 10/10), tools/r2_logged_buffers.py
+(test_r2_logged_buffers.sh 12/12). Still to write after review: the placement checker (check d).
