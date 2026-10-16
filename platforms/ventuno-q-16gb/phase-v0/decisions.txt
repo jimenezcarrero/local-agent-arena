@@ -2821,3 +2821,46 @@ D176 2026-10-16 Release-package identity at every launch (attempt 5 on), on the 
      changed during S1 stops; a hang with the package changed keeps the fault); for attempts 1-4 a modified package is
      not checked (behaviour unchanged).
    A32-5's plan gains D176. Nothing has run on the NPU. Nothing is GO.
+
+D177 2026-10-16 V0e A32-5 (v0e-plan-A32-5.txt, D174-D176; PR #62 merged at 7d801a2 after Codex's review of eb36ed5),
+   run on the owner's go ("Go A32-5."), 18:11-20:33: QUALIFIED at window 32768 (S1 and S2 PASS, faults 0).
+   Launch checks (runs/v0e-A32-5/launch-checks.txt), done before the go: 7 files deployed to ~/v0 (the D174-D176
+   tools, pkg_identity.py, its test and the manifest); 99 deployed copies equal to eb36ed5 (0 differ); the package
+   check by hand PASS (133 files, 15 links, 1 external; 0 mismatches); A32 admission latest and passing; 7badb21
+   clean; no llama process or driver running.
+   Two launches stopped before the attempt (files kept in runs/v0e-A32-5/stopped-launches/):
+   - Launch 1 (18:06): "STOP: NPU stall watchdog not running" at once, before any NPU use. The watchdog does not
+     start at boot (only the sampler does) and the board had been shut down. Started by hand (the deployed
+     npu_stall_watchdog.sh, equal to tools/), as before every earlier attempt.
+   - Launch 2 (18:07): its first baseline probe ran (512 depth: 333.5/9.60 tok/s; package identity PASS; kernel
+     audit pass) and was refused on health only: package drift. Unattended-upgrade on 2026-10-14/15 upgraded 28
+     packages (security updates: bluez x4, linux-libc-dev, systemd and its libraries, udev, libudev1, bind9 x3,
+     curl and libcurl x2, openssh x3, python3-urllib3, python3-jwt). llama-server's loaded libraries (ldd of
+     bin/llama-server and every pkg-linux/lib/*.so* with the run's LD_LIBRARY_PATH): pkg-linux's own, libc6,
+     libgcc-s1, libstdc++6, qcom-libdmabufheap; none upgraded. libcdsprpc (qcom-fastrpc1) not upgraded and pinned by
+     D176 (PASS). Kernel 6.8.0-1084-qcom unchanged, 12 apt holds, 1,715 packages before and after. As in D87, D101,
+     D119, D126 and D164: dpkg baseline reset (previous kept: env/dpkg-baseline-20261016-pre-unattended.txt), health
+     rerun pass without a drift line, launch 3 under the same plan.
+   Result (launch 3; status, driver log, probes, S1, S2, v0e-compact, pi-smoke in runs/v0e-A32-5/):
+   - Baseline probes 18:11 and 18:54: PASS. The package check passed before every load and before and after every
+     session.
+   - S1 (18:12-18:51, memory ADMIT L_min 9.46 GB): turns PASS 52/52 (both conversations: requests of 6,328/6,323,
+     12,348/12,352, 18,344/18,351, 24,317/24,318 and 30,312/30,312 tokens, the fresh cold read 30,307/30,319; time to first token at most 139.9 s; the
+     D174 projection was 30,313; reuse 0 of 170,654 continued prompt tokens, reported, D171); window PASS 4/4;
+     compaction PASS (1 compaction, recall after it); streaming probe 10/10, agentic 3/3, pi smoke 7/7. COST: 48
+     requests, 6.1 % from the cache, full re-processing forced 33, largest prompt 31,621 tokens (prefill 148.0 s);
+     prompt cache up to 5,053 MiB of 5,120. DSP retry events 0.
+   - S2 (18:56-20:33, memory ADMIT L_min 8.72 GB): 42 cycles, sustained summary VALID (prefill 245.5 -> 254.3 tok/s,
+     decode 5.8 -> 5.8, NSP max 46.4 -> 46.6 C; no decline over 10 %), speed invalid 0, pi smoke 42/42. COST: 269
+     requests, 46.6 % from the cache, forced 41; prompt cache up to 5,096 MiB. DSP retry events 0.
+   - Recomputed from the committed monitor export (recompute-20261016.txt): the 4 kernel audits and the session
+     memory floors equal the driver's. Monitor publish: appends only, except the 2026-10-15 export's last minute.
+     Identifier checks over phase-v0: none.
+   Earlier attempts stay NOT QUALIFIED as executed. Qualification is not a GO: GO is the owner's decision.
+   Correction (Codex review of 82a6aa3, P2): launch-checks.txt said the model identity was checked by the driver at
+   prebase. It was not: rsha covers the patched DSP library and .farf, D176 the release package (bin/llama-server
+   included); the model (models/q40) is outside both, and unlike earlier launch checks no model hash was taken by
+   hand before this launch. The line is corrected in place (original quoted) and a retrospective check added, labelled
+   as such (2026-10-16 20:47, after the attempt): sha256 f822fa26... MATCH, mtime and ctime 2026-10-04, before the
+   attempt; every server command loads that path. It corroborates the declared model; it is not a launch-time result.
+   The PR description now holds the full execution brief (Codex P2 2).
