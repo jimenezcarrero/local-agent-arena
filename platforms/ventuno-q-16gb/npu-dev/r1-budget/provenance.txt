@@ -14,3 +14,17 @@ model: header-only sparse copy of M2: bytes 0-8,250,143 (the GGUF header; sha256
 RPC devices: 4 x ggml-rpc-server -H 127.0.0.1 -p 50061..50064 -t 1 (loopback only), stopped after the runs
 command: llama-fit-params -m <sparse M2> --fit-print on [--rpc <3 or 4 devices>] -c 16384 -ub <U> -b 2048 -np <1|4> -fa on -ngl 999 [-ts <split>] [-ot 'token_embd\.weight=CPU']   (no_alloc: metadata only, every allocation simulated; output per device: model context compute, MiB, floored)
 peak RSS of a dry run: 80,332 kB; wall 0.7 s
+
+## second pass (review of 6403ce1), 2026-10-16 22:0x-22:2x, same workspace and RPC devices (stopped afterwards)
+ledger tool: ../tools/r1_dryrun_ledger.cpp, built against the tree above:
+  c++ -O1 -std=c++17 -I<tree>/include -I<tree>/common -I<tree>/ggml/include -I<tree>/vendor r1_dryrun_ledger.cpp
+      -L<build>/bin -lllama-common -lllama -lggml -lggml-base -Wl,-rpath,<build>/bin -o r1_dryrun_ledger
+  84fdc1e83cdbb0990bc7590c120262ef8d064227ea94b74fb7698cb30dfdcb5d  r1_dryrun_ledger
+  same no_alloc / load mode NONE load as fit-print, but every log line kept and each buffer type's bytes printed exactly
+instrumentation (local only, instrumentation.diff): the scheduler's GGML_SCHED_DEBUG=2 node line also prints each
+  node's and source's type, shape and contiguity; libggml-base rebuilt:
+  59006b89878e032360bcb3f4a410ebd03a07f3c1ff61896278f67d3e4d760829  libggml-base.so.0.26.0 (instrumented)
+  It changes logging only; the first pass's figures (floored MiB) equal the second pass's exact bytes floored.
+runs: GGML_SCHED_DEBUG=2 r1_dryrun_ledger -m <sparse M2> [--rpc <3|4 devices>] -c 16384 -b 2048 -np 1 -fa on -ub <U>
+  -ngl 999|0 [-ts <split>] [-ot 'token_embd\.weight=CPU']  ->  ledger/<config>.out (bytes) and .splits (the split
+  record: each split's inputs, and the graph's node count); configurations as named in ../tools/r1_budget.py.
