@@ -41,8 +41,10 @@ case $m in
   fail-timeout) printf "$S$R$U${E}t RESULT FAIL: workload=1\n" > $o/run.txt; echo "t x: rc=1" > $o/items.txt; exit 124;;
   fail-killed) printf "$S$R$U${E}t RESULT FAIL: workload=1\n" > $o/run.txt; echo "t x: rc=1" > $o/items.txt; exit 137;;
   fail-health) echo "fail: missing kernel read" > $o/health-verdict.txt; printf "$S$R$U${E}t RESULT FAIL: workload=1\n" > $o/run.txt; exit 1;;
-  hang|hang-farf) echo "NPU-WATCHDOG" >> $WD_LOG; printf "$S$R${E}t RESULT FAIL: workload=5\n" > $o/run.txt
-    [ $m = hang-farf ] && echo 0x0 > $T/farf/llama-server.farf; exit 1;;
+  hang|hang-farf|hang-pkg) echo "NPU-WATCHDOG" >> $WD_LOG; printf "$S$R${E}t RESULT FAIL: workload=5\n" > $o/run.txt
+    [ $m = hang-farf ] && echo 0x0 > $T/farf/llama-server.farf; [ $m = hang-pkg ] && echo x >> $T/pkg/lib/libllama.so.0.5.0; exit 1;;
+  pass-pkg) printf "$S$R$U${E}t RESULT PASS (workload, health: pass, kernel evidence)\n" > $o/run.txt
+    echo x >> $T/pkg/lib/libllama.so.0.5.0; exit 0;;
   loadfail-farf) printf "${S}t SERVER EXITED before ready\n${E}t RESULT FAIL: speed=4\n" > $o/run.txt  # a baseline (run_route) load failure
     echo "ggml-hex: HTP0:2 buffer mapping failed" > $o/server.log; echo 0x0 > $T/farf/llama-server.farf; exit 1;;
   evidence) printf "$S$R$U${E}t RESULT FAIL: health=(fail: x)\n" > $o/run.txt; exit 1;;
@@ -59,6 +61,11 @@ case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
   T=$(mktemp -d); export T BR=$T/br WD_LOG=$T/wd.txt; echo x > $WD_LOG; mkdir -p $BR/v0/v0d
   echo "$FAKE" > $T/run.sh; printf '#!/bin/bash\necho pass; exit 0\n' > $T/ka.sh; printf 'import os, sys\nT = os.environ["T"]; open(T + "/caps", "a").write(sys.argv[2] + "\\n")\nr = open(T + "/mem-reject").read().strip() if os.path.exists(T + "/mem-reject") else ""\nsys.exit(2 if r and r in os.path.basename(sys.argv[3]) else 0)\n' > $T/mem.py
   chmod +x $T/run.sh $T/ka.sh
+  # D176: a fake release package (a library, a symlink chain) and its manifest, made with the real pkg_identity.py
+  mkdir -p $T/pkg/bin $T/pkg/lib; echo srv > $T/pkg/bin/llama-server; echo llama > $T/pkg/lib/libllama.so.0.5.0
+  ln -s libllama.so.0.5.0 $T/pkg/lib/libllama.so.0; ln -s libllama.so.0 $T/pkg/lib/libllama.so
+  (cd $T/pkg && sha256sum ./bin/llama-server ./lib/libllama.so.0.5.0) > $T/pkg-record.sha256
+  python3 ~/v0/pkg_identity.py make $T/pkg-record.sha256 $T/pkg > $T/pkgman
   mkdir -p $T/htpr $T/farf; echo lib > $T/htpr/libggml-htp-v75.so; echo 0x1f > $T/farf/llama-server.farf; local rs=$(sha256sum $T/htpr/libggml-htp-v75.so | cut -d' ' -f1)
   A1="2026-10-11T08:00:00+02:00 admission $SET start (pid 1)
 2026-10-11T08:50:00+02:00 SET $SET: ADMITTED in attempt 1 (set faults: 0)
@@ -72,13 +79,15 @@ case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
     admit-newer-fail) printf '%s\n' "2026-10-11T09:00:00+02:00 admission $SET start (pid 2)" "2026-10-11T09:50:00+02:00 SET $SET: ADMITTED in attempt 1 (set faults: 0)" "2026-10-11T09:50:01+02:00 GATE $SET: FAIL median 16K prefill 120.0" "2026-10-11T09:50:02+02:00 admission $SET done rc=3 (faults 0)" >> $BR/v0/v0d/v0d-admit-$SET-status.txt;;
     admit-newer-unfinished) echo "2026-10-11T09:00:00+02:00 admission $SET start (pid 2)" >> $BR/v0/v0d/v0d-admit-$SET-status.txt;;
     gate-fail) : > $T/gate-fail;;
+    pkg=modified) echo x >> $T/pkg/lib/libllama.so.0.5.0;; pkg=missing) rm $T/pkg/lib/libllama.so.0.5.0;;
+    pkg=redirect) rm $T/pkg/lib/libllama.so.0; ln -s ../bin/llama-server $T/pkg/lib/libllama.so.0;; pkg=extra) echo e > $T/pkg/lib/libggml-extra.so;;
     other-set-admission) mv $BR/v0/v0d/v0d-admit-$SET-status.txt $BR/v0/v0d/v0d-admit-AR-status.txt;; mem=reject) echo S1 > $T/mem-reject;; mem=reject-S0) echo S0 > $T/mem-reject;; wording=*) echo "${kv#wording=}" > $T/wording;; mode-*) echo "${kv#*=}" | tr , '\n' > $T/${kv%%=*};; esac; done
   printf '%s\n%s\n' "$JOK" "$jextra" > $T/journal-ok.txt; echo $jmode | sed 's/fail-first/fail,ok/' | tr , '\n' > $T/jmode
   # fake journalctl: records its arguments; one mode per call from the queue $T/jmode (the last one repeats; D167):
   # ok | fail (rc 1) | empty | nocdsp (no DSP lines); jmode=fail-first is "fail,ok"
   printf '#!/bin/bash\necho "$*" >> $T/jargs\nm=$(head -1 $T/jmode); [ $(wc -l < $T/jmode) -gt 1 ] && sed -i 1d $T/jmode\ncase $m in ok) cat $T/journal-ok.txt;; fail) echo "journal error" >&2; exit 1;; empty) :;; nocdsp) grep -v CDSP0 $T/journal-ok.txt;; esac\n' > $T/jc.sh; chmod +x $T/jc.sh
   env RUN_ROUTE=$T/run.sh RUN_V0E=$T/run.sh MEMFLOOR=$T/mem.py KAUDIT=$T/ka.sh PROBE_WAIT=0 SESS_PAUSE=0 CHECK_PROC=true \
-      HTPR=$T/htpr FARF=$T/farf RETRY_SHA=$rs JOURNAL=$T/jc.sh GATE=$T/gate.sh bash ~/v0/v0e_A_retry.sh $ARGS > $T/out.txt 2>&1; local rc=$?
+      HTPR=$T/htpr FARF=$T/farf RETRY_SHA=$rs JOURNAL=$T/jc.sh GATE=$T/gate.sh PKGMAN=$T/pkgman PKGDIR=$T/pkg bash ~/v0/v0e_A_retry.sh $ARGS > $T/out.txt 2>&1; local rc=$?
   local seq=$(paste -sd' ' $T/calls 2>/dev/null) st=$BR/v0/v0d/v0e-$NAME-status.txt
   if [ $rc = $want_rc ] && [ "$seq" = "$want_seq" ]; then echo "ok   $name (rc $rc: $seq)"
   else echo "FAIL $name (rc $rc want $want_rc; seq '$seq' want '$want_seq')"; sed 's/^/     /' $T/out.txt | tail -8; fails=$((fails+1)); fi
@@ -114,8 +123,16 @@ case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
     s1-fail-names-the-set) chk "clean session): $NAME not qualified; S2 runs for evidence" $st;;
     id-change-after-baseline-loadfail-stops) chk "STOP: before baseline probe-" $st;;
     id-change-in-recovery-keeps-fault) chk "FAULT HANG in v0e-$NAME-S1" $st; chk "NOT QUALIFIED (faults recorded: 1" $st; chk "library identity lost before probe-" $st;;
+    pkg-modified-stops) chk "STOP: before baseline probe-.*: the release package $T/pkg differs from $T/pkgman: FAIL lib/libllama.so.0.5.0: sha256 differs" $st;;
+    pkg-missing-stops) chk "FAIL lib/libllama.so.0.5.0: missing" $st;;
+    pkg-link-redirected-stops) chk "FAIL lib/libllama.so.0: links to ../bin/llama-server, expected libllama.so.0.5.0" $st;;
+    pkg-extra-library-stops) chk "FAIL lib/libggml-extra.so: not in the manifest" $st;;
+    pkg-changed-during-s1-stops) chk "STOP: the release package changed during v0e-$NAME-S1: the release package" $st;;
+    hang-and-package-changed-keeps-fault) chk "STOP: the release package changed during v0e-$NAME-S1" $st; chk "FAULT HANG in v0e-$NAME-S1" $st; chk "NOT QUALIFIED (fault HANG in v0e-$NAME-S1; library identity lost)" $st;;
+    pkg-not-checked-before-attempt-5) [ -e $BR/v0/v0e-$NAME/pkg-identity-last.txt ] && { echo "FAIL $name: the package was checked"; fails=$((fails+1)); };;
     hang-and-library-changed-keeps-fault) chk "STOP: the patched library or the .farf file changed during v0e-$NAME-S1" $st; chk "FAULT HANG in v0e-$NAME-S1" $st; chk "NOT QUALIFIED (fault HANG in v0e-$NAME-S1; library identity lost)" $st;;
   esac
+  [ $name = all-pass ] && [ $ATT -ge 5 ] && chk "RESULT pkg-identity: PASS (2 files, 2 links, 0 external" $BR/v0/v0e-$NAME/pkg-identity-last.txt
   rm -rf $T; }
 # D118 policy cases (unchanged expectations)
 case1 all-pass 0 "probe S1 probe S2"
@@ -170,6 +187,18 @@ if [ $ATT -ge 2 ]; then
   case1 id-change-in-recovery-keeps-fault 3 "probe S1 probe" mode-S1=hang mode-probe=pass,loadfail-farf
 fi
 case1 hang-and-library-changed-keeps-fault 3 "probe S1" mode-S1=hang-farf
+# D176 (attempt 5 on): the release package as built, before every baseline and session and after every session; a
+# change after a recorded fault keeps the fault. Before attempt 5 the package is not checked (behaviour unchanged).
+if [ $ATT -ge 5 ]; then
+  case1 pkg-modified-stops 2 "" pkg=modified
+  case1 pkg-missing-stops 2 "" pkg=missing
+  case1 pkg-link-redirected-stops 2 "" pkg=redirect
+  case1 pkg-extra-library-stops 2 "" pkg=extra
+  case1 pkg-changed-during-s1-stops 2 "probe S1" mode-S1=pass-pkg
+  case1 hang-and-package-changed-keeps-fault 3 "probe S1" mode-S1=hang-pkg
+else
+  case1 pkg-not-checked-before-attempt-5 0 "probe S1 probe S2" pkg=modified
+fi
 # D167, every set: a recovery probe that stops after a recorded fault keeps NOT QUALIFIED (exit 3); without a fault a
 # stopping baseline is unchanged (exit 2)
 case1 recovery-probe-evidence-after-fault 3 "probe S1 probe" mode-S1=hang mode-probe=pass,evidence

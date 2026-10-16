@@ -64,6 +64,14 @@ source ~/v0/v0d_runner.sh
 RETRY_SHA=${RETRY_SHA:-aa2ae2a978d95935b763234c1a6cefe27f42c1cf98d67f041c17f13210fedde2}
 JOURNAL=${JOURNAL:-journalctl}
 rsha() { [ "$(sha256sum "$HTPR/libggml-htp-v75.so" 2>/dev/null | cut -d' ' -f1)" = "$RETRY_SHA" ] && [ "$(cat "$FARF/llama-server.farf" 2>/dev/null)" = 0x1f ]; }
+# D176 (attempt 5 on): the release package as built, checked separately from the patched DSP library and the .farf:
+# its 133 files by sha256, its 15 symlinks by target, the external FastRPC library, nothing else (pkg_identity.py,
+# the committed manifest; never regenerated at launch). ident sets WHY to the failing check's message.
+PKGID=${PKGID:-python3 $HOME/v0/pkg_identity.py}; PKGMAN=${PKGMAN:-$HOME/v0/pkg-identity-836d57176.txt}; PKGDIR=${PKGDIR:-$P}
+pkgid() { $PKGID check "$PKGMAN" "$PKGDIR" > $O/pkg-identity-last.txt 2>&1; }
+ident() { WHY=; WHAT=; rsha || { WHAT=lib; WHY="$HTPR/libggml-htp-v75.so is not sha256 $RETRY_SHA (or the .farf file is not 0x1f)"; return 1; }
+  [ $ATT -ge 5 ] || return 0
+  pkgid || { WHAT=pkg; WHY="the release package $PKGDIR differs from $PKGMAN: $(grep -m1 '^FAIL' $O/pkg-identity-last.txt) ($(tail -1 $O/pkg-identity-last.txt))"; return 1; }; }
 AW="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$FARF;$HTPR;$P/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 32768 --cache-ram $CAP -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl $NGL --ctx-checkpoints 0"
 $CHECK_PROC '^/bin/bash /home/arduino/v0/npu_stall_watchdog.sh' > /dev/null || { say "STOP: NPU stall watchdog not running"; exit 6; }
 $CHECK_PROC '^/bin/bash /home/arduino/v0/monitor/health_sampler.sh' > /dev/null || { say "STOP: health sampler not running"; exit 6; }
@@ -98,7 +106,7 @@ session() { local lab=$1 wl=$2 to=$3 wd0 f0 try
   for try in 1 2; do LAB=$lab; [ $try = 2 ] && LAB=$lab-retry
     f0=$(nfaults); ready now   # a baseline fault is recorded by ready(), which keeps probing until a PASS (recovery)
     [ "$(nfaults)" = "$f0" ] || { say "V0e $NAME: NOT QUALIFIED (fault in the baseline before $LAB; recovered)"; exit 3; }
-    rsha || { say "STOP: $HTPR/libggml-htp-v75.so is not sha256 $RETRY_SHA (or the .farf file is not 0x1f)"; exit 2; }
+    ident || { say "STOP: $WHY"; exit 2; }
     say "START $LAB"; wd0=$(wdcount)
     PHASE=$PH timeout -k 60 $to bash $RUN_V0E $LAB $wl -- $AW > /dev/null 2>&1; RC=$?; killall_srv
     C=$(classify $O/$LAB $RC $wd0); [ "$C" = EVIDENCE ] && loadfail $O/$LAB && C=LOADFAIL
@@ -106,7 +114,7 @@ session() { local lab=$1 wl=$2 to=$3 wd0 f0 try
     # D171: what the session's requests cost (reported, never gated)
     $SREQ $O/$LAB/server.log > $O/$LAB/server-requests.txt 2>&1 && say "COST $LAB: $(tail -1 $O/$LAB/server-requests.txt)"
     # D162: a fault in the session is recorded before a library stop, so it is not lost
-    rsha || { say "STOP: the patched library or the .farf file changed during $LAB"
+    ident || { [ "$WHAT" = pkg ] && say "STOP: the release package changed during $LAB: $WHY" || say "STOP: the patched library or the .farf file changed during $LAB"
       case $C in HANG|DEVFAULT) fault $LAB $C; say "V0e $NAME: NOT QUALIFIED (fault $C in $LAB; library identity lost)"; exit 3;; esac; exit 2; }
     # DSP evidence (D137): required. A failed capture stops, except that a real HANG/DEVFAULT keeps its class (the
     # fault path stops anyway, as NOT QUALIFIED).
@@ -143,8 +151,8 @@ journal() { local d=$O/$1 spid boot t0 t1 n r; : > $d/journal-check.txt
   say "DSP $1: logged retry events ${n:-0}, longest run ${r:-0}"; [ "${r:-0}" -gt 1 ] && say "FLAG $1: repeated peek errors (${r} in a row), for the owner"; return 0; }
 # prebase <probe label> (D162, attempt 2): the patched library and .farf identity immediately before each baseline
 # load. A mismatch stops; after a recorded fault the outcome stays NOT QUALIFIED (exit 3), the fault history kept.
-prebase() { rsha && return 0
-  say "STOP: before baseline $1: $HTPR/libggml-htp-v75.so is not sha256 $RETRY_SHA (or the .farf file is not 0x1f)"
+prebase() { ident && return 0
+  say "STOP: before baseline $1: $WHY"
   [ "$(nfaults)" -gt 0 ] && { say "V0e $NAME: NOT QUALIFIED (faults recorded: $(nfaults), kept in faults.txt; library identity lost before $1)"; exit 3; }
   exit 2; }
 [ $ATT -ge 2 ] && PRE_BASE=prebase

@@ -2786,3 +2786,38 @@ D175 2026-10-15 Codex review of 02385b1 (PR #60): A32-4 correctly NOT QUALIFIED;
    replies, so every actual request's checks (serialization, counters, window) stay authoritative. A32-5's plan gains
    D175; the PR description now carries the full execution brief. A32-4 stays NOT QUALIFIED; nothing of it is
    reused. Nothing is GO.
+
+D176 2026-10-16 Release-package identity at every launch (attempt 5 on), on the owner's decision after the R1 K2 finding.
+   Finding (NPU dev R1 K2, laa-npu-dev d48bf63): bin/llama-server is a 70,624-byte launcher, byte-identical in the
+   release (836d57176) and master (af0579c78) builds; it loads lib/libllama-server-impl.so. The driver's per-launch
+   identity check pinned the patched DSP library and the .farf only (llama-server and the model by the launch
+   checks), so the host libraries (libllama-server-impl.so, libllama-common, libllama, libmtmd, libggml*) were not
+   checked at each launch. The full package was checked against its build record at milestones (D40, after the
+   system update in D166), and today's check passes: all 133 installed files equal builds/hexagon-laptop/
+   pkg-linux.sha256. This does not mean any earlier run used changed libraries; the per-launch check covered less
+   than its wording suggested.
+   - Owner's requirements (via Codex): pin the release's libraries; record symlink targets and hash their resolved
+     files; check before each baseline and session launch and after each session, failing closed; keep the patched
+     DSP library and .farf checks separate; commit the expected hashes (no regeneration at launch); offline cases for
+     a modified library, a missing library and a redirected symlink.
+   - tools/pkg_identity.py: "check" passes only if the package is exactly its manifest: every pinned file a regular
+     file with its sha256, every symlink with its recorded target text and resolving to a pinned file (inside the
+     package) or a pinned external file, the external files' sha256, and no other file or link in the package (an
+     extra library on LD_LIBRARY_PATH could shadow a pinned one). "make" writes a manifest from the build record and
+     refuses if the installed package differs from it.
+   - tools/pkg-identity-836d57176.txt (committed): the 133 files and hashes of the build record, the 15 symlinks, and
+     the system FastRPC library that lib/libcdsprpc.so links to (/usr/lib/aarch64-linux-gnu/libcdsprpc.so.1.0.0,
+     qcom-fastrpc1 1.0.15+repack2, whose md5 equals dpkg's record). The whole package rather than only the server's
+     libraries, so a change anywhere in it stops: an upgrade of qcom-fastrpc1 would stop the attempt, deliberately.
+   - v0e_A_retry.sh: ident() = the patched library and .farf check (unchanged, its own message) then, from attempt
+     5, the package check (its own STOP message, the first mismatch and the RESULT line;
+     <phase>/pkg-identity-last.txt). Called where rsha was: before every baseline load (prebase), before and after
+     every session; a change after a recorded fault keeps the fault (NOT QUALIFIED). Attempts 1-4 unchanged.
+   - Tests: test_pkg_identity.py 13/13 (as built; a modified, a missing library; a missing, a redirected symlink; a
+     pinned file replaced by a symlink to an identical outside copy; a symlink replaced by a regular copy; an extra
+     library, an extra symlink; the external library changed; the external link chain redirected; make refusing a
+     package that differs from, or has files outside, its build record). test_v0e_A_retry.sh: for attempt 5, six new
+     cases (modified, missing, redirected link, extra library: each stops before the first baseline; the package
+     changed during S1 stops; a hang with the package changed keeps the fault); for attempts 1-4 a modified package is
+     not checked (behaviour unchanged).
+   A32-5's plan gains D176. Nothing has run on the NPU. Nothing is GO.
