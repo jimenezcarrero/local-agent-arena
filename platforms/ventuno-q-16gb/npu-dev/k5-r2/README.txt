@@ -85,4 +85,6 @@ owner's explicit approval of staging and of the run. Values marked PROPOSED are 
 
 Tools in this proposal (tested offline, no NPU): tools/npu_dev_run.sh (test_npu_dev_run.sh 40/40), tools/r2_load_probe.sh
 (test_r2_load_probe.sh 9/9), tools/r2_mapped_peak.py (test_r2_mapped_peak.sh 10/10), tools/r2_logged_buffers.py
-(test_r2_logged_buffers.sh 17/17), tools/r2_placement.py (test_r2_placement.sh 14/14).
+(test_r2_logged_buffers.sh 17/17), tools/r2_placement.py (test_r2_placement.sh 14/14). End to end on the real system
+(all defaults, the real journal, sampler, watchdog and kernel audit; a CPU-only master server as the payload, no NPU):
+PASS, e2e-cpu-selftest.txt.
