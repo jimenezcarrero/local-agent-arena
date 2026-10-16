@@ -1,0 +1,40 @@
+Build config: +assertions
+
+=== 3. build (documented commands; log /home/juan/r1-k2-20261016-102302/build.log)
+docker build rc=0
+-- Installing: /workspace/pkg-unpatched-af0579c7/lib/cmake/llama/llama-config.cmake
+-- Installing: /workspace/pkg-unpatched-af0579c7/lib/cmake/llama/llama-config-version.cmake
+-- Installing: /workspace/pkg-unpatched-af0579c7/lib/pkgconfig/llama.pc
+
+=== 4. check the installed package
+package OK: 132 files
+
+=== 5. manifest and pack
+# K2 unpatched control package (NPU dev plan K2, stage R1), 2026-10-16T10:30:25+02:00
+host: Linux 7.2.5-3-omarchy x86_64
+docker: Docker version 29.7.2, build a7dcaa6fdb
+source: ggml-org/llama.cpp af0579c78a07a555d84830d01da7b61cfadbc7ef (master, 2026-10-14T06:23:44Z; fresh clone, clean, unpatched)
+image: ghcr.io/snapdragon-toolchain/arm64-linux:v0.7 sha256:41b710ee5f99d21f0fb9d83a1f815ecffb7708315b4218a11cd0baeb5ecf4c14
+commands: cp docs/backend/snapdragon/CMakeUserPresets.json .; cmake --preset arm64-linux-snapdragon-release -B build-snapdragon;
+          cmake --build build-snapdragon -j $(nproc); cmake --install build-snapdragon --prefix pkg-unpatched-af0579c7
+toolchain:
+  HEXAGON_SDK_ROOT=/opt/hexagon/6.6.0.0
+  HEXAGON_TOOLS_ROOT=/opt/hexagon/6.6.0.0/tools/HEXAGON_Tools/19.0.07
+  QuIC LLVM Hexagon Clang version 19.0.07
+  Target: hexagon
+  Thread model: posix
+  InstalledDir: /opt/hexagon/6.6.0.0/tools/HEXAGON_Tools/19.0.07/Tools/bin
+  Build config: +assertions
+SDK line in the build log: -- hexagon: using /opt/hexagon/6.6.0.0 and /opt/hexagon/6.6.0.0/tools/HEXAGON_Tools/19.0.07 for building libggml-htp skels
+compile flags (CPU repack types follow them: dotprod, no i8mm):
+  CMAKE_CXX_FLAGS:STRING=-march=armv8.2a+fp16+dotprod -fvectorize -fno-finite-math-only -flto -D_GNU_SOURCE
+  CMAKE_C_FLAGS:STRING=-march=armv8.2a+fp16+dotprod -fvectorize -fno-finite-math-only -flto -D_GNU_SOURCE
+files: 132, sha256 list pkg-unpatched-af0579c7.sha256 sha256 7c623383fa6a948d624f9d531e41d2d97334e32ca1ace4fc00f1c95cbed520af
+bin/llama-server sha256 815b22bb99c8f63ee59791a9c0678bb90e9bd5574322ef959e22c98578aa5365 bytes 70624
+lib/libggml-hexagon.so sha256 82dea5a7298cbe47e42aa6e75953ed6408037f428cccd14a3fbc98a6670d100a bytes 20
+lib/libggml-htp-v75.so sha256 444b28ebd412ec004bd9322b9410f8767a7abb9ab2af2cc5af1174b76d1d4e49 bytes 852008
+not copied to the board (R2 stages it under ~/npu-dev/pkg-unpatched-af0579c7 with its own manifest and approval)
+package: /home/juan/pkg-unpatched-af0579c7-20261016-102302.tar.gz (15M) sha256 d0ca1bb5ef8555b2b24704e4465d78f5b7842392cb8307207097cde14db21c7e
+for the record (send back, small): /home/juan/r1-k2-20261016-102302/manifest.txt, /home/juan/r1-k2-20261016-102302/pkg-unpatched-af0579c7.sha256, /home/juan/r1-k2-20261016-102302/compile-flags.txt, /home/juan/r1-k2-20261016-102302/toolchain.txt
+
+DONE
