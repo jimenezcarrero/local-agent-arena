@@ -28,3 +28,40 @@ instrumentation (local only, instrumentation.diff): the scheduler's GGML_SCHED_D
 runs: GGML_SCHED_DEBUG=2 r1_dryrun_ledger -m <sparse M2> [--rpc <3|4 devices>] -c 16384 -b 2048 -np 1 -fa on -ub <U>
   -ngl 999|0 [-ts <split>] [-ot 'token_embd\.weight=CPU']  ->  ledger/<config>.out (bytes) and .splits (the split
   record: each split's inputs, and the graph's node count); configurations as named in ../tools/r1_budget.py.
+
+## third pass: offline Hexagon support check (review of 5d1ff55), 2026-10-16 22:4x-23:1x, same workspace
+instrumentation extended (instrumentation.diff, logging only): with R1_NODE_DUMP=<file> the scheduler also writes one
+  machine-readable record per node (op, type, ne, nb, flags, view, buffer presence, name, op params; the same for
+  each source by slot); libggml-base rebuilt:
+  933ac6b178259f82d39ec4d7e084b20a370a0e6e0b9945c10dbae4d80c3a1f0e  libggml-base.so.0.26.0 (instrumented, third pass)
+node dumps: R1_NODE_DUMP=... GGML_SCHED_DEBUG=2 r1_dryrun_ledger -m <sparse M2> --rpc <4 devices> -c 16384 -b 2048
+  -np 1 -fa on -ngl 999 -ts 11,10,10,10 -ub 512 [-ot 'token_embd\.weight=CPU'] -> support/<config>.nodes.txt.gz
+  (6 graphs each: the prompt and single-token reservations); their byte figures equal ledger/s4-r-ub512.out.
+harness: ../tools/r1_hex_support.cpp, which compiles master's ggml/src/ggml-hexagon/ggml-hexagon.cpp unchanged
+  against ../tools/r1-hex-stub/ (declarations only; every SDK function defined in the harness aborts if called):
+  c++ -O1 -std=c++17 -w -I<tools>/r1-hex-stub -I<tree>/ggml/include -I<tree>/ggml/src -I<tree>/ggml/src/ggml-hexagon
+      -I<tree>/ggml/src/ggml-hexagon/htp -I<tree>/ggml/src/ggml-cpu r1_hex_support.cpp -L<build>/bin -lggml-base -lggml
+      -Wl,-rpath,<build>/bin -o r1_hex_support
+  817c5dd83e02e7c9d21e3f246982d2d1e93018d70d25498eb75f649bd883bf88  r1_hex_support
+hardware values (the stand-in session): n_threads 4, n_hvx 4, n_hmx 1, vtcm 8 MB, as this board's own hwinfo query
+  logged them (ggml-hex "HTP0 hwinfo: threads 4, hvx 4, hmx 1, vtcm 8 MB"), committed in the campaign record:
+  phase-v0/runs/v0b-7badb21/geniex-npu-sanity/server.log.txt and phase-v0/runs/v0q-op/t1-htp0.log ("HTP0:0 hwinfo:
+  threads 4, hvx 4, hmx 1, vtcm 8 MB"). The MB figure is floored (vtcm / 1 MiB), so 8 MiB is a lower bound.
+
+## fourth pass: the support checker fails closed (review of cbe3b51), 2026-10-16 23:2x-23:5x, same workspace
+instrumentation (instrumentation.diff, logging only): the node dump is framed per graph, "GRAPH_BEGIN n_nodes=N"
+  before a graph's records and "GRAPH_END logged=K" (the NODE records written) after them; libggml-base rebuilt:
+  a39dd615810cc0a79350aeaba82e96ea90e42dfb7f5d3bfd817d72370ffafedf  libggml-base.so.0.26.0 (instrumented, fourth pass)
+recapture: the same two commands as the third pass with the framed dump (4 loopback RPC devices, stopped afterwards);
+  byte figures equal ledger/; support/<config>.manifest written right after each capture by
+  ../tools/r1_node_manifest.sh; dumps committed gzipped:
+  a6f983b62984177963f709624c7cdefedac8fa3caaa9a9f00b248c8458210092  support/s4-rp-ub512.nodes.txt.gz
+  9c3d05905066ddd186fbc840d974f1cba81f58c1326bacc98f0f52c89b25c5a9  support/s4-r-ub512.nodes.txt.gz
+harness rebuilt from the fail-closed ../tools/r1_hex_support.cpp (same command as the third pass):
+  7146c2f6b774cd54fb2ce5fc3a2ce13e847d6b1b4cdf14a87f3ffa4002cead76  r1_hex_support
+  usage now r1_hex_support <dump> <manifest> [vtcm] [n_hmx]; tests: ../tools/test_r1_hex_support.sh <binary> <dump>
+  (support/<config>.tests.txt). The third pass's dumps and results are kept in support/first-capture/.
+fifth pass (review of dd5e9d8): a repeated field is rejected before any value is assigned; harness rebuilt (same
+  command): 85ca24ff1b01d093da3b24f5abb6f04a4c46e0f17473fff2168bcc0718b86b71  r1_hex_support
+  tests 17 of 17 on both dumps (new: a repeated numeric field, exit 3); support outputs byte-identical to the fourth
+  pass's (support/<config>.support.txt); controls.txt unchanged (same verdicts).
