@@ -104,7 +104,9 @@ rc, s = run("short"); ok("prompt_n below prompt_tokens makes the run invalid (rc
 rc, s = run("notimings"); ok("missing timings make the run invalid (rc 3)", rc == 3 and "INVALID RUN" in s, s)
 rc, s = run("erase500", erase_status=500); ok("a failed slot erase makes the run invalid (rc 3)", rc == 3 and "INVALID RUN" in s, s)
 srv.shutdown(); shutil.rmtree(tmp)
+tmp2 = tempfile.mkdtemp()
 p = subprocess.run([sys.executable, "-I", os.path.join(HERE, "r1_t5_screen.py"), "--server", "http://127.0.0.1:9",
-                    "--requests", REQ, "--out", tempfile.mkdtemp(), "--label", "down"], capture_output=True, text=True)
+                    "--requests", REQ, "--out", tmp2, "--label", "down"], capture_output=True, text=True)
+shutil.rmtree(tmp2)
 ok("no server: rc 3", p.returncode == 3)
 print(f"failures: {fails}"); sys.exit(fails)
