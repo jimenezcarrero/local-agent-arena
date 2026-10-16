@@ -1,8 +1,22 @@
 diff --git a/ggml/src/ggml-backend.cpp b/ggml/src/ggml-backend.cpp
-index ffbcba3..06b7ab9 100644
+index ffbcba3..500e1b2 100644
 --- a/ggml/src/ggml-backend.cpp
 +++ b/ggml/src/ggml-backend.cpp
-@@ -1168,6 +1168,34 @@ static void ggml_backend_sched_print_assignments(ggml_backend_sched_t sched, str
+@@ -1144,6 +1144,13 @@ static char * fmt_size(size_t size) {
+ 
+ static void ggml_backend_sched_print_assignments(ggml_backend_sched_t sched, struct ggml_cgraph * graph) {
+     int cur_split = 0;
++    // R1 ledger instrumentation (local only): the support harness's node dump, framed per graph so that a missing,
++    // truncated or partial capture is detectable (GRAPH_BEGIN with the graph's node count; GRAPH_END with the count of
++    // NODE records written, i.e. the non-view nodes)
++    static FILE * r1f = nullptr; static int r1init = 0;
++    if (!r1init) { r1init = 1; const char * p = getenv("R1_NODE_DUMP"); if (p) r1f = fopen(p, "a"); }
++    int r1logged = 0;
++    if (r1f && sched->debug > 1) { fprintf(r1f, "GRAPH_BEGIN n_nodes=%d\n", graph->n_nodes); fflush(r1f); }
+     for (int i = 0; i < graph->n_nodes; i++) {
+         if (cur_split < sched->n_splits && i == sched->splits[cur_split].i_start) {
+             ggml_backend_t split_backend = sched->backends[sched->splits[cur_split].backend_id];
+@@ -1168,6 +1175,32 @@ static void ggml_backend_sched_print_assignments(ggml_backend_sched_t sched, str
              GGML_LOG_DEBUG("node #%3d (%10.10s): %20.20s (%5.5s) [%5.5s %8.8s] use=%d,c=%d:", i, ggml_op_desc(node), node->name,
                  fmt_size(ggml_nbytes(node)), tensor_backend ? ggml_backend_name(tensor_backend) : "NULL", GET_CAUSE(node),
                  graph->use_counts[ggml_hash_find(&graph->visited_hash_set, node)], node->flags & GGML_TENSOR_FLAG_COMPUTE ? 1 : 0);
@@ -18,8 +32,6 @@ index ffbcba3..06b7ab9 100644
 +                GGML_LOG_DEBUG(" ENDTYPES");
 +            }
 +            {   // R1 ledger instrumentation (local only): one machine-readable record per node for the support harness
-+                static FILE * r1f = nullptr; static int r1init = 0;
-+                if (!r1init) { r1init = 1; const char * p = getenv("R1_NODE_DUMP"); if (p) r1f = fopen(p, "a"); }
 +                if (r1f) {
 +                    auto rec = [&](const char * tag, int j, const struct ggml_tensor * t) {
 +                        fprintf(r1f, "%s %d op=%d type=%d ne=%lld,%lld,%lld,%lld nb=%zu,%zu,%zu,%zu flags=%d view=%d buf=%d name=%s params=",
@@ -31,9 +43,17 @@ index ffbcba3..06b7ab9 100644
 +                    fprintf(r1f, "NODE %d backend=%s\n", i, tensor_backend ? ggml_backend_name(tensor_backend) : "NULL");
 +                    rec("T", -1, node);
 +                    for (int j = 0; j < GGML_MAX_SRC; j++) { if (node->src[j]) rec("S", j, node->src[j]); }
-+                    fflush(r1f);
++                    r1logged++; fflush(r1f);
 +                }
 +            }
              for (int j = 0; j < GGML_MAX_SRC; j++) {
                  struct ggml_tensor * src = node->src[j];
                  if (src == NULL) {
+@@ -1180,6 +1213,7 @@ static void ggml_backend_sched_print_assignments(ggml_backend_sched_t sched, str
+             GGML_LOG_DEBUG("\n");
+         }
+     }
++    if (r1f && sched->debug > 1) { fprintf(r1f, "GRAPH_END logged=%d\n", r1logged); fflush(r1f); }
+ }
+ 
+ static bool ggml_backend_sched_buffer_supported(ggml_backend_sched_t sched, struct ggml_tensor * t, int backend_id) {

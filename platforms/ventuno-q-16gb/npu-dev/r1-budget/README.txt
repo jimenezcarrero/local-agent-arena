@@ -68,6 +68,18 @@ Op support on the NPU (third pass; closes the review's P1 remainder)
   candidate keeps HMX on (the default; the configuration pins it).
   Consequence: no op of this graph falls back to the CPU on the NPU sessions, so there is no mixed CPU/NPU partition;
   the split record (CPU embeddings, then sessions 0 -> 1 -> 2 -> 3) and the ledger above describe the Hexagon run.
+  Fail-closed input (fourth pass, review of cbe3b51): the dump is framed per graph (GRAPH_BEGIN n_nodes / GRAPH_END
+  logged) and checked against a manifest written at capture time (support/<config>.manifest: graph count and each
+  graph's node and record counts). The checker exits 3 on a missing or unreadable dump or manifest, an unknown or
+  malformed record (every field present once and numeric), a NODE without its T record, sources out of slot order, an
+  unclosed or truncated graph, a GRAPH_END count that differs from the records, any difference from the manifest, or
+  no node on an NPU session; 1 if any op is refused; 0 only if all are supported. tools/test_r1_hex_support.sh: 16 of
+  16 on both dumps (complete dump 0; VTCM 1 MiB control 1; missing dump, missing manifest, empty, truncated at half and
+  at the last line, last graph removed, a one-node dump, a non-numeric field, an unknown record, a NODE without its T,
+  a wrong GRAPH_END count, a repeated name field, another dump's manifest: 3; a one-node dump's own manifest differs
+  from the capture's). A dump and a manifest replaced together stay self-consistent: the committed manifest and the
+  dump's sha256 (provenance.txt) pin the capture. The framed recapture gives the same signatures and verdicts as the
+  reviewed capture (support/first-capture/).
   Limits of the check: the rebuilt tensors carry no buffers or Hexagon extras (they matter to GET_ROWS on repacked
   weights, which no NPU node here does, and to repack bookkeeping, not to the verdict); n_threads is the recorded 4.
   R2's validation still compares each session's mapped peak (own buffers plus clones) and the op placement in its
