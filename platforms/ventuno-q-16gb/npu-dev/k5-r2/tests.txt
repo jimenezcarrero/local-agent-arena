@@ -49,3 +49,18 @@ ok   no log: invalid (rc 3: RESULT INVALID INPUT: cannot read <tmp>/tmp.yTxbQUQ4
 ok   total over 3,200 MiB even within the own limit: over (rc 1: RESULT OVER: HTP0:0)
 failures: 0 of 10
 rc=0
+## test_r2_logged_buffers.sh (2026-10-16T23:41:29+02:00)
+ok   the ledger's own figures, model in three 1 GiB pieces: within (rc 0: RESULT WITHIN)
+ok   compute 0.9 MiB above the dry run (the alignment allowance): within (rc 0: RESULT WITHIN)
+ok   compute 1.2 MiB above the dry run: over (rc 1: RESULT OVER: HTP0:2 compute 61.58 > 61.38)
+ok   host compute above the CPU bound: over (rc 1: RESULT OVER: host compute 290.00)
+ok   an extra model buffer on session 1: over (rc 1: RESULT OVER: HTP0:1 model 2285.63 > 2275.63)
+ok   a session without a compute line: invalid (rc 3: RESULT INVALID INPUT: session HTP0:3 has no model or no compute buffer line (was -lv 4 set and the load complete?))
+ok   a buffer outside the configuration's sessions: invalid (rc 3: RESULT INVALID INPUT: buffer HTP0:4 is not one of ['HTP0:0', 'HTP0:1', 'HTP0:2', 'HTP0:3'])
+ok   an unknown ledger config: invalid (rc 3: RESULT INVALID INPUT: unknown ledger config s9-nothing)
+ok   no log: invalid (rc 3: RESULT INVALID INPUT: cannot read <tmp>/tmp.hV3HzBP7ff/none.log: [Errno 2] No such file or directory: '<tmp>/tmp.hV3HzBP7ff/none.log')
+ok   the CPU compute buffer named CPU (as a real NPU log names it): within (rc 0: RESULT WITHIN)
+ok   a CPU-named compute buffer above the bound: over (rc 1: RESULT OVER: host compute 290.00)
+ok   no CPU compute line at all: invalid (rc 3: RESULT INVALID INPUT: no CPU compute buffer line (named CPU or <session>-HOST))
+failures: 0 of 12
+rc=0
