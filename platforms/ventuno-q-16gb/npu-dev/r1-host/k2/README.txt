@@ -31,6 +31,8 @@ Findings:
     libllama.so, libggml-*.so) are not in them. Proposed for the campaign (owner's decision, a reviewed change on the
     ventuno-q branch, not made): add those hashes to the launch checks before A32-5. Here the full 132-file list
     identifies the package.
+    Since made (2026-10-16): D176 on the ventuno-q branch (PR #62), the whole release package checked at every
+    launch from A32-5 on.
   - Defect in r1_build_master_x86.sh's manifest (display only): "lib/libggml-hexagon.so ... bytes 20" is the
     symlink's length (stat without -L); its sha256 is the real library's (sha256sum follows the link; it equals
     libggml-hexagon.so.0.26.0 in the hash list). To fix with stat -L in the next revision; the records stand.
