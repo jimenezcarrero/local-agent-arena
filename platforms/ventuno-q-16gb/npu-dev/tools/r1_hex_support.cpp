@@ -6,15 +6,23 @@
 // n_threads, n_hvx, n_hmx and vtcm_size (the board's own hwinfo: "threads 4, hvx 4, hmx 1, vtcm 8 MB"), mdev
 // (one session, no group) and needs_repack.
 //
-//   r1_hex_support <node dump> [vtcm_bytes] [n_hmx]
-// <node dump>: R1_NODE_DUMP records written by the instrumented scheduler (r1-budget/instrumentation.diff): per node
-// "NODE i backend=..", then "T -1 op= type= ne= nb= flags= view= buf= name= params=" and one "S j ..." per source.
-// Output: one line per distinct (op, types, shapes, strides, params) signature on an NPU session with its verdict and
-// count, then a summary; exit 0 only if every node is supported.
+//   r1_hex_support <node dump> <manifest> [vtcm_bytes] [n_hmx]
+// <node dump>: R1_NODE_DUMP records written by the instrumented scheduler (r1-budget/instrumentation.diff), framed per
+// graph: "GRAPH_BEGIN n_nodes=N", per non-view node "NODE i backend=..", one "T -1 op= type= ne= nb= flags= view= buf=
+// name= params=" and one "S j ..." per source, then "GRAPH_END logged=K".
+// Fails closed (review of cbe3b51): exit 3 if the file cannot be opened or read, a line is unknown or malformed (every
+// field present once and numeric, 4 dimensions, 16 params, source slots 0..9 increasing), a NODE lacks its T line or its
+// index is not increasing and below N, a graph is not closed or its NODE count differs from K, the number of graphs
+// or their (n_nodes, logged) pairs differ from <manifest>, or no node is on an NPU session.
+// <manifest>: written when the dump is captured (r1_node_manifest.sh): "r1-node-dump-manifest v1", "graphs G", then
+// "graph i n_nodes N logged K" for i = 1..G in order; it is committed beside the dump. Otherwise one line per distinct (op, types, shapes,
+// strides, params) signature on an NPU session with its verdict and count, a summary, and exit 0 only if every node
+// is supported (1 if any is refused).
 #include "ggml-hexagon.cpp"   // master af0579c78, unchanged (compiled against the stub SDK headers)
 
 #include <fstream>
 #include <map>
+#include <set>
 #include <sstream>
 
 [[noreturn]] static void r1_stub(const char * f) { fprintf(stderr, "r1 harness: SDK function %s called\n", f); abort(); }
@@ -47,19 +55,56 @@ domain * htpdrv_get_domain(int) { r1_stub(__func__); }
 int htpdrv_get_arch(int, int *) { r1_stub(__func__); }
 }
 
-struct rec { int slot, op, type; int64_t ne[4]; size_t nb[4]; int flags, view, buf; std::string name; int32_t params[16]; };
+struct rec { int slot = 0, op = -1, type = -1; int64_t ne[4] = {}; size_t nb[4] = {}; int flags = 0, view = 0, buf = 0;
+             std::string name; int32_t params[16] = {}; };
 
-static rec parse(const std::string & line) {
-    rec r{}; std::istringstream is(line); std::string tag, j, kv;
-    is >> tag >> j; r.slot = std::stoi(j);
+[[noreturn]] static void reject(size_t lineno, const std::string & why) {
+    fprintf(stderr, "r1 harness: REJECT input (line %zu): %s\n", lineno, why.c_str());
+    printf("RESULT INVALID INPUT: %s (line %zu)\n", why.c_str(), lineno);
+    exit(3);
+}
+
+// parse "T -1 ..." / "S j ...": every field required, numeric fields fully numeric
+static rec parse(const std::string & line0, size_t lineno) {
+    // the name may contain spaces (ggml's automatic names, e.g. "Vcur-10 (view)"): it is everything between " name=" and
+    // " params=", both required exactly once; the rest is space-separated key=value fields
+    const size_t pn = line0.find(" name="), pp = line0.find(" params=");
+    if (pn == std::string::npos || pp == std::string::npos || pp < pn || line0.find(" name=", pn + 1) != std::string::npos ||
+        line0.find(" params=", pp + 1) != std::string::npos) reject(lineno, "missing or repeated name/params field");
+    const std::string name = line0.substr(pn + 6, pp - pn - 6);
+    const std::string line = line0.substr(0, pn) + line0.substr(pp);
+    rec r; std::istringstream is(line); std::string tag, j, kv;
+    auto num = [&](const std::string & v, const char * what) -> long long {
+        size_t pos = 0; long long x = 0;
+        try { x = std::stoll(v, &pos); } catch (...) { reject(lineno, std::string("non-numeric ") + what); }
+        if (pos != v.size()) reject(lineno, std::string("non-numeric ") + what);
+        return x;
+    };
+    auto list = [&](const std::string & v, auto * out, int n, const char * what) {
+        std::stringstream ss(v); std::string x; int k = 0;
+        while (std::getline(ss, x, ',')) { if (k >= n) reject(lineno, std::string("too many values in ") + what); out[k++] = num(x, what); }
+        if (k != n) reject(lineno, std::string("wrong count in ") + what);
+    };
+    if (!(is >> tag >> j)) reject(lineno, "short record");
+    r.slot = (int) num(j, "slot");
+    std::set<std::string> seen;
     while (is >> kv) {
-        auto eq = kv.find('='); std::string k = kv.substr(0, eq), v = kv.substr(eq + 1);
-        auto ints = [&](auto * out, int n) { std::stringstream ss(v); std::string x; for (int i = 0; i < n && std::getline(ss, x, ','); i++) out[i] = std::stoll(x); };
-        if (k == "op") r.op = std::stoi(v); else if (k == "type") r.type = std::stoi(v);
-        else if (k == "ne") ints(r.ne, 4); else if (k == "nb") ints(r.nb, 4);
-        else if (k == "flags") r.flags = std::stoi(v); else if (k == "view") r.view = std::stoi(v);
-        else if (k == "buf") r.buf = std::stoi(v); else if (k == "name") r.name = v; else if (k == "params") ints(r.params, 16);
+        auto eq = kv.find('=');
+        if (eq == std::string::npos) reject(lineno, "field without '='");
+        std::string k = kv.substr(0, eq), v = kv.substr(eq + 1);
+        seen.insert(k);
+        if (k == "op") r.op = (int) num(v, "op"); else if (k == "type") r.type = (int) num(v, "type");
+        else if (k == "ne") list(v, r.ne, 4, "ne"); else if (k == "nb") list(v, r.nb, 4, "nb");
+        else if (k == "flags") r.flags = (int) num(v, "flags"); else if (k == "view") r.view = (int) num(v, "view");
+        else if (k == "buf") r.buf = (int) num(v, "buf");
+        else if (k == "params") list(v, r.params, 16, "params");
+        else reject(lineno, "unknown field " + k);
     }
+    r.name = name; seen.insert("name");
+    for (const char * k : {"op", "type", "ne", "nb", "flags", "view", "buf", "name", "params"})
+        if (!seen.count(k)) reject(lineno, std::string("missing field ") + k);
+    if (r.op < 0 || r.op >= GGML_OP_COUNT) reject(lineno, "op out of range");
+    if (r.type < 0 || r.type >= GGML_TYPE_COUNT) reject(lineno, "type out of range");
     return r;
 }
 
@@ -86,9 +131,24 @@ static std::string sig(const ggml_tensor * t, const rec & n, const std::vector<r
 }
 
 int main(int argc, char ** argv) {
-    if (argc < 2) { fprintf(stderr, "usage: %s <node dump> [vtcm_bytes] [n_hmx]\n", argv[0]); return 2; }
-    const uint64_t vtcm = argc > 2 ? strtoull(argv[2], nullptr, 0) : 8ull * 1024 * 1024;
-    const uint32_t nhmx = argc > 3 ? (uint32_t) atoi(argv[3]) : 1;
+    if (argc < 3) { fprintf(stderr, "usage: %s <node dump> <manifest> [vtcm_bytes] [n_hmx]\n", argv[0]); return 2; }
+    std::vector<std::pair<long, long>> expect;      // per graph (n_nodes, logged), from the manifest
+    {
+        std::ifstream mf(argv[2]); std::string l; long g = -1;
+        if (!mf.is_open()) reject(0, std::string("cannot open manifest ") + argv[2]);
+        if (!std::getline(mf, l) || l != "r1-node-dump-manifest v1") reject(0, "manifest: bad header");
+        if (!std::getline(mf, l) || sscanf(l.c_str(), "graphs %ld", &g) != 1 || g < 1) reject(0, "manifest: bad graph count");
+        for (long i = 1; i <= g; i++) {
+            long gi = 0, nn = 0, kk = 0;
+            if (!std::getline(mf, l) || sscanf(l.c_str(), "graph %ld n_nodes %ld logged %ld", &gi, &nn, &kk) != 3 || gi != i)
+                reject(0, "manifest: bad graph line " + std::to_string(i));
+            expect.push_back({nn, kk});
+        }
+        if (std::getline(mf, l)) reject(0, "manifest: trailing lines");
+    }
+    const long expect_graphs = (long) expect.size();
+    const uint64_t vtcm = argc > 3 ? strtoull(argv[3], nullptr, 0) : 8ull * 1024 * 1024;
+    const uint32_t nhmx = argc > 4 ? (uint32_t) atoi(argv[4]) : 1;
 
     // stand-in session: only the fields the support functions read are constructed
     alignas(ggml_hexagon_session) static unsigned char raw[sizeof(ggml_hexagon_session)];
@@ -105,35 +165,82 @@ int main(int argc, char ** argv) {
     dev.iface = ggml_backend_hexagon_device_i; dev.context = dev_ctx;
     dev_ctx->sess.reset(sess);                      // never released: no destructor runs on the stand-in
 
-    std::ifstream in(argv[1]); std::string line, backend;
+    std::ifstream in(argv[1]);
+    if (!in.is_open()) reject(0, std::string("cannot open ") + argv[1]);
+
     std::map<std::string, std::pair<int, bool>> sigs;
-    size_t n_nodes = 0, n_no = 0;
-    std::vector<std::string> block;
-    auto flush = [&]() {
-        if (block.empty()) return;
+    size_t n_npu = 0, n_no = 0, lineno = 0;
+    long n_graphs = 0, g_nodes = -1, g_logged = 0, last_idx = -1;
+    std::string backend;
+    rec node; bool have_node = false, have_t = false; std::vector<rec> srcs;
+
+    auto finish_node = [&]() {
+        if (!have_node) return;
+        if (!have_t) reject(lineno, "NODE without its T record");
+        have_node = false;
         bool npu = backend.rfind("RPC", 0) == 0;
-        rec n = parse(block[0]); std::vector<rec> srcs;
-        for (size_t i = 1; i < block.size(); i++) srcs.push_back(parse(block[i]));
-        block.clear();
-        if (!npu || n.op == GGML_OP_NONE || n.op == GGML_OP_VIEW || n.op == GGML_OP_RESHAPE || n.op == GGML_OP_PERMUTE ||
-            n.op == GGML_OP_TRANSPOSE) return;
+        if (!npu || node.op == GGML_OP_NONE || node.op == GGML_OP_VIEW || node.op == GGML_OP_RESHAPE ||
+            node.op == GGML_OP_PERMUTE || node.op == GGML_OP_TRANSPOSE) return;
         ggml_init_params ip{ 64 * 1024 * 1024, nullptr, true };
         ggml_context * ctx = ggml_init(ip);
-        ggml_tensor * t = build(ctx, n);
+        ggml_tensor * t = build(ctx, node);
         for (const auto & r : srcs) t->src[r.slot] = build(ctx, r);   // sources in their slots (S j)
         bool ok = ggml_backend_hexagon_device_supports_op(&dev, t);
         sess->needs_repack.clear();
-        n_nodes++; if (!ok) n_no++;
-        auto & e = sigs[sig(t, n, srcs)]; e.first++; e.second = ok;
+        n_npu++; if (!ok) n_no++;
+        auto & e = sigs[sig(t, node, srcs)]; e.first++; e.second = ok;
         ggml_free(ctx);
     };
+
+    std::string line;
     while (std::getline(in, line)) {
-        if (line.rfind("NODE ", 0) == 0) { flush(); auto p = line.find("backend="); backend = line.substr(p + 8); }
-        else if (line.rfind("T ", 0) == 0 || line.rfind("S ", 0) == 0) block.push_back(line);
+        lineno++;
+        std::istringstream is(line); std::string tag; is >> tag;
+        if (tag == "GRAPH_BEGIN") {
+            if (g_nodes >= 0) reject(lineno, "GRAPH_BEGIN inside an open graph");
+            if (line.rfind("GRAPH_BEGIN n_nodes=", 0) != 0) reject(lineno, "malformed GRAPH_BEGIN");
+            try { g_nodes = std::stol(line.substr(20)); } catch (...) { reject(lineno, "malformed GRAPH_BEGIN"); }
+            if (g_nodes <= 0) reject(lineno, "graph with no nodes");
+            g_logged = 0; last_idx = -1;
+        } else if (tag == "GRAPH_END") {
+            if (g_nodes < 0) reject(lineno, "GRAPH_END outside a graph");
+            finish_node();
+            long k = -1;
+            if (line.rfind("GRAPH_END logged=", 0) != 0) reject(lineno, "malformed GRAPH_END");
+            try { k = std::stol(line.substr(17)); } catch (...) { reject(lineno, "malformed GRAPH_END"); }
+            if (k != g_logged) reject(lineno, "graph incomplete: " + std::to_string(g_logged) + " NODE records, GRAPH_END says " + std::to_string(k));
+            if (n_graphs >= expect_graphs) reject(lineno, "more graphs than the manifest's " + std::to_string(expect_graphs));
+            if (expect[n_graphs].first != g_nodes || expect[n_graphs].second != k)
+                reject(lineno, "graph " + std::to_string(n_graphs + 1) + " differs from the manifest");
+            n_graphs++; g_nodes = -1;
+        } else if (tag == "NODE") {
+            if (g_nodes < 0) reject(lineno, "NODE outside a graph");
+            finish_node();
+            long idx = -1; std::string b;
+            if (!(is >> idx >> b) || b.rfind("backend=", 0) != 0) reject(lineno, "malformed NODE");
+            if (idx <= last_idx || idx >= g_nodes) reject(lineno, "NODE index out of order or range");
+            last_idx = idx; backend = b.substr(8); g_logged++;
+            have_node = true; have_t = false; srcs.clear();
+        } else if (tag == "T") {
+            if (!have_node || have_t) reject(lineno, "T record without its NODE, or twice");
+            node = parse(line, lineno); have_t = true;
+            if (node.slot != -1) reject(lineno, "T record slot must be -1");
+        } else if (tag == "S") {
+            if (!have_node || !have_t) reject(lineno, "S record before its T record");
+            rec r = parse(line, lineno);
+            if (r.slot < 0 || r.slot >= GGML_MAX_SRC || (!srcs.empty() && r.slot <= srcs.back().slot)) reject(lineno, "source slot out of order or range");
+            srcs.push_back(r);
+        } else {
+            reject(lineno, "unknown record '" + tag + "'");
+        }
     }
-    flush();
+    if (in.bad()) reject(lineno, "read error");
+    if (g_nodes >= 0) reject(lineno, "input ends inside a graph (truncated)");
+    if (n_graphs != expect_graphs) reject(lineno, std::to_string(n_graphs) + " complete graphs, expected " + std::to_string(expect_graphs));
+    if (n_npu == 0) reject(lineno, "no node on an NPU session");
+
     for (auto & [k, v] : sigs) printf("%s x%d %s\n", v.second ? "SUPPORTED  " : "UNSUPPORTED", v.first, k.c_str());
-    printf("RESULT vtcm %llu n_threads 4 n_hmx %u: %zu NPU nodes, %zu signatures, %zu unsupported\n",
-           (unsigned long long) vtcm, nhmx, n_nodes, sigs.size(), n_no);
+    printf("RESULT vtcm %llu n_threads 4 n_hmx %u: %ld graphs, %zu NPU nodes, %zu signatures, %zu unsupported\n",
+           (unsigned long long) vtcm, nhmx, n_graphs, n_npu, sigs.size(), n_no);
     return n_no == 0 ? 0 : 1;
 }

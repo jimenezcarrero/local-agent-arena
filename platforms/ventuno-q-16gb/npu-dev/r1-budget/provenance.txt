@@ -47,3 +47,17 @@ hardware values (the stand-in session): n_threads 4, n_hvx 4, n_hmx 1, vtcm 8 MB
   logged them (ggml-hex "HTP0 hwinfo: threads 4, hvx 4, hmx 1, vtcm 8 MB"), committed in the campaign record:
   phase-v0/runs/v0b-7badb21/geniex-npu-sanity/server.log.txt and phase-v0/runs/v0q-op/t1-htp0.log ("HTP0:0 hwinfo:
   threads 4, hvx 4, hmx 1, vtcm 8 MB"). The MB figure is floored (vtcm / 1 MiB), so 8 MiB is a lower bound.
+
+## fourth pass: the support checker fails closed (review of cbe3b51), 2026-10-16 23:2x-23:5x, same workspace
+instrumentation (instrumentation.diff, logging only): the node dump is framed per graph, "GRAPH_BEGIN n_nodes=N"
+  before a graph's records and "GRAPH_END logged=K" (the NODE records written) after them; libggml-base rebuilt:
+  a39dd615810cc0a79350aeaba82e96ea90e42dfb7f5d3bfd817d72370ffafedf  libggml-base.so.0.26.0 (instrumented, fourth pass)
+recapture: the same two commands as the third pass with the framed dump (4 loopback RPC devices, stopped afterwards);
+  byte figures equal ledger/; support/<config>.manifest written right after each capture by
+  ../tools/r1_node_manifest.sh; dumps committed gzipped:
+  a6f983b62984177963f709624c7cdefedac8fa3caaa9a9f00b248c8458210092  support/s4-rp-ub512.nodes.txt.gz
+  9c3d05905066ddd186fbc840d974f1cba81f58c1326bacc98f0f52c89b25c5a9  support/s4-r-ub512.nodes.txt.gz
+harness rebuilt from the fail-closed ../tools/r1_hex_support.cpp (same command as the third pass):
+  7146c2f6b774cd54fb2ce5fc3a2ce13e847d6b1b4cdf14a87f3ffa4002cead76  r1_hex_support
+  usage now r1_hex_support <dump> <manifest> [vtcm] [n_hmx]; tests: ../tools/test_r1_hex_support.sh <binary> <dump>
+  (support/<config>.tests.txt). The third pass's dumps and results are kept in support/first-capture/.
