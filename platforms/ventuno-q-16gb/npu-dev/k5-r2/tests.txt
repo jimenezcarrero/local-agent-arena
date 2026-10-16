@@ -1,0 +1,51 @@
+# tests for R2's tools, 2026-10-16T23:36:05+02:00, on the board (no NPU; the campaign's services replaced by test overrides)
+## test_npu_dev_run.sh
+ok   a clean command: PASS (rc 0: PASS)
+ok   a failing command: FAIL (rc 1: FAIL: command exit 5)
+ok   timeout: STOP TIMEOUT (rc 2: STOP: TIMEOUT)
+ok   timeout killed the whole group (pgid 1304872 gone)
+ok   memory floor: STOP FLOOR (rc 2: STOP: FLOOR)
+ok   stall: STOP STALL (rc 2: STOP: STALL)
+ok   busy FastRPC wait with CPU use: PASS (rc 0: PASS)
+ok   exclusivity: a campaign driver running: REFUSED (rc 3: REFUSED: busy: 4242 bash /home/arduino/v0/v0e_A_retry.sh A32 5;)
+ok   a busy refusal writes no evidence directory
+ok   exclusivity: a llama-server running: REFUSED (rc 3: REFUSED: busy: 4243 /x/build/bin/llama-server -m m.gguf;)
+ok   its own llama-* command is not a conflict: PASS (rc 0: PASS)
+ok   an existing evidence directory: REFUSED (rc 3: REFUSED: evidence directory <tmp>/tmp.NAXoHyCNoZ/br/npu-dev/t/pass already exists)
+ok   kernel journal unreadable: REFUSED (rc 3: REFUSED: the kernel journal is not readable)
+ok   MemAvailable below the floor at the start: REFUSED (rc 3: REFUSED: MemAvailable 8789 MiB not above the floor 99999 MiB)
+ok   a missing --hash file: REFUSED (rc 3: REFUSED: --hash <tmp>/tmp.NAXoHyCNoZ/none: not a file)
+ok   a bad --env: REFUSED (rc 3: REFUSED: --env '1BAD=x' is not NAME=VALUE)
+ok   --env reaches the command: PASS (rc 0: PASS)
+ok   journal read failure: STOP (rc 2: STOP: journal read failed)
+ok   --expect-dsp yes without DSP lines: STOP (rc 2: STOP: DSP evidence missing)
+ok   --expect-dsp yes with DSP lines: PASS (rc 0: PASS)
+ok   a dspqueue error in the journal: STOP (rc 2: STOP: DSP fault lines in the journal)
+ok   kernel audit fault: STOP (rc 2: STOP: kernel audit rc 1: fault fault=1)
+ok   kernel read late, then present: PASS (rc 0: PASS)
+ok   run.txt has the START (boot, test flag), PID and END lines kernel_audit.py reads; memory.tsv written
+failures: 0 of 24
+rc=0
+## test_r2_load_probe.sh
+ok   ready, generation, clean stop: OK (rc 0: 2026-10-16T23:37:16+02:00 PROBE OK)
+ok   never ready: FAIL (rc 1: 2026-10-16T23:37:21+02:00 not ready after 5 s)
+ok   server exits before ready: FAIL (rc 1: 2026-10-16T23:37:23+02:00 server exited before ready)
+ok   generation with 0 tokens: FAIL (rc 1: 2026-10-16T23:37:24+02:00 PROBE FAIL)
+ok   server ignores SIGTERM: FAIL (killed) (rc 1: 2026-10-16T23:38:26+02:00 PROBE FAIL)
+ok   no server left running (each probe's recorded pid checked)
+ok   an existing out directory: refused (rc 2)
+failures: 0 of 7
+rc=0
+## test_r2_mapped_peak.sh
+ok   within: peaks 1500 / 1700 MiB against 1600 / 1800 (rc 0: RESULT WITHIN)
+ok   the clone counts in the receiving session; the pinned buffer is reported apart
+ok   over: session 1's 1700 MiB against 1650 (rc 1: RESULT OVER: HTP0:1)
+ok   a listed session without mapping lines: invalid (rc 3: RESULT INVALID INPUT: no mapping line for session HTP0:2 (was GGML_HEXAGON_VERBOSE=1 set?))
+ok   a session in the log that is not listed: invalid (rc 3: RESULT INVALID INPUT: line 4: session HTP0:1 not in --sessions)
+ok   the same fd mapped twice: invalid (rc 3: RESULT INVALID INPUT: line 2: HTP0:0 maps fd 5 twice)
+ok   an unmap of an unmapped fd: invalid (rc 3: RESULT INVALID INPUT: line 2: HTP0:0 unmaps fd 6 that is not mapped with that size)
+ok   a malformed mapping line: invalid (rc 3: RESULT INVALID INPUT: line 2: malformed mapping line)
+ok   no log: invalid (rc 3: RESULT INVALID INPUT: cannot read <tmp>/tmp.yTxbQUQ40V/none.log: [Errno 2] No such file or directory: '<tmp>/tmp.yTxbQUQ40V/none.log')
+ok   total over 3,200 MiB even within the own limit: over (rc 1: RESULT OVER: HTP0:0)
+failures: 0 of 10
+rc=0
