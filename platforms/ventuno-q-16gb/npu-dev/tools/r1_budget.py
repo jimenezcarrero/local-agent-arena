@@ -48,6 +48,8 @@ CONFIGS = [  # name, variant, sessions, split (layer counts), ubatch
     ("s4-r-ub1024", "NPU-R", 4, [11, 10, 10, 10], 1024),
     ("s4-rp-ub512", "NPU-R'", 4, [11, 10, 10, 10], 512),
     ("s4-rp-ub1024", "NPU-R'", 4, [11, 10, 10, 10], 1024),
+    ("s4-rp-ub256", "NPU-R'", 4, [11, 10, 10, 10], 256),     # T3a amendment proposal (k5-t7/t3a-amendment.txt)
+    ("s4-rp-ub384", "NPU-R'", 4, [11, 10, 10, 10], 384),     # T3a: an uneven ubatch (1,024 = 384 + 384 + 256)
 ]
 
 
