@@ -65,3 +65,30 @@ fifth pass (review of dd5e9d8): a repeated field is rejected before any value is
   command): 85ca24ff1b01d093da3b24f5abb6f04a4c46e0f17473fff2168bcc0718b86b71  r1_hex_support
   tests 17 of 17 on both dumps (new: a repeated numeric field, exit 3); support outputs byte-identical to the fourth
   pass's (support/<config>.support.txt); controls.txt unchanged (same verdicts).
+
+## correction (2026-10-16 23:1x, read from the clock): the time windows above were estimated, not read
+The windows written for the second, third and fourth passes (and the "21:3x-22:2x" / "22:4x-23:1x" briefs in the
+descriptions of #65 and #66) were estimates, and the third and fourth are wrong. Actual times, from the commits that
+record each pass (git log, local time +02:00) and the workspace files' modification times:
+  first pass   21:36-21:49 (header copy 21:40:24, fit-params built 21:44:30, matrix 21:45:41; commit 6403ce1 21:48:51)
+  second pass  21:58-22:05 (ledger tool 22:00:07, ledger runs 22:01-22:02; commit 5d1ff55 22:05:12)
+  third pass   22:12-22:30 (node dumps 22:23:19, support results 22:26; commit cbe3b51 22:29:43)
+  fourth pass  22:35-22:46 (framed dumps 22:40:36, tests 22:43-22:44; commit dd5e9d8 22:45:37)
+  fifth pass   22:47-22:50 (harness 22:49:11; commit 785bdc8 22:49:39)
+No result depends on these times; every figure, hash and verdict above is unchanged.
+
+## sixth pass: ubatch 256 for the T3a amendment proposal, 2026-10-16 23:10-23:12 (file times), same workspace and binaries
+ledger: r1_dryrun_ledger at -ub 256 for the CPU bound (cpu-ub256) and NPU-R' four sessions (s4-rp-ub256), 4 loopback
+  RPC devices stopped afterwards (none left); ../tools/r1_budget.py gains that one configuration row; budget.txt and
+  budget-clone-all.txt regenerate with every earlier row byte-identical and the new rows appended.
+support: the same framed node dump, manifest and fail-closed harness (85ca24ff...) at -ub 256:
+  0b200871a8ac7520fce23a2d745cedc9f9e3872639a5c6a5ac0bc827190a571a  support/s4-rp-ub256.nodes.txt.gz
+  6 graphs, 7,752 NPU nodes, 89 signatures, 0 refused at 8 MiB VTCM; test_r1_hex_support.sh 17/17.
+
+## seventh pass: ubatch 384 for the T3a amendment (review of 0f5f399: an uneven ubatch), 2026-10-16 23:45:52-23:47:03 (file times:
+the first and last output files), same workspace and binaries
+ledger: r1_dryrun_ledger at -ub 384 (cpu-ub384, s4-rp-ub384) with the node dump in the same run; 4 loopback RPC devices,
+  stopped afterwards by their PIDs (none left); ../tools/r1_budget.py gains the s4-rp-ub384 row; budget.txt and
+  budget-clone-all.txt regenerate with every earlier row byte-identical.
+support: 15f4053fc6cc05a16cafa9c717576d9c42014636704202562253be7fc861c0d0  support/s4-rp-ub384.nodes.txt.gz
+  6 graphs, 7,752 NPU nodes, 89 signatures, 0 refused at 8 MiB VTCM; test_r1_hex_support.sh 17/17.
