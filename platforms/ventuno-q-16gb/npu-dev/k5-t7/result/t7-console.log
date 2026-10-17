@@ -1,0 +1,48 @@
+
+=== 0. host
+host OK: 23 GiB free, MemAvailable 26628 MiB, threads 8; test overrides: no
+
+=== 1. models (size and sha256; REF takes a minute)
+models OK
+
+=== 2. fresh clone at af0579c78a07a555d84830d01da7b61cfadbc7ef and a host CPU build of llama-perplexity and llama-server (log /home/juan/r1-t7-20261017-093233/evidence/host-build.log)
+build OK
+
+=== 3. companion files (pinned sha256) and the two small tools
+tools OK
+
+=== 4. text and its token ids
+text and tokens OK (20 x 1024)
+
+=== 5. teacher-forced logits (llama-perplexity; logs in /home/juan/r1-t7-20261017-093233/evidence)
+logits OK: mean KLD 0.786875, p99 KLD 4.943732, top-1 63.591 %
+positions 10220 (chunks 20, n_ctx 1024, scored 511 per chunk), n_vocab 128000, token sha256 5ee34deda7a5ab386e53f6d0343f036cb2fd041214a65d3829ab6d7338bd3999
+top-1 agreement (quantized logits): 63.5910 %
+rank of REF's top token in the candidate: mean 9.8542, rank 1 63.5910 %, <=5 87.9941 %, <=10 92.9354 %, p99 121, max 7292
+KLD cross-check (both dequantized): mean 0.786245, p99 4.945642, max 13.735367
+RESULT VALID
+
+=== 6. T5 fresh-prefix screening on the host CPU (REF, then M2)
+T5 OK: REF 20/20, M2 20/20
+
+=== 7. verdict (plan section 5, T7; fixed before any result)
+# T7 (NPU dev plan, G7), 2026-10-17T10:14:49+02:00; test overrides: no
+llama.cpp: af0579c78a07a555d84830d01da7b61cfadbc7ef (fresh clone, clean), host CPU build -DGGML_NATIVE=ON (host-toolchain.txt)
+M2: /home/juan/r1-k3-20261016-202009/models/LFM2.5-24B-A2B-M2-Q2_K-af0579c7.gguf bytes 8809757984 sha256 43b42f90f64ed2c8ce46bf92a76adcc112dd69842d6c8c43f0fc44935bd914e7
+REF: /home/juan/r1-k3-20261016-202009/models/LFM2.5-24B-A2B-REF-Q8_0-af0579c7.gguf bytes 25493732640 sha256 f09bf094a8a138c5b645598ca1abb6696a0fde26662d7af649b0713fdef330b6
+text: https://huggingface.co/datasets/ggml-org/ci/resolve/927b3642933080f1b0e811e2f916e14c292992f9/wikitext-2-raw-v1.zip sha256 ef7edb566e3e2b2d31b29c1fdb0c89a4cc683597484c3dc2517919c615435a11; wiki.test.raw sha256 173c87a53759e0201f33e0ccf978e510c2042d7f2cb78229d9a50d79b9e7dd08; tokens 20 x 1024 sha256 5ee34deda7a5ab386e53f6d0343f036cb2fd041214a65d3829ab6d7338bd3999
+logits: /home/juan/r1-t7-20261017-093233/llama.cpp/build-host/bin/llama-perplexity -c 1024 -b 1024 --chunks 20 -t 8 -fa on (paths shortened): REF base, M2 --kl-divergence, M2 base; logits.sha256
+KL divergence (M2 vs REF): mean 0.786875, p99 4.943732; top-1 agreement 63.591 %
+compare: positions 10220 (chunks 20, n_ctx 1024, scored 511 per chunk), n_vocab 128000, token sha256 5ee34deda7a5ab386e53f6d0343f036cb2fd041214a65d3829ab6d7338bd3999
+compare: top-1 agreement (quantized logits): 63.5910 %
+compare: rank of REF's top token in the candidate: mean 9.8542, rank 1 63.5910 %, <=5 87.9941 %, <=10 92.9354 %, p99 121, max 7292
+compare: KLD cross-check (both dequantized): mean 0.786245, p99 4.945642, max 13.735367
+compare: RESULT VALID
+T5 fresh (host CPU, llama-server -c 8192 -np 1 --cache-ram 0 --slot-save-path <dir> --jinja -fa on): REF 20/20, M2 20/20
+rule: top-1 >= 90 %, all statistics finite, both T5 runs valid, M2 >= 17/20 and >= REF - 2
+T7 VERDICT: FAIL: top-1 agreement 63.591 % < 90 %
+
+evidence: /home/juan/r1-t7-evidence-20261017-093233.tar.gz (36K) sha256 4695d42876ad12f35acc41645506b34dbdf4eede8a627a4276894010deb03ed1 (send it back; no model, no logits)
+logits files stay in /home/juan/r1-t7-20261017-093233
+
+DONE
