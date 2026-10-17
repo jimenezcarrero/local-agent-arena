@@ -1,0 +1,119 @@
+# tests for R2's tools after the review of fd6297f, 2026-10-17T00:29:46+02:00, on the board (no NPU; the campaign's services replaced by test overrides)
+## test_npu_dev_run.sh
+ok   a clean command: PASS (rc 0: PASS)
+ok   a failing command: FAIL (rc 1: FAIL: command exit 5)
+ok   timeout: STOP TIMEOUT (rc 2: STOP: TIMEOUT)
+ok   timeout killed every member (members 1, none alive)
+ok   memory floor: STOP FLOOR (rc 2: STOP: FLOOR)
+ok   stall: STOP STALL (rc 2: STOP: STALL)
+ok   busy FastRPC wait with CPU use, past two samples: PASS (rc 0: PASS)
+ok   a child's DSP journal is exported (expect-dsp yes): PASS (rc 0: PASS)
+ok   a DSP fault in a child's journal: STOP (rc 2: STOP: DSP fault lines in the journal (1; dsp-faults.txt))
+ok   the leader exits leaving a child: STOP ORPHANS (rc 2: STOP: ORPHANS)
+ok   the orphaned child was killed (members 3, none alive)
+ok   the wrapper interrupted by SIGTERM: STOP INTERRUPTED (rc 2)
+ok   the interrupted run's members were killed (members 1, none alive)
+ok   exclusivity: a campaign driver running: REFUSED (rc 3: REFUSED: busy: 4242 bash /home/arduino/v0/v0e_A_retry.sh A32 5;)
+ok   a busy refusal writes no evidence directory
+ok   exclusivity: a llama-server running: REFUSED (rc 3: REFUSED: busy: 4243 /x/build/bin/llama-server -m m.gguf;)
+ok   its own llama-* command is not a conflict: PASS (rc 0: PASS)
+ok   process snapshot 'false': REFUSED (rc 3: REFUSED: the process snapshot failed)
+ok   ... the reason 'the process snapshot failed', and the payload never ran
+ok   process snapshot 'true': REFUSED (rc 3: REFUSED: the process snapshot is empty or malformed)
+ok   ... the reason 'empty or malformed', and the payload never ran
+ok   process snapshot 'echo garbage': REFUSED (rc 3: REFUSED: the process snapshot is empty or malformed)
+ok   ... the reason 'empty or malformed', and the payload never ran
+ok   process snapshot 'echo 1 1 init': REFUSED (rc 3: REFUSED: the process snapshot does not contain this wrapper)
+ok   ... the reason 'does not contain this wrapper', and the payload never ran
+ok   an existing evidence directory: REFUSED (rc 3: REFUSED: evidence directory <tmp>/tmp.SfGNcERVcw/br/npu-dev/t/pass already exists)
+ok   kernel journal unreadable: REFUSED (rc 3: REFUSED: the kernel journal is not readable)
+ok   MemAvailable below the floor at the start: REFUSED (rc 3: REFUSED: MemAvailable 8789 MiB not above the floor 99999 MiB)
+ok   a missing --hash file: REFUSED (rc 3: REFUSED: --hash <tmp>/tmp.SfGNcERVcw/none: not a file)
+ok   a bad --env: REFUSED (rc 3: REFUSED: --env '1BAD=x' is not NAME=VALUE)
+ok   --env reaches the command, nothing inherited does: PASS (rc 0: PASS)
+ok   allocation guard: a declared session peak above the limit: REFUSED (rc 3: REFUSED: allocation guard: declared session peak(s) 3200.0 MiB above the session limit 3189.61 MiB)
+ok   allocation guard: declared peaks within: PASS (rc 0: PASS)
+ok   allocation guard: a declared board peak above MemAvailable - floor: REFUSED (rc 3: REFUSED: allocation guard: declared board peak 9000 MiB above MemAvailable minus the floor (7253 MiB))
+ok   the campaign watchdog intervening during the run: STOP (rc 2: STOP: the campaign stall watchdog intervened)
+ok   journal read failure: STOP (rc 2: STOP: journal read failed)
+ok   --expect-dsp yes without DSP lines: STOP (rc 2: STOP: DSP evidence missing)
+ok   the benign module-table error line: PASS (rc 0: PASS)
+ok   Error callback (htp/main.c:782): STOP (rc 2: STOP: DSP fault lines in the journal (1; dsp-faults.txt))
+ok   error setting HMX clock (:626): STOP (rc 2: STOP: DSP fault lines in the journal (1; dsp-faults.txt))
+ok   mmap failed after defragmentation (:1159): STOP (rc 2: STOP: DSP fault lines in the journal (1; dsp-faults.txt))
+ok   an unknown ERROR-level DSP line: STOP (fail-closed) (rc 2: STOP: DSP fault lines in the journal (1; dsp-faults.txt))
+ok   the known-fault text without a level field: STOP (rc 2: STOP: DSP fault lines in the journal (1; dsp-faults.txt))
+ok   logged retries with --dsp-retry-patched yes: PASS (rc 0: PASS)
+ok   the same retries without it (the unpatched package): STOP (rc 2: STOP: DSP fault lines in the journal (2; dsp-faults.txt))
+ok   a non-retrying dspqueue_peek failure even with --dsp-retry-patched yes: STOP (rc 2: STOP: DSP fault lines in the journal (1; dsp-faults.txt))
+ok   a payload that exits at once (true): PASS (rc 0: PASS)
+ok   a payload that fails at once (false): FAIL (rc 1: FAIL: command exit 1)
+ok   a failed membership snapshot: STOP (rc 2: STOP: a membership snapshot failed (members may be missing from the DSP journal export))
+ok   fast and unobserved payloads: END record, verdict.txt and the leader recorded in each
+ok   kernel audit fault: STOP (rc 2: STOP: kernel audit rc 1: fault fault=1)
+ok   kernel read late, then present: PASS (rc 0: PASS)
+ok   run.txt has START (boot, test flag), PID, MEMBER, ENVIRONMENT and END lines; memory.tsv written
+failures: 0 of 53
+rc=0
+## test_r2_load_probe.sh
+ok   ready, generation, clean stop: OK (rc 0: 2026-10-17T00:32:00+02:00 PROBE OK)
+ok   never ready: FAIL (rc 1: 2026-10-17T00:32:05+02:00 server exited on SIGTERM (status 143))
+ok   server exits before ready: FAIL (rc 1: 2026-10-17T00:32:06+02:00 server exited before ready (status 1))
+ok   generation with 0 tokens: FAIL (rc 1: 2026-10-17T00:32:07+02:00 PROBE FAIL)
+ok   server ignores SIGTERM: FAIL (killed) (rc 1: 2026-10-17T00:33:09+02:00 PROBE FAIL)
+ok   the server dies right after the generation: FAIL (not a clean shutdown) (rc 1: 2026-10-17T00:33:10+02:00 PROBE FAIL)
+ok   a signal to the probe: it fails and its server is stopped (rc 1)
+ok   no server left running (each probe's recorded pid checked)
+ok   an existing out directory: refused (rc 2)
+failures: 0 of 9
+rc=0
+## test_r2_mapped_peak.sh
+ok   within: peaks 1500 / 1700 MiB against 1600 / 1800 (rc 0: RESULT WITHIN)
+ok   the clone counts in the receiving session; the pinned buffer is reported apart
+ok   over: session 1's 1700 MiB against 1650 (rc 1: RESULT OVER: HTP0:1)
+ok   a listed session without mapping lines: invalid (rc 3: RESULT INVALID INPUT: no mapping line for session HTP0:2 (was GGML_HEXAGON_VERBOSE=1 set?))
+ok   a session in the log that is not listed: invalid (rc 3: RESULT INVALID INPUT: line 4: session HTP0:1 not in --sessions)
+ok   the same fd mapped twice: invalid (rc 3: RESULT INVALID INPUT: line 2: HTP0:0 maps fd 5 twice)
+ok   an unmap of an unmapped fd: invalid (rc 3: RESULT INVALID INPUT: line 2: HTP0:0 unmaps fd 6 that is not mapped with that size)
+ok   a malformed mapping line: invalid (rc 3: RESULT INVALID INPUT: line 2: malformed mapping line)
+ok   no log: invalid (rc 3: RESULT INVALID INPUT: cannot read <tmp>/tmp.7axQnCcDvL/none.log: [Errno 2] No such file or directory: '<tmp>/tmp.7axQnCcDvL/none.log')
+ok   total over 3,200 MiB even within the own limit: over (rc 1: RESULT OVER: HTP0:0)
+failures: 0 of 10
+rc=0
+## test_r2_logged_buffers.sh
+ok   the ledger's own figures, model in three 1 GiB pieces: within (rc 0: RESULT WITHIN)
+ok   compute 0.9 MiB above the dry run (the alignment allowance): within (rc 0: RESULT WITHIN)
+ok   compute 1.2 MiB above the dry run: over (rc 1: RESULT OVER: HTP0:2 compute 61.58 > 61.38)
+ok   host compute above the CPU bound: over (rc 1: RESULT OVER: host compute 290.00)
+ok   an extra model buffer on session 1: over (rc 1: RESULT OVER: HTP0:1 model 2285.63 > 2275.63)
+ok   a session without a compute line: invalid (rc 3: RESULT INVALID INPUT: session HTP0:3 has no compute buffer line (was -lv 4 set and the load complete?))
+ok   a buffer outside the configuration's sessions: invalid (rc 3: RESULT INVALID INPUT: buffer HTP0:4 is not one of ['HTP0:0', 'HTP0:1', 'HTP0:2', 'HTP0:3'])
+ok   an unknown ledger config: invalid (rc 3: RESULT INVALID INPUT: unknown ledger config s9-nothing)
+ok   no log: invalid (rc 3: RESULT INVALID INPUT: cannot read <tmp>/tmp.ykaNT0FYib/none.log: [Errno 2] No such file or directory: '<tmp>/tmp.ykaNT0FYib/none.log')
+ok   the CPU compute buffer named CPU (as a real NPU log names it): within (rc 0: RESULT WITHIN)
+ok   a CPU-named compute buffer above the bound: over (rc 1: RESULT OVER: host compute 290.00)
+ok   no CPU compute line at all: invalid (rc 3: RESULT INVALID INPUT: no CPU compute buffer line (named CPU or <session>-HOST))
+ok   no KV lines anywhere (review of fdb7292): invalid (rc 3: RESULT INVALID INPUT: session HTP0:0 has no KV buffer line (was -lv 4 set and the load complete?))
+ok   no RS lines anywhere: invalid (rc 3: RESULT INVALID INPUT: session HTP0:0 has no RS buffer line (was -lv 4 set and the load complete?))
+ok   one session's KV line missing: invalid (rc 3: RESULT INVALID INPUT: session HTP0:2 has no KV buffer line (was -lv 4 set and the load complete?))
+ok   a malformed buffer-size line: invalid (rc 3: RESULT INVALID INPUT: line 21: malformed buffer-size line)
+ok   the production logger's prefix on every line: within (rc 0: RESULT WITHIN)
+failures: 0 of 17
+rc=0
+## test_r2_placement.sh
+ok   the production log of the admitted configuration: PLACED (rc 0: RESULT PLACED)
+ok   the raw-callback log of the same run: PLACED (rc 0: RESULT PLACED)
+ok   a layer on another session: MISPLACED (rc 1: DIFF layer 15: on HTP0:0, declared HTP0:1RESULT MISPLACED (1 differences))
+ok   the output layer's loader line missing: MISPLACED (rc 1: DIFF layer 40: no loader lineRESULT MISPLACED (1 differences))
+ok   the output projection's split not on the CPU: MISPLACED (rc 1: DIFF graph 1: splits ['CPU', 'HTP0:0', 'HTP0:1', 'HTP0:2', 'HTP0:3', 'HTP0:3'], RESULT MISPLACED (1 differences))
+ok   every matmul record removed (review of fdb7292): MISPLACED (rc 1: DIFF graph 1: no matmul takes blk.0.ffn_down.weigh (block 0)RESULT MISPLACED (1554 differences))
+ok   one block's expert matmuls removed: MISPLACED (rc 1: DIFF graph 1: no matmul takes blk.12.ffn_up_exps.w (block 12)RESULT MISPLACED (6 differences))
+ok   one block's short-convolution matmul removed: MISPLACED (rc 1: DIFF graph 1: no matmul takes blk.3.shortconv.in_p (block 3)RESULT MISPLACED (6 differences))
+ok   a block-5 expert matmul under session 2: MISPLACED (rc 1: DIFF graph 1: blk.5.ffn_gate_exps. used on ['HTP0:2'], declared HTP0:0RESULT MISPLACED (1 differences))
+ok   the NPU-R' log checked as NPU-R: MISPLACED (rc 1: DIFF graph 1: splits ['CPU', 'HTP0:0', 'HTP0:1', 'HTP0:2', 'HTP0:3', 'CPU'], decRESULT MISPLACED (6 differences))
+ok   a -lv 4 log (no debug lines): invalid (rc 3: RESULT INVALID INPUT: no loader assignment lines (was -lv 5 set?))
+ok   no loader lines: invalid (rc 3: RESULT INVALID INPUT: no loader assignment lines (was -lv 5 set?))
+ok   a node line that does not parse: invalid (rc 3: RESULT INVALID INPUT: line 1281: a node line that does not parse)
+ok   no log: invalid (rc 3: RESULT INVALID INPUT: cannot read: [Errno 2] No such file or directory: '<tmp>/tmp.J6yRKC1rSA/none.log')
+failures: 0 of 14
+rc=0
