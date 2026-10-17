@@ -1,0 +1,33 @@
+T7 result (NPU dev plan K5, G7/T7, stage R1): M2 FAILS. Run on the owner's x86_64 laptop (Intel Core Ultra 5 238V,
+host CPU only, 8 threads) on 2026-10-17, verdict written 10:14:49+02:00 by the script; evidence received on the board
+and checked at 10:22 CEST.
+
+Inputs and run
+  script     tools/r1_t7_x86.sh from 1063913 (sha256 fa9a7c9b34fb5fbe1fb9756a6c4670b9769c2a9d4b9a479a83075ad10764f08d,
+             checked before running), unedited, test overrides: no
+  evidence   r1-t7-evidence-20261017-093233.tar.gz, sha256 4695d42876ad12f35acc41645506b34dbdf4eede8a627a4276894010deb03ed1
+             (matches the sha256 the run printed); console output in t7-console.log (exit=0: a valid run)
+  identities as declared in ../README.txt: llama.cpp af0579c78 (fresh clone, clean, host CPU build); M2 and REF by size and
+             sha256; WikiText-2 text and the 20 x 1,024 token ids (both models re-tokenized to the pinned file)
+
+Results (rule fixed in ../README.txt section 3 before the run)
+  top-1 agreement, M2 vs REF ("Same top p")      63.591 %       rule >= 90 %         FAIL
+  every statistic finite                          yes                                 pass
+  mean KLD / 99th-percentile KLD                  0.786875 / 4.943732   (reported only)
+  rank of REF's top token in M2                   mean 9.85; rank 1 63.59 %, <= 5 87.99 %, <= 10 92.94 %, p99 121, max 7292
+  comparator cross-check (both logits files)      top-1 63.5910 %, mean KLD 0.786245, p99 4.945642: RESULT VALID
+  perplexity, WikiText-2, 20 x 1,024              REF 14.905 +/- 0.490; M2 17.455 +/- 0.550 (separate runs; their quotient is
+                                                  1.171). The KL report's own ratio is 1.175 +/- 0.019, against its
+                                                  reconstructed reference PPL 14.853 from the saved REF logits
+  T5 fresh tool calls                             REF 20/20, M2 20/20 (rule M2 >= 17 and >= REF - 2: pass); every trial
+                                                  fresh; the two runs' requests byte-identical (t5-compare.txt)
+  VERDICT                                         FAIL: top-1 agreement 63.591 % < 90 %
+
+Reported for reference only (laptop CPU, llama-server medians over the 20 T5 trials; not a plan measurement):
+  REF prefill 45.5 tok/s, generation 15.8 tok/s; M2 prefill 59.0 tok/s, generation 23.0 tok/s.
+
+Consequence (plan section 6): M2 did not pass T7, so R2 does not run with M2 and the R1 admission of NPU-R' for M2 has no
+stage to feed. Nothing ran on the NPU.
+
+Cause: suspected, not confirmed. M2 is Q2_K with llama.cpp's default mix and no importance matrix (../../r1-host/README.txt,
+K3). Whether an imatrix quantization of the same size passes is untested; the next step is the owner's decision.
