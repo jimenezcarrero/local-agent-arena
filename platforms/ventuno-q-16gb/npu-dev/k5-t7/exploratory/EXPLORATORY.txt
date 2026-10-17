@@ -1,0 +1,52 @@
+Exploratory follow-ups to T7 (NOT T7 runs, not gates; they do not change T7's FAIL for M2), 2026-10-17, on the owner's
+x86_64 laptop (host CPU, 8 threads), each run by the laptop agent from a prompt file fetched from the board and checked by
+sha256 (the prompts are committed here, with those hashes). Every file was scored against T7's saved REF logits
+(~/r1-t7-*/ref.kld from ../result/) with T7's own llama-perplexity (af0579c78), the same settings as T7's official M2
+pass: --kl-divergence --kl-divergence-base ref.kld -c 1024 -b 1024 --chunks 20 -t 8 -fa on. Evidence tarballs hold the
+logs and hashes, no models; their sha256 match what the laptop printed.
+
+Runs
+  M3x  mradermacher/LFM2.5-24B-A2B-i1-GGUF, LFM2.5-24B-A2B.i1-Q2_K.gguf (imatrix Q2_K, third party), revision
+       b558210203487f7b6768c5cf879cc7f4928830b9, 8,809,759,520 bytes, sha256 9c6f261b693cf012c196c770e7e96c8c5ab666aae723d123253bba6d96b0c8fc.
+       Prompt laptop-m3-screen-prompt.md (fbbfdd88...); evidence m3x-screen.tar.gz (7372a395...).
+  CEIL Our BF16 (K3's source, sha256 55103fda...) with M2's command plus --tensor-type ffn_gate_exps=q3_k
+       --tensor-type ffn_up_exps=q3_k (all 38 gate and 38 up expert tensors Q3_K, none Q2_K; down 38 Q3_K as in M2),
+       sha256 93cd57efc562c2cf3e10fa213e98e87c18ac8b321a11e0b0fdc94480bfb95c88; does not fit on the NPU (F6).
+       llama-quantize built in T7's tree with T7's binaries checked unchanged before and after.
+       Prompt laptop-ceiling-prompt.md revision 4 (e4ebe0e6..., after three review fixes by the laptop agent: BF16
+       source instead of Q8_0, help exit code 1, a per-step disk minimum); evidence m3c-ceiling.tar.gz (7667cc86...).
+       Made 2026-10-17 14:20-14:31 +02:00.
+  Q4KM Our BF16 with M2's command and Q4_K_M (gate 38 q4_K, up 38 q4_K, down 20 q4_K + 18 q6_K), sha256
+       d3334405b96228eb9908cdebb5c6194908f2da64282bda852afc3a3910c64e7d; does not fit on the NPU.
+       Prompt laptop-calibration-prompt.md revision 1 (080b490d...); evidence m4c-calibration.tar.gz (a990f9a3...).
+       Made 2026-10-17 14:53-15:22 +02:00 (the CEIL file was deleted first, on the owner's approval, after checking
+       its recorded sha256).
+
+Results (M2 from ../result/ for comparison; REF perplexity 14.853 as reconstructed by the KL report)
+                      top-1 ("Same top p")   mean KLD   p99 KLD   PPL(Q)    PPL ratio         fits the NPU
+  M2   (Q2_K)         63.591 +/- 0.476 %     0.786875   4.943732  17.455    1.175 +/- 0.019   yes (R1)
+  M3x  (i1-Q2_K)      61.086 +/- 0.482 %     0.884141   5.133111  21.266    1.432 +/- 0.025   same mix as M2 (unverified)
+  CEIL (gate/up Q3_K) 67.867 +/- 0.462 %     0.632090   4.127154  15.489    1.043 +/- 0.016   no
+  Q4KM (Q4_K_M)       81.722 +/- 0.382 %     0.170560   1.367130  14.720    0.991 +/- 0.008   no
+
+Reading (not a gate decision)
+  1. The imatrix third-party Q2_K is not closer to REF than M2 (it is slightly further). T7's suspected cause for M2
+     (no imatrix) is not supported by this one file; it is not ruled out for every possible imatrix either.
+  2. Every gate/up Q2_K/Q3_K mix that could fit on the NPU is expected, not guaranteed, to score between M2 and CEIL:
+     about 61-68 % top-1, against T7's 90 %.
+  3. Q4_K_M has REF's perplexity (ratio 0.991) and still agrees on the top token only 81.7 % of the time. T7's rule
+     (top-1 >= 90 % against the Q8_0 REF) would fail a file that is about as good as the reference by perplexity.
+     Suspected, not confirmed: in this MoE, small weight changes switch expert routing and with it the top token.
+
+Proposals for the owner (not decided here)
+  P1 Close Track R for LFM2.5-24B-A2B, as a pragmatic allocation of effort under uncertainty, not an exhaustive
+     impossibility result: the tested Q2_K files (M2 63.6 %, M3x 61.1 %) are far below T7's 90 %, and the larger
+     all-gate/up-Q3_K reference, which does not fit, reaches only 67.9 %. Other partial mixes that would fit remain
+     untested. M2's FAIL and the bar on its R2 run are unchanged. Track R's tools, ledger and R2 preparation stay for a
+     later candidate.
+  P2 Before the next MoE candidate, recalibrate T7's top-1 rule as a plan amendment, fixed before that candidate's
+     result: for example, measure a standard 4-bit file of the same model first and set the threshold relative to it.
+     The amendment would name the calibration baseline and the threshold-setting procedure before the candidate is
+     evaluated, and keep T7's separate task-quality requirement (T5). Q4_K_M's near-REF perplexity does not by itself
+     show equal agentic quality, nor that 90 % is unreachable by every file. This does not reopen M2's T7 result, which
+     was judged by the rule fixed before its run.
