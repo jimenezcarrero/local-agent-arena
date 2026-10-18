@@ -31,4 +31,46 @@ grep -v ' D ' "$W/ok.log" | grep -v '^## SPLIT\|^node #' > "$W/h.log"; expect "a
 grep -v 'assigned to device' "$W/ok.log" > "$W/i.log"; expect "no loader lines: invalid" 3 "$W/i.log"
 awk '/ D node #/ && !d { print "0.00.000.001 D node # 1 (MUL_MAT): broken"; d = 1; next } { print }' "$W/ok.log" > "$W/j.log"; expect "a node line that does not parse: invalid" 3 "$W/j.log"
 expect "no log: invalid" 3 "$W/none.log"
+# other models (B1, review of af9889f): a synthetic qwen35-like log, 4 blocks over 2 sessions (--split 2,3: blocks 0-1,
+# blocks 2-3 and the output layer), Q2_0 matmul weights required, F32 ssm_alpha not, an untied output.weight on the
+# last session (NPU-R), the input embedding's GET_ROWS on the CPU
+python3 -I - "$W" <<'PY'
+import sys
+W = sys.argv[1]
+rows = [("token_embd.weight", "Q2_0"), ("output.weight", "Q2_0")]
+for i in range(4):
+    roles = ["attn_q", "attn_k", "attn_v", "attn_output"] if i % 2 else ["attn_qkv", "attn_gate", "ssm_out", "ssm_alpha"]
+    rows += [(f"blk.{i}.{r}.weight", "F32" if r == "ssm_alpha" else "Q2_0") for r in roles + ["ffn_gate", "ffn_up", "ffn_down"]]
+open(f"{W}/q.tsv", "w").write("name\tshape\ttype\n" + "".join(f"{n}\t1x1\t{ty}\n" for n, ty in rows))
+own = ["HTP0:0", "HTP0:0", "HTP0:1", "HTP0:1"]
+def node(k, op, name, src):
+    f = lambda s: f"{s[:20]:<20} (     ) [      x       ]"
+    return f"node #{k:3d} ({op:>9}): {f(name)} use=1,c=0:{f(src)}"
+def graph(L, move=None, cpu_mid=False, out="output.weight"):
+    k = 0; L.append("## SPLIT #0: CPU # 0 inputs"); L.append(node(k, "GET_ROWS", "inp_embd", "token_embd.weight")); k += 1
+    si = 1
+    for s in ("HTP0:0", "HTP0:1"):
+        L.append(f"## SPLIT #{si}: {s} # 1 inputs"); si += 1
+        for n, ty in rows[2:]:
+            b = int(n.split(".")[1]); tgt = own[b]
+            if move and n == move: tgt = "HTP0:1" if own[b] == "HTP0:0" else "HTP0:0"
+            if tgt == s: L.append(node(k, "MUL_MAT", f"mm-{n}", n)); k += 1
+        if cpu_mid and s == "HTP0:0":
+            L.append(f"## SPLIT #{si}: CPU # 1 inputs"); si += 1; L.append(node(k, "GATED_DELTA_NET", "gdn-1", "x")); k += 1
+    L.append(node(k, "MUL_MAT", "result_output", out))
+def write(name, **kw):
+    L = [f"load_tensors: layer {i:3d} assigned to device {d}, is_swa = 0" for i, d in enumerate(own + ["HTP0:1"])]
+    graph(L, **kw); graph(L, **kw)
+    open(f"{W}/{name}", "w").write("\n".join(L) + "\n")
+write("q-ok.log"); write("q-move.log", move="blk.1.ffn_up.weight"); write("q-cpu.log", cpu_mid=True); write("q-out.log", out="token_embd.weight")
+PY
+QR='attn_q|attn_k|attn_v|attn_output|attn_qkv|attn_gate|ssm_out|ssm_alpha|ssm_beta|ffn_gate|ffn_up|ffn_down'
+qexpect() { local name=$1 want=$2 log=$3; shift 3; n=$((n + 1)); out=$(python3 -I "$D/r2_placement.py" "$W/$log" --tensors "$W/q.tsv" --split 2,3 --sessions HTP0:0,HTP0:1 --variant NPU-R --roles "$QR" "$@" 2>&1); rc=$?
+  [ "$rc" = "$want" ] && echo "ok   $name (rc $rc: $(echo "$out" | grep -m1 '^DIFF' | cut -c1-80)$(echo "$out" | tail -1))" || { echo "FAIL $name (rc $rc, wanted $want): $(echo "$out" | tail -3 | tr '\n' ' ')"; fails=$((fails + 1)); }; }
+qexpect "qwen35-like, Q2_0 weights required, output.weight on the last session: PLACED" 0 q-ok.log --types Q2_0 --output-weight output.weight
+qexpect "qwen35-like, the same with every role required (F32 ssm_alpha too, present): PLACED" 0 q-ok.log --output-weight output.weight
+qexpect "qwen35-like, a block-1 FFN matmul on the other session: MISPLACED" 1 q-move.log --types Q2_0 --output-weight output.weight
+qexpect "qwen35-like, a CPU fallback split mid-graph: MISPLACED" 1 q-cpu.log --types Q2_0 --output-weight output.weight
+qexpect "qwen35-like, the output projection takes another weight: MISPLACED" 1 q-out.log --types Q2_0 --output-weight output.weight
+qexpect "qwen35-like checked with the default (tied) output weight: MISPLACED" 1 q-ok.log --types Q2_0
 echo "failures: $fails of $n"; exit $fails
