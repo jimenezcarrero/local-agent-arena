@@ -26,7 +26,7 @@ owner's explicit approval of staging and of the run. Values marked PROPOSED are 
     symlink after checking that ext hash, or the server cannot open the NPU ("failed to load libcdsprpc.so"). The tarball
     holds the install one level down: P is ~/npu-dev/pkg-unpatched-af0579c7/pkg-unpatched-af0579c7.
 
-2. Load 1: NPU-R' (the admitted configuration). PROPOSED commands, P=~/npu-dev/pkg-unpatched-af0579c7,
+2. Load 1: NPU-R' (the admitted configuration). PROPOSED commands, P=~/npu-dev/pkg-unpatched-af0579c7/pkg-unpatched-af0579c7,
    M=~/npu-dev/models/LFM2.5-24B-A2B-M2-Q2_K-af0579c7.gguf, O=<the wrapper's evidence directory>:
      npu_dev_run.sh --stage r2 --run load1-npu-r-prime --timeout 1800 --expect-dsp yes --floor-mib 1536 --stall-s 120 \
        --declared-peak-mib 2594.0,2501.5,2491.7,2236.7 --declared-board-mib 10565.2 \

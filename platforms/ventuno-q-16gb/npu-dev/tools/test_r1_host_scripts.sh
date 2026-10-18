@@ -2,10 +2,11 @@
 # mocked tests for r1_build_master_x86.sh (K2) and r1_models_x86.sh (K3): fake uname/docker/cmake/c++ on PATH, a local
 # clone source holding commit af0579c78 (SRC, e.g. a shallow fetch), HOME in a temp dir, synthetic GGUF files (zero
 # data) written by a fake llama-quantize. The real gguf_tensor_table.py reads them. No network, no Docker, no board.
-# Usage: SRC=<repo with af0579c78> bash test_r1_host_scripts.sh
-D=$(cd "$(dirname "$0")" && pwd); SRC=${SRC:?SRC=<a git repo holding af0579c78>}
-COMMIT=af0579c78a07a555d84830d01da7b61cfadbc7ef
-git -C "$SRC" cat-file -e $COMMIT || { echo "need $SRC with commit $COMMIT"; exit 9; }
+# Usage: SRC=<repo with af0579c78 and ff5a2337 (the BUILD_COMMIT cases), each reachable from a branch: a clone of a
+#   repo with no refs is empty> bash test_r1_host_scripts.sh
+D=$(cd "$(dirname "$0")" && pwd); SRC=${SRC:?SRC=<a git repo holding af0579c78 and ff5a2337>}
+COMMIT=af0579c78a07a555d84830d01da7b61cfadbc7ef; ALT=ff5a23376725e5a889fa0bfb987b7541dc304da0
+for c in $COMMIT $ALT; do git -C "$SRC" cat-file -e $c || { echo "need $SRC with commit $c"; exit 9; }; done
 fails=0
 res() {  # res <name> <ok 0/1> <out file>
   if [ "$2" = 1 ]; then echo "ok   $1"; else echo "FAIL $1"; tail -6 "$3" | sed 's/^/     /'; fails=$((fails+1)); fi; }
@@ -117,6 +118,22 @@ k2() {  # k2 <name> <want ok|fail> [mode=value ...]
 }
 k2 normal ok
 WANT_MSG="not x86_64" k2 not-x86 fail arch=aarch64
+# BUILD_COMMIT (review of 687d862): another pinned commit with its checked date; wrong, malformed or missing dates refused
+k2alt() {  # k2alt <name> <want ok|fail> <BUILD_COMMIT> <BUILD_COMMIT_DATE or -unset> [msg]
+  local name=$1 want=$2 bc=$3 bd=$4 msg=${5:-}; setup
+  if [ "$bd" = -unset ]; then HOME=$T/home PATH=$T/bin:$PATH REPO_URL=file://$SRC BUILD_COMMIT=$bc bash "$D/r1_build_master_x86.sh" > $T/out.txt 2>&1
+  else HOME=$T/home PATH=$T/bin:$PATH REPO_URL=file://$SRC BUILD_COMMIT=$bc BUILD_COMMIT_DATE=$bd bash "$D/r1_build_master_x86.sh" > $T/out.txt 2>&1; fi
+  local rc=$? ok=1 tars=$(ls $T/home/pkg-unpatched-*.tar.gz 2>/dev/null | wc -l)
+  if [ $want = ok ]; then
+    [ $rc = 0 ] && [ $(ls $T/home/pkg-unpatched-${bc:0:8}-*.tar.gz 2>/dev/null | wc -l) = 1 ] || ok=0
+    tar xzf $T/home/pkg-unpatched-${bc:0:8}-*.tar.gz -O manifest.txt 2>/dev/null | grep -q "^source: ggml-org/llama.cpp $bc (master, $bd;" || ok=0
+  else [ $rc != 0 ] && [ $tars = 0 ] || ok=0; [ -z "$msg" ] || grep -qF "$msg" $T/out.txt || ok=0; fi
+  res "K2 $name (rc $rc)" $ok $T/out.txt; rm -rf "$T"; }
+k2alt alt-commit-with-its-date ok $ALT 2026-10-18T17:48:47Z
+k2alt alt-commit-wrong-date fail $ALT 2026-10-18T17:48:48Z "committer date is 2026-10-18T17:48:47Z"
+k2alt alt-commit-malformed-date fail $ALT yesterday "must be the committer date in UTC"
+k2alt alt-commit-no-date fail $ALT -unset "BUILD_COMMIT needs BUILD_COMMIT_DATE"
+k2alt short-sha fail ff5a2337 2026-10-18T17:48:47Z "full 40-hex sha"
 WANT_MSG="image id sha256:0000" k2 wrong-image fail imageid=sha256:0000
 WANT_MSG="toolchain provenance not captured" k2 toolchain-missing fail tc=fail
 WANT_MSG="image SDK root is not" k2 wrong-sdk fail tc=wrongsdk
