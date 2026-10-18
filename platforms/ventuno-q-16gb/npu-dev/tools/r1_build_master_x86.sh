@@ -30,6 +30,8 @@ W=$HOME/r1-k2-$STAMP; SRC=$W/llama.cpp; TAR=$HOME/$PKG-$STAMP.tar.gz
 die() { echo "FAILED: $*" >&2; exit 1; }
 [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "BUILD_COMMIT must be a full 40-hex sha, got '$COMMIT'"
 [ -z "${BUILD_COMMIT:-}" ] || [ -n "${BUILD_COMMIT_DATE:-}" ] || die "BUILD_COMMIT needs BUILD_COMMIT_DATE"
+[[ "$COMMIT_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] \
+  || die "BUILD_COMMIT_DATE must be the committer date in UTC, YYYY-MM-DDTHH:MM:SSZ, got '$COMMIT_DATE'"
 step() { echo; echo "=== $*"; }
 
 step "0. host"
@@ -44,6 +46,9 @@ git clone -q --no-checkout "$REPO_URL" "$SRC"
 cd "$SRC"
 git cat-file -e "$COMMIT^{commit}" 2>/dev/null || git fetch -q origin "$COMMIT"
 git checkout -q --detach "$COMMIT"
+# the stated date is checked against the commit itself (review of 687d862): the manifest records git's value
+GITDATE=$(TZ=UTC git show -s --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ HEAD)
+[ "$GITDATE" = "$COMMIT_DATE" ] || die "the commit's committer date is $GITDATE, not $COMMIT_DATE"
 [ "$(git rev-parse HEAD)" = "$COMMIT" ] || die "checkout is $(git rev-parse HEAD)"
 [ -z "$(git status --porcelain)" ] || { git status --porcelain; die "fresh tree not clean"; }
 grep -qF -- "\"CMAKE_C_FLAGS\":   \"$MARCH " docs/backend/snapdragon/CMakeUserPresets.json \
