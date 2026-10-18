@@ -20,8 +20,9 @@ Instrumented llama-bench (owner-authorized deviation, made after review of revis
 the laptop agent rebuilt only llama-bench.cpp with a progress patch (token-progress.patch, sha256 e4df8015...) using
 the T7 tree's own compile and link commands, linked to T7's unmodified libraries (instrumentation.check,
 t7-bins-after.check all OK). The patch only prints progress lines to stderr (one per 2048-token prefill batch, one
-per 16 generated tokens), adds no synchronization and changes no setting; its prints fall inside the timed region
-but are negligible against batch times of tens of seconds. The runner lfm-speed-progress.sh is revision 3 plus the
+per 16 generated tokens), adds no synchronization and changes no setting; its prints fall inside the timed region.
+Their overhead, and that of the tee and the telemetry monitor, is expected to be small but was not quantified (there
+is no completed plain-build run to compare with); all results here are from the instrumented build. The runner lfm-speed-progress.sh is revision 3 plus the
 instrumented binaries, --progress, tee of the output and a 10-second telemetry monitor (telemetry.jsonl). Compare
 these numbers with unmodified upstream measurements only with that noted. An earlier un-instrumented run was
 stopped on purpose by the agent before it finished its first benchmark; it produced no result.
@@ -47,7 +48,13 @@ Results (tokens/s, mean +/- std over 3 repetitions, from the bench-*.txt files)
 
   REF on Vulkan: both commands exited 1 at model load ("ErrorOutOfDeviceMemory", failed to allocate an 885,179,392-byte
   Vulkan0 buffer); the 23.74 GiB file is larger than the device heap's 20.80 GiB budget. Recorded, not forced (no
-  flag was changed to make it load).
+  flag was changed to make it load). This is a result for the tested full-offload flags (-ngl 99) only; partial
+  CPU/Vulkan placement and other memory settings were not measured.
+
+Swap (telemetry.jsonl, benchmark process): VmSwap 0 in every command except Q4KM Vulkan cold32k, where it was
+54-61 MiB throughout; that command's major-fault count rose during the untimed warmup (359 to 1049) and stayed at
+1093 through all three timed repetitions. This does not show active paging during timing, nor a measured slowdown;
+it is recorded, not explained, and the run is not claimed swap-free.
 
 Reading
   1. On this laptop, Vulkan is the backend for this model: prefill is 16-17x the CPU's for a cold 32K prompt and
@@ -56,7 +63,8 @@ Reading
   2. Q4KM and M2 are close on Vulkan: Q4KM is faster with an empty context (pp512 449 vs 373, tg128 40.6 vs 35.5) and
      slower at 32K depth (pp512 83 vs 96, tg128 23.7 vs 26.5). Q4KM's 32K-depth prefill has the largest spread
      (+/-4.29). Not investigated further.
-  3. REF does not run on the iGPU at all (heap budget), so a Q8_0 file of this model is CPU-only here.
+  3. REF did not load with full offload (-ngl 99): the file is larger than the heap budget. Partial offload was not
+     measured, so this does not show that a Q8_0 file of this model cannot use the iGPU at all.
   4. These are llama-bench numbers, not agentic turn times; whether either file is worth an arena run is the S1
      screen's question (fit at 32K/65K/131K first), not this measurement's.
 
