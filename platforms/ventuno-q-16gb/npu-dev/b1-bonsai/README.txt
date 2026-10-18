@@ -64,11 +64,16 @@ Stages (each ends with a written result in this folder)
         d. placement: tools/r2_placement.py $O/probe/server.log --tensors b1-bonsai/table-bonsai2-9b-q2_0.tsv
            --split 18,15 --sessions HTP0:0,HTP0:1 --variant NPU-R --types Q2_0 --output-weight output.weight
            --roles 'attn_q|attn_k|attn_v|attn_output|attn_qkv|attn_gate|ssm_out|ssm_alpha|ssm_beta|ffn_gate|ffn_up|ffn_down'
+           --cpu-first 'GET_ROWS,MUL_MAT@prism.hadamard,MUL' --session-src0 prism.hadamard
            : PLACED. That is: loader layers 0-17 on HTP0:0, 18-31 and the output layer 32 on HTP0:1; every graph's
-           splits exactly CPU (the input embedding's GET_ROWS, token_embd.weight kept on the CPU by -ot), HTP0:0, HTP0:1,
-           so any op the NPU does not take (a CPU fallback, e.g. of the recurrent or Hadamard path) makes an extra split
-           and fails; each of the 200 block Q2_0 matmul weights is the weight of a MUL_MAT under its block's session;
-           result_output takes output.weight on HTP0:1;
+           splits exactly CPU, HTP0:0, HTP0:1 (an op the NPU does not take makes an extra CPU split, or shares the
+           first CPU split, which is audited next); the first CPU split holds only GET_ROWS (the input embedding,
+           token_embd.weight kept on the CPU by -ot) and the embedding's Hadamard restore (llama-graph.cpp build_tok at
+           ff5a2337: a MUL_MAT with a runtime prism.hadamard.* matrix, then a MUL by its signs); every session split
+           holds at least one MUL_MAT with a prism.hadamard.* src0 (the blocks' input rotations); each of the 200
+           block Q2_0 matmul weights is the weight of a MUL_MAT under its block's session; result_output takes
+           output.weight on HTP0:1. By hand, from the printed CPU-split inventory (the tool allows any MUL there): its
+           MUL count is at most its prism.hadamard MUL_MAT count, and no other op appears. Both are part of PASS.
         e. logged buffers, the last load phase only (the sizing pass logs them once before; k5-r2 result): per session
            model = the table's weights +/- 0.01 MiB, KV <= 256.01 MiB, RS + compute <= 250 MiB; all recorded. Read by
            hand from the log (r2_logged_buffers.py needs an R1 ledger, which this model does not have).

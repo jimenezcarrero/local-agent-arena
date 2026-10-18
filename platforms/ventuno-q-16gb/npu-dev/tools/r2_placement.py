@@ -8,8 +8,13 @@ the declared configuration and the model's own weights.
 
 Other models (B1, review of af9889f): --roles replaces the alternation of block matmul roles (default LFM2's, below);
 --types keeps only the table's weights of those types as required (the others are not checked); --output-weight names
-the output projection's weight (default token_embd.weight, LFM2's tied embedding; e.g. output.weight). The split
-sequence check (2) is what catches a CPU fallback: an op the NPU does not take makes an extra CPU split mid-graph.
+the output projection's weight (default token_embd.weight, LFM2's tied embedding; e.g. output.weight).
+CPU splits (review of fd5e987): a fallback can make an extra CPU split mid-graph (check 2), or share an allowed CPU
+split, so the CPU splits' nodes are audited too: --cpu-first lists what the first CPU split may hold (default GET_ROWS,
+as the R2 fixtures show), --cpu-last what the final CPU split of NPU-R' may hold (default MUL_MAT); an item is OP or
+OP@<src0 prefix>; any other node there is a difference. --session-src0 PREFIX requires, in every graph, at least one
+MUL_MAT whose weight (src0) starts with PREFIX under every session split (e.g. prism.hadamard: the runtime's
+Hadamard input rotations). The CPU splits' node inventory of the first graph is printed for the record.
 
 The production logger (common_init: common/common.cpp :394-397, common/log.cpp) puts "M.SS.mmm.uuu X " before every log
 call, and the scheduler prints a node line in several calls (ggml-backend.cpp :1166-1180), so prefixes also appear inside
@@ -49,6 +54,8 @@ def main():
     ap.add_argument("--sessions", default="HTP0:0,HTP0:1,HTP0:2,HTP0:3")
     ap.add_argument("--roles", default=ROLES[1:-1]); ap.add_argument("--types", default="")
     ap.add_argument("--output-weight", default="token_embd.weight")
+    ap.add_argument("--cpu-first", default="GET_ROWS"); ap.add_argument("--cpu-last", default="MUL_MAT")
+    ap.add_argument("--session-src0", default="")
     a = ap.parse_args()
     weight_re = re.compile(r"^blk\.(\d+)\.(" + a.roles + r")\.weight$")
     types = set(x for x in a.types.split(",") if x)
@@ -103,10 +110,26 @@ def main():
         bad("no scheduler graph (was GGML_SCHED_DEBUG=2 set?)")
     want_seq = ["CPU"] + sessions + (["CPU"] if a.variant == "NPU-R'" else [])
     want_out = "CPU" if a.variant == "NPU-R'" else sessions[-1]
+    allow = lambda spec: [x.split("@", 1) if "@" in x else [x, ""] for x in spec.split(",") if x]
+    allowed = {0: allow(a.cpu_first)}
+    if a.variant == "NPU-R'": allowed[len(want_seq) - 1] = allow(a.cpu_last)
+    ok_node = lambda rules, op, srcs: any(op == o and (not pre or (srcs and srcs[0].startswith(pre))) for o, pre in rules)
     for gi, g in enumerate(graphs, 1):
         seq = [b for b, _ in g]
         if seq != want_seq:
             diffs.append(f"graph {gi}: splits {seq}, declared {want_seq}"); continue
+        for si, rules in allowed.items():
+            inv = {}
+            for op, name, srcs in g[si][1]:
+                key = f"{op}" + (f"@{srcs[0]}" if srcs else "")
+                inv[key] = inv.get(key, 0) + 1
+                if not ok_node(rules, op, srcs):
+                    diffs.append(f"graph {gi}: CPU split #{si} holds {op} {name} (src0 {srcs[0] if srcs else '-'}), not allowed")
+            if gi == 1: print(f"CPU split #{si} nodes (graph 1): " + (", ".join(f"{k} x{v}" for k, v in sorted(inv.items())) or "none"))
+        if a.session_src0:
+            for si, (b, nodes) in enumerate(g):
+                if b in sessions and not any(op == "MUL_MAT" and srcs and srcs[0].startswith(a.session_src0) for op, _, srcs in nodes):
+                    diffs.append(f"graph {gi}: no MUL_MAT with src0 {a.session_src0}* under {b}")
         found, outputs = {}, []
         for si, (b, nodes) in enumerate(g):
             for op, name, srcs in nodes:
