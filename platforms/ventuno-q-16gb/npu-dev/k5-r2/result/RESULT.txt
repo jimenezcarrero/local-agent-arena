@@ -27,10 +27,11 @@ Attempts (each a new evidence directory; the command is the manifest's, launch s
      executable bit; the wrapper runs COMMAND directly). Nothing reached the NPU. Verdict STOP: DSP evidence missing.
   a2 00:50:27 Payload invoked as "/bin/bash r2_load_probe.sh". The server exited before ready: "failed to load
      libcdsprpc.so", then "invalid device: HTP0:0". Nothing reached the NPU. Verdict STOP: DSP evidence missing.
-  a3 00:51:49 With the libcdsprpc.so link. The model loaded (four sessions allocated their buffers); in the warmup decode
-     (common_init_from_params -> llama_context::decode), session HTP0:0 mapped its buffers one by one:
-        #0   135,168 B, #1 105,926,656 B (compute), #2 1,021,632,512 B (weights), #3 100,667,392 B (KV): 1,228,361,728 B
-        then  1,020,297,216 B (its second weights buffer): "E ggml-hex: HTP0:0 buffer mapping failed : domain_id 3 size
+  a3 00:51:49 With the libcdsprpc.so link. The model loaded (four sessions allocated their buffers). HTP0:0's maps in the
+     log, none unmapped before the failure: at session start 10,903,552 B pinned (the op queue) and 69,632 B; in the
+     warmup decode (common_init_from_params -> llama_context::decode) 135,168 B, 105,926,656 B (compute), 1,021,632,512 B
+     (weights), 100,667,392 B (KV). Mapped successfully: 1,228,431,360 B not pinned (1,171.5 MiB) + 10,903,552 B pinned.
+     Then the pending request, 1,020,297,216 B (its second weights buffer): "E ggml-hex: HTP0:0 buffer mapping failed : domain_id 3 size
         1020297216 fd 57 error 0x00000001", kernel 00:53:38 "qcom,fastrpc-cb ...compute-cb@3: failed to map buffer, fd = 57".
      std::runtime_error "fastrpc_mmap failed", abort (status 134) at 00:53:42, 113 s after launch. Verdict STOP: DSP
      evidence missing (the DSP journal export lacked the library-open and CDSP0 lines) and kernel audit npu_map=1.
@@ -48,20 +49,24 @@ Checks of section 3 on a3's log (run offline after the STOP, for the record; not
   d-e. Not reached (no generation).
 
 Reading (suspected, not confirmed: the cause is not isolated)
-  HTP0:0's mappings failed at 2,248,658,944 B (2,144.5 MiB) requested in total, below the 3,189.61 MiB per-session
-  limit that R1's admission used (HTP_OP_MAX_VMEM_DEFAULT minus the op queue's buffer, from the source, never measured).
+  HTP0:0's map was refused with 2,248,728,576 B not pinned (2,144.55 MiB) including the pending request, or
+  2,259,632,128 B (2,154.95 MiB) with the pinned op queue: below the 3,189.61 MiB per-session limit that R1's admission used (HTP_OP_MAX_VMEM_DEFAULT minus the op queue's buffer, from the source, never measured).
   The kernel refused the map (the FastRPC compute context bank), not the DSP's own VMEM check. A single 1.02 GB map had
-  succeeded just before, so it is not a per-map size limit. Suspected: the mappable total per session (or per process,
+  succeeded just before, which argues against a simple fixed per-map size cutoff; it does not distinguish an aggregate
+  capacity limit, fragmentation or an address constraint. Suspected: the mappable total per session (or per process,
   or per context bank) on this board is about 2 GiB, which no campaign run has approached (A32's NeoHorse file, 2.38 GB over two sessions,
   is about 1.2 GB per session). If so, M2 does not fit in four sessions at all (each needs 2,048-2,276 MiB of weights alone), and the plan's
   fit facts (F5/F7) and r1-budget's admission are wrong in the limit, not in the buffer sizes.
-  More sessions (if the board has them; not checked here) or a smaller file would be the ways to put M2's weights on
-  the NPU; either needs the owner's decision and its own admission.
+  Untested possibilities, contingent on isolating the limit first: more sessions could help only if the limit is per
+  session (not if it is shared by the process or the context bank); a smaller file would help in either case. Neither
+  is established as a way to fit M2; either needs the owner's decision, the isolation measurement and a new admission.
 
 Not done, by the rules: no repeat of load 1, no load 2, no R3. Recovery and next steps are the owner's.
   A measurement that would isolate the limit (one session, buffers of known size mapped until refusal) is a new NPU
   stage and needs the owner's approval.
 
-Evidence: r2-evidence-20261019.tar.gz, sha256 f3910c79c77bd996a8b63ac93405627f527b3dd2404e6ca9e38916fe1797bee5 (the three
-attempt directories with the wrapper's files and probe logs, identity-before/after, staging-notes.txt, the launch
-scripts). Checked: no machine-id, no USB serials. run.txt holds the boot id, as the committed e2e-cpu-selftest.txt does.
+Evidence: r2-evidence-20261019-redacted.tar.gz, sha256 8e1c485f2dd4ee2ea7d953e1d65596cce9d1bd4ec44dc1022afc3f6f2fcbb8f7 (the
+three attempt directories with the wrapper's files and probe logs, identity-before/after, staging-notes.txt, the launch
+scripts). Published copy: the boot id in the three run.txt files is replaced by BOOT-ID-REDACTED (its only occurrences;
+no other UUID-shaped value remains); nothing else changed. The original (sha256 f3910c79...) stays on the board in
+~/r2-evidence-20261019.tar.gz and ~/bench-runs/npu-dev/r2/. Checked: no machine-id, no USB serials, no MAC address.
