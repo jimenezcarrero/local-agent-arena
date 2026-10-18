@@ -11,8 +11,12 @@
 #     curl -fsSL https://raw.githubusercontent.com/jimenezcarrero/local-agent-arena/<commit>/platforms/ventuno-q-16gb/npu-dev/tools/r1_build_master_x86.sh -o r1_build_master_x86.sh
 #     bash r1_build_master_x86.sh
 #   Overridable for the mocked test only: REPO_URL.
+#   Another master commit (a later stage's own manifest names it and its date; the default stays K1's):
+#     BUILD_COMMIT=<40-hex sha> BUILD_COMMIT_DATE=<its committer date> bash r1_build_master_x86.sh
+#   The package is then pkg-unpatched-<first 8 hex>; everything else (image, preset, checks) is unchanged.
 set -euo pipefail
-COMMIT=af0579c78a07a555d84830d01da7b61cfadbc7ef   # ggml-org master, committed 2026-10-14T06:23:44Z (K1)
+COMMIT=${BUILD_COMMIT:-af0579c78a07a555d84830d01da7b61cfadbc7ef}   # default: ggml-org master, committed 2026-10-14T06:23:44Z (K1)
+COMMIT_DATE=${BUILD_COMMIT_DATE:-2026-10-14T06:23:44Z}
 REPO_URL=${REPO_URL:-https://github.com/ggml-org/llama.cpp}
 IMAGE=ghcr.io/snapdragon-toolchain/arm64-linux:v0.7
 IMAGE_ID=sha256:41b710ee5f99d21f0fb9d83a1f815ecffb7708315b4218a11cd0baeb5ecf4c14
@@ -24,6 +28,8 @@ PKG=pkg-unpatched-${COMMIT:0:8}
 STAMP=$(date +%Y%m%d-%H%M%S)
 W=$HOME/r1-k2-$STAMP; SRC=$W/llama.cpp; TAR=$HOME/$PKG-$STAMP.tar.gz
 die() { echo "FAILED: $*" >&2; exit 1; }
+[[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "BUILD_COMMIT must be a full 40-hex sha, got '$COMMIT'"
+[ -z "${BUILD_COMMIT:-}" ] || [ -n "${BUILD_COMMIT_DATE:-}" ] || die "BUILD_COMMIT needs BUILD_COMMIT_DATE"
 step() { echo; echo "=== $*"; }
 
 step "0. host"
@@ -90,7 +96,7 @@ step "5. manifest and pack"
 [ -s "$W/$PKG.sha256" ] || die "empty hash list"
 { echo "# K2 unpatched control package (NPU dev plan K2, stage R1), $(date -Is)"
   echo "host: $(uname -srm)"; echo "docker: $(docker --version)"
-  echo "source: ggml-org/llama.cpp $COMMIT (master, 2026-10-14T06:23:44Z; fresh clone, clean, unpatched)"
+  echo "source: ggml-org/llama.cpp $COMMIT (master, $COMMIT_DATE; fresh clone, clean, unpatched)"
   echo "image: $IMAGE $got"
   echo "commands: cp docs/backend/snapdragon/CMakeUserPresets.json .; cmake --preset arm64-linux-snapdragon-release -B build-snapdragon;"
   echo "          cmake --build build-snapdragon -j \$(nproc); cmake --install build-snapdragon --prefix $PKG"
