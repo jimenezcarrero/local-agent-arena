@@ -1,0 +1,67 @@
+Side measurement (NOT a campaign result, NOT the S1 screen, NOT part of the Ventuno NPU plan): speed of LFM2.5-24B-A2B
+on this laptop's CPU vs its Vulkan iGPU, 2026-10-17 19:43:56 to 2026-10-18 23:36:49 +02:00 (from status.txt), run by
+the laptop agent from laptop-lfm-speed-prompt.md revision 3 (sha256 b5f2901c...) and lfm-speed.sh revision 3
+(sha256 87114f32..., which still logs "revision 2" in its header line), both committed here.
+
+Machine: Core Ultra 5 238V, 32 GB, Arc 130V (xe kernel driver, Mesa 26.2.2 ANV, Vulkan 1.4.354; one device heap of
+23.12 GiB, budget 20.80 GiB), Omarchy. Power profile performance, AC online (host.txt).
+
+Files (sizes and sha256 checked by the script before every invocation, models.txt):
+  M2    LFM2.5-24B-A2B-M2-Q2_K-af0579c7.gguf     8.20 GiB  43b42f90...  (the NPU candidate; failed T7, see
+        platforms/ventuno-q-16gb/npu-dev/k5-t7/)
+  Q4KM  LFM2.5-24B-A2B-CAL-Q4_K_M.gguf          13.52 GiB  d3334405...  (the calibration file from k5-t7/exploratory/)
+  REF   LFM2.5-24B-A2B-REF-Q8_0-af0579c7.gguf   23.74 GiB  f09bf094...
+
+Settings: llama.cpp af0579c78, RUNBOOK S1 steps 2-3 flags: -ngl 99 -fa 1 -ctk q8_0 -ctv q8_0 -b 2048 -ub 512 -t 4
+-r 3; cold = -p 32768 -n 0 -d 0; depth = -p 512 -n 128 -d 0,16384,32768. The fit step (S1 step 1, llama-server at
+32K/65K/131K) was not run.
+
+Instrumented llama-bench (owner-authorized deviation, made after review of revision 3 and before any result here):
+the laptop agent rebuilt only llama-bench.cpp with a progress patch (token-progress.patch, sha256 e4df8015...) using
+the T7 tree's own compile and link commands, linked to T7's unmodified libraries (instrumentation.check,
+t7-bins-after.check all OK). The patch only prints progress lines to stderr (one per 2048-token prefill batch, one
+per 16 generated tokens), adds no synchronization and changes no setting; its prints fall inside the timed region
+but are negligible against batch times of tens of seconds. The runner lfm-speed-progress.sh is revision 3 plus the
+instrumented binaries, --progress, tee of the output and a 10-second telemetry monitor (telemetry.jsonl). Compare
+these numbers with unmodified upstream measurements only with that noted. An earlier un-instrumented run was
+stopped on purpose by the agent before it finished its first benchmark; it produced no result.
+
+Stops and resumes: the script's memory guard (MemAvailable >= 18 GiB before M2/Q4KM, >= 26 GiB before REF) stopped
+the run five times between benchmarks; each time the owner dropped the page cache with sudo (resume-note-20261018.md
+and resume-history/*/resume-note.txt), outside any timed benchmark, and the run resumed in the same directory, skipping finished
+benchmarks, re-checking models and binaries (resume-history/). No benchmark was interrupted by a stop.
+
+Results (tokens/s, mean +/- std over 3 repetitions, from the bench-*.txt files)
+                     M2 (Q2_K)                    Q4KM (Q4_K_M)                REF (Q8_0)
+  test               CPU           Vulkan         CPU           Vulkan         CPU           Vulkan
+  pp32768 cold        9.83 +/-0.01 159.89 +/-0.14   9.57 +/-0.01 163.06 +/-0.17   8.81 +/-0.02  did not load
+  pp512              64.19 +/-0.03 373.47 +/-1.71  55.43 +/-0.11 449.42 +/-0.37  40.53 +/-0.00  did not load
+  tg128              26.39 +/-0.22  35.54 +/-0.50  22.73 +/-0.21  40.58 +/-0.03  15.15 +/-0.05  did not load
+  pp512 @ d16384      9.49 +/-0.00 155.35 +/-1.18   9.18 +/-0.00 160.72 +/-0.97   8.75 +/-0.01  did not load
+  tg128 @ d16384      8.06 +/-0.00  31.18 +/-0.11   7.77 +/-0.01  30.92 +/-1.08   6.56 +/-0.01  did not load
+  pp512 @ d32768      4.90 +/-0.01  95.55 +/-0.72   4.83 +/-0.01  83.21 +/-4.29   4.70 +/-0.01  did not load
+  tg128 @ d32768      4.51 +/-0.00  26.45 +/-0.28   4.39 +/-0.00  23.67 +/-0.19   3.99 +/-0.00  did not load
+
+  A cold 32,768-token prompt (32768 / pp32768): M2 3,333 s CPU vs 205 s Vulkan; Q4KM 3,424 s vs 201 s; REF 3,719 s
+  on the CPU.
+
+  REF on Vulkan: both commands exited 1 at model load ("ErrorOutOfDeviceMemory", failed to allocate an 885,179,392-byte
+  Vulkan0 buffer); the 23.74 GiB file is larger than the device heap's 20.80 GiB budget. Recorded, not forced (no
+  flag was changed to make it load).
+
+Reading
+  1. On this laptop, Vulkan is the backend for this model: prefill is 16-17x the CPU's for a cold 32K prompt and
+     6-8x at 512 tokens; generation is 1.3-1.8x at an empty context and 5-6x at 32K depth. CPU numbers are for 4
+     threads (the runbook's P-cores); T7's scoring used 8.
+  2. Q4KM and M2 are close on Vulkan: Q4KM is faster with an empty context (pp512 449 vs 373, tg128 40.6 vs 35.5) and
+     slower at 32K depth (pp512 83 vs 96, tg128 23.7 vs 26.5). Q4KM's 32K-depth prefill has the largest spread
+     (+/-4.29). Not investigated further.
+  3. REF does not run on the iGPU at all (heap budget), so a Q8_0 file of this model is CPU-only here.
+  4. These are llama-bench numbers, not agentic turn times; whether either file is worth an arena run is the S1
+     screen's question (fit at 32K/65K/131K first), not this measurement's.
+
+Evidence: lfm-speed-evidence-lfm-speed-progress-20261017-194356.tar.gz, sha256
+aff14de57c5daaddbdd1ef5610a8f5f385b49263943d3ef8e653371654d0a875 (matches what the laptop printed). It holds the
+bench outputs, status and memory logs, telemetry, models.txt, the patch, runner, monitor, build commands and binary
+hashes; no models, no binaries. Checked on the board: no machine-id, no UUID (the only "uuid" match is the comment
+in the runner), no hostname (host.txt uses uname -srmo).
