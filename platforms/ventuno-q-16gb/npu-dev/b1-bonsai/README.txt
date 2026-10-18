@@ -74,6 +74,10 @@ Stages (each ends with a written result in this folder)
            block Q2_0 matmul weights is the weight of a MUL_MAT under its block's session; result_output takes
            output.weight on HTP0:1. By hand, from the printed CPU-split inventory (the tool allows any MUL there): its
            MUL count is at most its prism.hadamard MUL_MAT count, and no other op appears. Both are part of PASS.
+           The automated PLACED and the by-hand audit are reported separately. The allow-lists and the count do not prove
+           dataflow, and the tool prints only the first graph's inventory: the audit reads every graph's CPU splits from
+           the raw log, checks that their nodes are the embedding restore's chain, and keeps any graph whose inventory
+           differs (review of 828aea6).
         e. logged buffers, the last load phase only (the sizing pass logs them once before; k5-r2 result): per session
            model = the table's weights +/- 0.01 MiB, KV <= 256.01 MiB, RS + compute <= 250 MiB; all recorded. Read by
            hand from the log (r2_logged_buffers.py needs an R1 ledger, which this model does not have).
