@@ -34,24 +34,49 @@ Stages (each ends with a written result in this folder)
   B1b (board, CPU only, done 2026-10-19 as an exploratory check; result to be added here): upstream ff5a2337 CPU build
       on the board, the file's smoke generation, the frozen T5 screen (k5-t7/t5-requests.json) with the template's
       default and with thinking disabled, llama-bench pp512/tg128. The CPU arm for B1c's comparison.
-  B1c (NPU, owner's approval) Load: staged as R2 with its fixes (package checked against its manifest, the
-      lib/libcdsprpc.so symlink after its ext check, P the install directory), under npu_dev_run.sh:
-        --stage b1 --run load1-s2 --timeout 1800 --expect-dsp yes --floor-mib 1536 --stall-s 120
-        --declared-peak-mib 1600,1600 --declared-board-mib 4200 (estimates: weights + KV above + 250 MiB compute and
-        state allowance per session; there is no dry-run ledger for this model, so the guard checks estimates)
-        --hash <model> --hash $P/bin/llama-server --hash $P/lib/libllama-server-impl.so --hash $P/lib/libggml-htp-v75.so
-        --env GGML_HEXAGON_NHMX=1 --env LD_LIBRARY_PATH=$P/lib --env ADSP_LIBRARY_PATH=$P/lib
-        --env GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 --env GGML_HEXAGON_VERBOSE=1 --env GGML_SCHED_DEBUG=2 --
-        /bin/bash tools/r2_load_probe.sh $O/probe 18090 900 -- $P/bin/llama-server -m <model> -c 16384 -np 1 -fa on
-          -b 2048 -ub 512 -ngl 999 --device HTP0:0,HTP0:1 -ts 18,15 -ot 'token_embd\.weight=CPU' --cache-ram 0 -lv 5
-          --no-webui
-      Checks: the wrapper's PASS (DSP journal, kernel audit, floor, stall, orphans); the probe's generation (1..32 tokens,
-      finite timings) and its text compared with the CPU arm's greedy output for the same prompt (recorded, not a
-      parity claim: T3a-style parity is a later stage); logged buffers per session against the estimates above
-      (r2_logged_buffers.py needs a ledger and is not used; the figures are recorded); the mapped peak per session
-      (r2_mapped_peak.py with the declared peaks). Stop at the first fault; a fault is never repeated.
-  B1d (NPU, owner's approval, only after B1c PASS) The T5 screen on the NPU arm (fresh, the same 20 requests) against
-      B1b's CPU arm, and llama-bench on the NPU; then the owner decides on campaign arenas.
+  B1c (NPU, owner's approval) Load. Staged as R2 with its fixes: the package checked against its own manifest, the
+      lib/libcdsprpc.so symlink after its ext check (k5-r2/README.txt), P the install directory
+      (~/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337), M the model above, O the wrapper's evidence directory
+      (~/bench-runs/npu-dev/b1/load1-s2), tools from the reviewed commit that merges this stage. Campaign identity
+      before and after the window as R2 did (identity-before/after.txt: pkg_identity check, retry library, .farf,
+      measured checkout, dpkg baseline), then the campaign's launch checks before any campaign session.
+        npu_dev_run.sh --stage b1 --run load1-s2 --timeout 1800 --expect-dsp yes --floor-mib 1536 --stall-s 120 \
+          --declared-peak-mib 1650,1650 --declared-board-mib 4200 \
+          --hash $M --hash $P/bin/llama-server --hash $P/lib/libllama-server-impl.so --hash $P/lib/libggml-htp-v75.so \
+          --env GGML_HEXAGON_NHMX=1 --env LD_LIBRARY_PATH=$P/lib --env ADSP_LIBRARY_PATH=$P/lib \
+          --env GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 --env GGML_HEXAGON_VERBOSE=1 --env GGML_SCHED_DEBUG=2 -- \
+          /bin/bash tools/r2_load_probe.sh $O/probe 18090 900 -- $P/bin/llama-server -m $M -c 16384 -np 1 -fa on \
+            -b 2048 -ub 512 -ngl 999 --device HTP0:0,HTP0:1 -ts 18,15 -ot 'token_embd\.weight=CPU' --cache-ram 0 \
+            -lv 5 --no-webui
+      Declared figures (estimates, not a ledger: there is no dry run for this model; the wrapper only checks them
+      against its fixed limits, so they guard the launch, not the run): per session the exact table weights
+      (table-bonsai2-9b-q2_0.tsv: 1,060.33 / 1,094.53 MiB, HTP0:1 with the output layer) + KV 256 MiB + 250 MiB for
+      recurrent state and compute (R2's sessions logged 60-101 MiB compute and 0.12 MiB state; 250 is a margin, not a
+      measurement for this model) = 1,566.3 / 1,600.5, rounded up to 1,650 each. Board: NPU weights 2,154.9 + CPU input
+      embedding 272.8 + KV 512 + 2 x 250 + about 100 MiB CPU compute = 3,540 MiB, plus about 660 MiB for the server
+      process, libraries and logging (unmeasured) = 4,200.
+      B1c PASS needs all of these; any one missing or failed stops B1 before B1d, even with the wrapper's PASS:
+        a. the wrapper's verdict PASS (command exit 0, DSP journal with the library opened and CDSP0 lines, no DSP
+           fault, kernel audit, no floor, stall, orphans or watchdog event);
+        b. the probe's generation: 1..32 tokens, finite timings; its text recorded next to the CPU arm's greedy output
+           for the same prompt (no parity claim);
+        c. tools/r2_mapped_peak.py $O/probe/server.log 1650,1650 --sessions HTP0:0,HTP0:1: WITHIN;
+        d. placement: tools/r2_placement.py $O/probe/server.log --tensors b1-bonsai/table-bonsai2-9b-q2_0.tsv
+           --split 18,15 --sessions HTP0:0,HTP0:1 --variant NPU-R --types Q2_0 --output-weight output.weight
+           --roles 'attn_q|attn_k|attn_v|attn_output|attn_qkv|attn_gate|ssm_out|ssm_alpha|ssm_beta|ffn_gate|ffn_up|ffn_down'
+           : PLACED. That is: loader layers 0-17 on HTP0:0, 18-31 and the output layer 32 on HTP0:1; every graph's
+           splits exactly CPU (the input embedding's GET_ROWS, token_embd.weight kept on the CPU by -ot), HTP0:0, HTP0:1,
+           so any op the NPU does not take (a CPU fallback, e.g. of the recurrent or Hadamard path) makes an extra split
+           and fails; each of the 200 block Q2_0 matmul weights is the weight of a MUL_MAT under its block's session;
+           result_output takes output.weight on HTP0:1;
+        e. logged buffers, the last load phase only (the sizing pass logs them once before; k5-r2 result): per session
+           model = the table's weights +/- 0.01 MiB, KV <= 256.01 MiB, RS + compute <= 250 MiB; all recorded. Read by
+           hand from the log (r2_logged_buffers.py needs an R1 ledger, which this model does not have).
+  B1d (NPU, owner's approval, only after B1c PASS) A sketch until its own frozen spec is reviewed: before it runs, that
+      spec fixes the request pairing (the same 20 T5 requests as B1b, fresh slot per trial), the thinking profiles
+      (both of B1b's arms), the numeric T5 rule (with B1b's CPU count as the reference) and the llama-bench commands
+      and repeats. Backend parity (T3a-style) and the campaign's own qualification (V0e) remain separate and needed
+      before any campaign admission; B1's load, T5 and speed cannot give a final GO.
 
 Known risk: ff5a2337 does not change the dspqueue_peek handling of llama.cpp#30309 (no commit since af0579c78 touches
 it; checked against the compare list). The package is unpatched, as R2's was, so a peek failure ends the DSP loop and is

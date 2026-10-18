@@ -4,7 +4,12 @@ with -lv 5 (debug; at af0579c78 -lv 4 is "trace" and drops the debug lines this 
 the declared configuration and the model's own weights.
 
   r2_placement.py <server log> --tensors <K3 table-M2.tsv> --split 11,10,10,10 --variant "NPU-R'"
-                  [--sessions HTP0:0,HTP0:1,HTP0:2,HTP0:3]
+                  [--sessions HTP0:0,HTP0:1,HTP0:2,HTP0:3] [--roles REGEX] [--types T1,T2] [--output-weight NAME]
+
+Other models (B1, review of af9889f): --roles replaces the alternation of block matmul roles (default LFM2's, below);
+--types keeps only the table's weights of those types as required (the others are not checked); --output-weight names
+the output projection's weight (default token_embd.weight, LFM2's tied embedding; e.g. output.weight). The split
+sequence check (2) is what catches a CPU fallback: an op the NPU does not take makes an extra CPU split mid-graph.
 
 The production logger (common_init: common/common.cpp :394-397, common/log.cpp) puts "M.SS.mmm.uuu X " before every log
 call, and the scheduler prints a node line in several calls (ggml-backend.cpp :1166-1180), so prefixes also appear inside
@@ -32,7 +37,6 @@ SPLIT = re.compile(r"^## SPLIT #(\d+): (\S+) #")
 NODE = re.compile(r"^node #\s*(\d+) \(\s*([A-Z_0-9]+)\): (.{20}) \(.{5}\) \[.{5} .{8}\] use=\d+,c=\d+:(.*)$")
 SRC = re.compile(r"(.{20}) \(.{5}\) \[.{5} .{8}\]")
 ROLES = r"(attn_q|attn_k|attn_v|attn_output|shortconv\.in_proj|shortconv\.out_proj|ffn_gate|ffn_up|ffn_down|ffn_gate_inp|ffn_gate_exps|ffn_up_exps|ffn_down_exps)"
-WEIGHT = re.compile(r"^blk\.(\d+)\." + ROLES + r"\.weight$")
 
 
 def bad(msg):
@@ -43,7 +47,11 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument("log"); ap.add_argument("--tensors", required=True)
     ap.add_argument("--split", required=True); ap.add_argument("--variant", required=True, choices=["NPU-R", "NPU-R'"])
     ap.add_argument("--sessions", default="HTP0:0,HTP0:1,HTP0:2,HTP0:3")
+    ap.add_argument("--roles", default=ROLES[1:-1]); ap.add_argument("--types", default="")
+    ap.add_argument("--output-weight", default="token_embd.weight")
     a = ap.parse_args()
+    weight_re = re.compile(r"^blk\.(\d+)\.(" + a.roles + r")\.weight$")
+    types = set(x for x in a.types.split(",") if x)
     sessions = a.sessions.split(","); split = [int(x) for x in a.split.split(",")]
     if len(split) != len(sessions):
         bad("--split and --sessions differ in length")
@@ -56,8 +64,8 @@ def main():
         bad(f"cannot read: {e}")
     expected = {}   # weight name cut to 20 characters (as the scheduler prints it) -> block
     for r in rows:
-        m = WEIGHT.match(r[0])
-        if m:
+        m = weight_re.match(r[0])
+        if m and (not types or (len(r) > 2 and r[2] in types)):
             if r[0][:20] in expected:
                 bad(f"two weights share the 20-character name {r[0][:20]}")
             expected[r[0][:20]] = int(m.group(1))
@@ -117,8 +125,8 @@ def main():
             diffs.append(f"graph {gi}: {len(outputs)} result_output matmuls, expected 1")
         else:
             w, b, si = outputs[0]
-            if w != "token_embd.weight" or b != want_out or (a.variant == "NPU-R'" and si != len(g) - 1):
-                diffs.append(f"graph {gi}: result_output takes {w} on {b}, declared token_embd.weight on {want_out}")
+            if w != a.output_weight[:20] or b != want_out or (a.variant == "NPU-R'" and si != len(g) - 1):
+                diffs.append(f"graph {gi}: result_output takes {w} on {b}, declared {a.output_weight} on {want_out}")
     print(f"loader: {len(seen)} layer lines; scheduler: {len(graphs)} graphs, splits {want_seq}; "
           f"{len(expected)} block matmul weights expected per graph")
     for d in diffs[:40]: print("DIFF", d)
