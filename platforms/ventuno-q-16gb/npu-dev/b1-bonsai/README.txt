@@ -53,5 +53,9 @@ Stages (each ends with a written result in this folder)
   B1d (NPU, owner's approval, only after B1c PASS) The T5 screen on the NPU arm (fresh, the same 20 requests) against
       B1b's CPU arm, and llama-bench on the NPU; then the owner decides on campaign arenas.
 
+Known risk: ff5a2337 does not change the dspqueue_peek handling of llama.cpp#30309 (no commit since af0579c78 touches
+it; checked against the compare list). The package is unpatched, as R2's was, so a peek failure ends the DSP loop and is
+a fault (npu_dev_run.sh without --dsp-retry-patched); the campaign's retry library is built for 836d5717 and is not used.
+
 Not claimed: that Bonsai fits a campaign arena budget, that its NPU output is correct, or the publisher's quality
 figures. Disk: the file is 2.56 GB; the package about 50 MB; M2 (8.8 GB) stays staged until the owner decides on it.
