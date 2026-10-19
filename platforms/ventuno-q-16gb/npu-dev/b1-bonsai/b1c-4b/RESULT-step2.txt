@@ -1,12 +1,26 @@
 B1c-4B Step 2: PASS. The NPU's outputs match the board's CPU reference within T3a's frozen thresholds at both ubatch
 sizes. Run 2026-10-20 00:35-01:02 +02:00, spec b1c-4b/SPEC.txt revision 4 (merged 9cc5b19, Codex READY at b63502d),
 the owner's approval of Steps 2-4 (2026-10-19, each after the previous step's PASS; Step 1 PASS: RESULT-step1-a3.txt).
-Arms run with step2-arm.sh (in the evidence), each a separate wrapper run; REF (cpu-ref.kld, sha256 7fd9868c...)
-checked before each arm and after 2c: unchanged. FARF files (~/npu-dev/farf, three, each sha256 7acc31cd...) checked
-before each arm; identity before Step 2 recorded (4b-step2-identity-before.txt: pkg-identity PASS, dpkg 0 differences).
+Arms run with step2-arm.sh (in the evidence), each a separate wrapper run. REF (cpu-ref.kld, sha256 7fd9868c...) was
+checked by the script before each arm (it refuses to launch otherwise). FARF files (~/npu-dev/farf, three, each sha256
+7acc31cd...) were checked before each arm.
+Identity and reference audit trail (review of df8a33a), stated as captured:
+  - before Step 2: 4b-step2-identity-before.txt (in the evidence; pkg-identity PASS, dpkg 0 differences, the FARF
+    hashes);
+  - after Step 2: step2-identity-after-step3-before.txt (next to this file), dated 2026-10-20T01:02:51+02:00, file
+    mtime 01:02:52, taken after 2c's END (01:01:51) and VERDICT (01:02:27) and before Step 3a's launch; it was made as
+    Step 3's pre-window record and is the first identity record after Step 2's windows (pkg-identity PASS, retry
+    library and .farf unchanged, measured checkout clean, dpkg 0 differences, the FARF hashes unchanged);
+  - between the arms: no identity record was taken (each arm's wrapper preflight ran as usual);
+  - REF after 2c: checked with sha256sum -c at about 01:02, after 2c's verdict and before the identity record above,
+    result OK; that output went only to the operator's session console and was not saved to a file, so this archive
+    does not hold it. A deviation from the spec's "checked after the last" as a recorded file; no evidence suggests a
+    change (the file is also re-hashed before every later use).
+  The acceptance below rests on the wrapper records and logs; the identity trail is complete before and after the
+  Step 2 period as a whole, not per arm.
 
 Parity against CPU-ref (llama-perplexity --kl-divergence, 10 chunks x 1,024, 5,110 scored positions, all complete and
-finite):
+finite; the comparisons are of these aggregate statistics, not a per-position guarantee):
                          mean KLD              99.0 % KLD   max KLD    top-1 ("Same top p")   PPL ratio
   2a NPU  -ub 512        0.000154 +/- 0.000011  0.000975     0.046798   99.413 +/- 0.107 %     1.000473 +/- 0.000675
   2b NPU  -ub 384        0.000154 +/- 0.000011  0.000981     0.046797   99.413 +/- 0.107 %     1.000613 +/- 0.000674
