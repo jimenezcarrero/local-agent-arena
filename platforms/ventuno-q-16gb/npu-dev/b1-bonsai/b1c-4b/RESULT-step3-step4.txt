@@ -1,0 +1,62 @@
+B1c-4B Steps 3 and 4: PASS. Ternary-Bonsai-2-4B Q2_0 on one NPU session passes the frozen T5 tool-call screen 20/20 in
+both thinking profiles, and llama-bench measures pp512 346.04 and tg128 14.97 t/s on HTP0:0. With Steps 0-2
+(RESULT-step0-step1.txt, RESULT-step1-a3.txt, RESULT-step2.txt), B1c-4B is complete.
+Run 2026-10-20 01:02-01:17 +02:00, spec b1c-4b/SPEC.txt revision 5 (merged 6872d4d; Codex READY at 99da5d5), the
+owner's approval of Steps 2-4 (2026-10-19, each after the previous step's PASS), after Step 2's PASS. Scripts
+step3-arm.sh and step4-bench.sh (in the evidence) check the three FARF files (sha256 7acc31cd...) before launching.
+
+Identity trail (campaign identity.sh plus the FARF hashes), one record between consecutive windows:
+  01:02:51 (after Step 2, before 3a) -> 3a 01:02:52-01:07:05 -> 01:08:38 -> 3b 01:11:39-01:14:39 -> 01:15:12 ->
+  Step 4 01:16:42-01:17:21 -> 01:18:31. Every record: pkg-identity PASS (133 files, 0 mismatches), retry library and
+  .farf unchanged, measured checkout 7badb21 clean, dpkg 0 differences, FARF hashes unchanged.
+
+Step 3 (T5 on the NPU; server -c 8192 -np 1 --cache-ram 0 --jinja -fa on -b 2048 -ub 512 -ngl 999 --device HTP0:0)
+                     screen result                    generated tokens        seconds per trial      reasoning
+                                                      min / median / max      min / median / max     content
+  3a thinking on     passes 20/20, valid 20/20        58 / 75.5 / 127         9.9 / 11.5 / 16.1      20 of 20
+  3b thinking off    passes 20/20, valid 20/20        27 / 39.5 / 63          7.0 / 8.2 / 11.0       0 of 20
+  Rule (P >= 17 and >= CPU's 20 - 2 = 18): PASS in both. CPU-ref's arm (B1b-4B, b1-4b/RESULT-cpu.txt): the same
+  20/20 and the same generated-token distributions (58 / 75.5 / 127 and 27 / 39.5 / 63), with a median trial of 219 s
+  and 205 s. Medians as the mean of the two middle values; prompt processing median 259 / 263 t/s and generation
+  10.9 / 10.6 t/s in the server's timings (with -lv 5 and GGML_SCHED_DEBUG=2 logging; not a benchmark).
+  Acceptance of each arm:
+    a. wrapper VERDICT PASS (3a 252 s, 7 members; 3b 178 s, 8 members); DSP evidence (journal check ok, 223 lines;
+       DSP classes fault 0, benign_modtable 1, info 101); payload OK (ready after 7 s, screen exit 0, clean SIGTERM
+       exit 0).
+    c. r2_mapped_peak.py 1700: HTP0:0 peak 1,538.9 MiB own + clones, pinned 10.4, total 1,549.3: WITHIN (both).
+    d. d1 r2_placement.py (rev 3, --empty-cpu-ok): PLACED (3a 135 last-phase graphs, 3b 128; 720 zero-extent CPU
+       splits dropped in 80 graphs each). d2 by hand (d2audit.py in the evidence, the Step 1/2 audit as a script):
+       every first CPU split GET_ROWS only; the 80 graphs with extra CPU splits have 9 each, every node among that
+       graph's 58 declines, all zero-dimension; all other graphs exactly CPU, HTP0:0; no problem.
+    e. last phase: HTP0:0 model 1,145.43 MiB, KV 256.00, RS 50.25 + compute 87.02 = 137.27 MiB (<= 250).
+    Board: MemAvailable minimum 11,408 MiB (3a), 11,749 (3b).
+
+Step 4 (llama-bench -m M -fa 1 -p 512 -n 128 -r 3 -ngl 999 -dev HTP0:0 -o md -v)
+  | model          |     size | params | backend | ngl | fa | dev    |  test |            t/s |
+  | qwen35 4B Q2_0 | 1.12 GiB | 4.21 B | HTP     | 999 |  1 | HTP0:0 | pp512 | 346.04 +/- 1.37 |
+  | qwen35 4B Q2_0 | 1.12 GiB | 4.21 B | HTP     | 999 |  1 | HTP0:0 | tg128 |  14.97 +/- 0.25 |
+  Next to CPU-ref (B1b-4B, same build commit, board CPU, 8 threads, no extra logging): pp512 6.44 +/- 0.00, tg128
+  3.14 +/- 0.04 t/s. Measured with -v and GGML_SCHED_DEBUG=2 (debug logging to the wrapper's stderr), whose overhead
+  is not quantified; the CPU figures were taken without it. So these are this configuration's measurements, not a
+  clean hardware ratio.
+  Acceptance: a. wrapper PASS, 38 s, DSP evidence (216 lines; fault 0, benign_modtable 1, info 130), llama-bench exit
+  0; c. r2_mapped_peak.py 1950: peak 1,717.4 own + clones, pinned 10.4, total 1,727.8 MiB: WITHIN; d. d1 PLACED (one
+  phase, 19 graphs, no extra CPU split at all), d2 by hand: all 19 exactly CPU, HTP0:0, first CPU split GET_ROWS only;
+  the md table's dev column is HTP0:0; e. model 1,145.43 MiB (llama-bench's contexts: KV 16.00 MiB for the first and 8.00 MiB for the second,
+  compute up to 505.52 MiB, RS 50.25). Board MemAvailable minimum 11,793 MiB.
+
+Not claimed: agent quality or campaign admission (V0e and the arenas stay separate and needed), speed at long
+contexts, or anything about the 9B.
+
+Evidence: b1c-4b-step3-step4-evidence-20261020.tar.gz, sha256
+d887f6c33273d56906d939f478c9b72713b138b2b44541a7827eef962c9d60d5 (17,549,113 bytes): the three wrapper directories
+except the full server/stderr logs, which are too large for the repository (741, 450 and 134 MB, in bytes / 10^6); for each, an extract
+(checks-extract.log.gz) of the lines the checks read, in log order (loader, split and node lines, every supports-op
+query, accepted and declined, buffer and mapping lines; made by make_extract.sh, in the evidence, a fixed grep of the
+full log; review of 5f2d4d6: the first extracts kept only declined queries), on which r2_mapped_peak.py,
+r2_placement.py and d2audit.py reproduce the results above; the identity
+records, consoles, scripts and d2audit.py. The full logs stay on the board, gzipped, with the sha256 of each
+uncompressed log taken before compression: 3a 290885d6..., 3b 9d3bdb33..., Step 4 4f6d6fd8... (gz files fd2eac01...,
+0e266460..., b5e7f6ff...). Redacted: boot ids in run.txt, the hostname in the journal exports; then scanned (including
+inside the extracts) for the machine-id, the boot id, the hostname, MAC addresses, UUIDs, link-local addresses and
+key fingerprints: none.
