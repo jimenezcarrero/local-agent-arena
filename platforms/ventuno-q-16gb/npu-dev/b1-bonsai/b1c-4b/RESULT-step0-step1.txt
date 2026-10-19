@@ -1,0 +1,84 @@
+B1c-4B results: Step 0 PASS (CPU reference); Step 1 STOP (wrapper: DSP evidence missing) with one placement mismatch.
+Run 2026-10-19 on the board, spec b1c-4b/SPEC.txt revision 2 (merged fb9b918), the owner's go for Step 1 ("yes, run
+Step 1"). Nothing was re-run after the STOP. Steps 2-4 did not run (they need Step 1 PASS).
+
+Step 0 (CPU only): PASS
+  Reference cpu-ref.kld (CPU-ref, -ub 512, 10 x 1,024 tokens): 2,537,912,260 bytes, sha256
+  7fd9868c39deca75adb50e529ae8b005519c75eafa31df3c074aed76cece4444; r1_t7_compare self-check RESULT VALID: 5,110
+  positions, tokens f2259ac7... as pinned, top-1 100 %, KLD 0; final estimate PPL 20.5527 +/- 0.96379, 10 chunks.
+  Noise floor, CPU-ref again against cpu-ref.kld (both complete, 10 chunks, finite):
+                     mean KLD     99.0 % KLD   max KLD    top-1 ("Same top p")   PPL ratio
+    -ub 512          -0.000000    0.000037     0.000058   99.980 +/- 0.020 %     1.000670 +/- 0.000592
+    -ub 384          -0.000000    0.000037     0.000058   99.980 +/- 0.020 %     1.000670 +/- 0.000592
+  Far inside T3a's bars (0.01 / 0.10 / 97 %). The 0.02 % (about one position) and the negative zero mean are
+  consistent with the reference storing log-probabilities as 16-bit values (suspected, not isolated). The reference's
+  sha256 was unchanged after both runs.
+
+Step 1 (NPU, one session HTP0:0): STOP
+  Staging: the B1a package (tarball 9ce694a0..., matching the laptop's build log; 133 files OK against its own list
+  78862291..., none unlisted), lib/libcdsprpc.so linked after the ext check (eb04ce8a...). Campaign identity before
+  and after the window: pkg-identity PASS (133 files, 0 mismatches), retry library aa2ae2a9..., .farf 0x1f, measured
+  checkout 7badb21 clean, dpkg baseline 7a78aa72... with 0 differences (identity.sh).
+  Attempt 1 (4b-load1, 23:41:49): REFUSED in preflight, nothing launched: the campaign NPU stall watchdog was not
+  running (it stopped with the night's board resets and has no @reboot entry). Restarted 23:42:36 as the A32-5 launch
+  checks record it (setsid nohup /bin/bash ~/v0/npu_stall_watchdog.sh, sha256 a2da5d37..., identical to
+  phase-v0/tools/npu_stall_watchdog.sh).
+  Attempt 2 (4b-load1-a2, 23:42:49, the spec's command with only the run name changed): the probe passed (server
+  ready after 8 s, generation HTTP 200, clean SIGTERM exit, 12 s in all), no fault, no stall, no orphans, no watchdog
+  event, kernel audit pass; verdict STOP: DSP evidence missing ("export lacks the DSP library open line or CDSP0
+  lines").
+  Cause (read from the journal export): the FastRPC library looked for llama-server.farf on ADSP_LIBRARY_PATH and did
+  not find it ("Couldn't find file llama-server.farf"), so DSP-side logging was off and no DSP lines reached the
+  journal. So DSP-side coverage is missing: "no fault" below means no fault detected in the available host and
+  kernel evidence, not that the DSP is shown fault-free. The campaign puts ~/v0/farf (llama-server.farf = 0x1f) first on ADSP_LIBRARY_PATH (phase-v0 decisions,
+  arm F; every A32 run's environment); the spec's command, copied from B1c and R2, sets ADSP_LIBRARY_PATH to the
+  package's lib only. A setup gap in the command; it does not show an NPU fault, nor exclude one. R2 had the same gap: its attempt 3 (the one that
+  reached the NPU) also ended with "DSP evidence missing" and its export shows the same missing-file line (attempts 1
+  and 2 never started a server on the NPU); R2's result reports the verdict but did not identify this cause.
+  A correction to k5-r2/result/ will name the logging gap while keeping R2's independent STOP: its verdict also
+  records the kernel npu_map event, and the server aborted on the refused mapping ("fastrpc_mmap failed"); R2 was not
+  merely a logging failure.
+
+  The other PASS conditions, read offline from attempt 2's log after the STOP (for the record; not a PASS):
+    b. generation: 32 tokens, " Paris.\nThe capital of the United States is Washington, D.C.\nThe capital of Germany
+       is Berlin.\nThe capital of Italy is Rome.\n"; CPU-ref's greedy output for the same prompt (B1b-4B smoke)
+       begins with the same text. Prompt 5 tokens at 11.67 t/s, generation 11.14 t/s (CPU-ref llama-bench tg128:
+       3.14 t/s; different measurements, not a speed result).
+    c. r2_mapped_peak.py: HTP0:0 peak 1,538.9 MiB own + clones, pinned 10.4, total 1,549.3 MiB: WITHIN 1,700.
+    e. last load phase's buffers: HTP0:0 model 1,145.43 MiB (the table's figure, so the tied output is in the NPU
+       buffer, as expected), KV 256.00 MiB, RS 50.25 + compute 87.02 = 137.27 MiB (<= 250); CPU model 170.51 MiB
+       (the input embedding), CPU compute 28.02, output 0.95. Board: MemAvailable fell from 13,899 MiB at preflight
+       to a minimum of 11,974 (about 1,925 MiB; declared 2,800).
+    d1. r2_placement.py: MISPLACED (7 differences). Six of them are graphs 1-6, which belong to llama.cpp's sizing
+       pass (they precede the real load: that pass logs 0.00 MiB model buffers at line 1,611, and the real load logs
+       HTP0:0's 1,145.43 MiB at line 30,994): the tool
+       judges every phase, as r2_logged_buffers.py did before #75; a tool fix (last phase only) is needed. The
+       seventh is real: of the ten real-phase graphs, nine have exactly the splits CPU, HTP0:0; graph 14 has 16
+       splits. Its extra CPU splits hold last-layer tail nodes that are zero-extent in this graph, not a small
+       selected output row: the backend's supports-op records for that graph give attn_residual-31 and result_norm as
+       2560:0, the Hadamard outputs as 512:0 (and 9216:0 for the FFN signs); all 58 declines in the log have a zero
+       dimension. At ff5a2337 qwen35.cpp crops the last layer through inp_out_ids before this tail, so a graph that
+       requests no output rows gives these nodes zero rows, and ggml-cpu.c's ggml_compute_forward returns at once for
+       ggml_is_empty(tensor): the CPU assignment does not show CPU arithmetic (the weighted tail matmuls, on HTP0:0,
+       have zero-sized outputs there too). Which request builds this graph (one with no outputs) is still to be read
+       from the log. By the frozen rule (d: any extra CPU split is a mismatch) d fails, and stays failed unless a
+       reviewed amendment changes the rule.
+    d2. not done (the stage had already stopped).
+
+What a re-run needs (not done; a revised, reviewed command and the owner's go)
+  1. ADSP_LIBRARY_PATH="$HOME/v0/farf;$P/lib" (the campaign's form, without the retry library), with
+     ~/v0/farf/llama-server.farf checked (0x1f) before the window; the same in Steps 2-4 and in the 9B's B1c.
+  2. r2_placement.py judging the last load phase only (as r2_logged_buffers.py), with tests.
+  3. A reviewed amendment on zero-extent nodes only: an extra CPU split may be accepted when every node in it is
+     zero-extent in that graph (declined by the backend with a zero-element result shape, read from that graph's own
+     supports-op records), because such nodes do no arithmetic. This is distinct from allowing non-empty CPU fallback,
+     which would be a different placement policy and is not proposed. Without the amendment the mismatch stands and
+     B1c-4B stops at Step 1.
+
+Evidence
+  b1c-4b-step0-step1-evidence-20261019.tar.gz, sha256 5d8ea94d90174b4db11dfabcae6a90782502a82c3cae4473b8b0a74fe0934594
+  (2,546,830 bytes): Step 0's directory without cpu-ref.kld (2.5 GB, kept on the board) and the comparator binary;
+  both Step 1 attempts' wrapper directories and consoles; identity before/after; staging notes; the scripts; the
+  laptop's B1a build console. Redacted before packing: the boot id in run.txt (boot=<redacted>), the hostname in the
+  journal export (<host>), the laptop's home path (/home/<laptop-user>). Then scanned for the machine-id, the boot
+  id, the hostname, MAC addresses, UUIDs, link-local addresses and key fingerprints: none found.
