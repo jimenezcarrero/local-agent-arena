@@ -312,6 +312,7 @@ quantizations; the screen decides what survives.
 | Qwen3.6 35B-A3B | `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` UD-IQ3_XXS (14.1), UD-IQ4_XS (18.2), UD-Q4_K_XL (22.9), UD-Q5_K_XL (27.2) | embedded | — |
 | Ornith-1.5 35B-A3B | IQ4_XS (18.7) | check card | — |
 | K2 Horizon MoVA 36B-A4B | IQ3_M (16.5) | check card | IFM fork if upstream lacks the arch |
+| LFM2.5 24B-A2B | `LiquidAI/LFM2.5-24B-A2B-GGUF` QAD-Q4_0 (13.6, quantization-aware distilled), Q4_K_M (14.5), Q5_K_M (17.0), Q6_K (19.7) | — | — |
 
 **Dense (the "is it usable or does it time out?" question)**
 
@@ -323,6 +324,15 @@ quantizations; the screen decides what survives.
 | Granite 4.1 30B | IQ4_XS (15.5) | — | — |
 | Gemma 4 12B | `unsloth/gemma-4-12B-it-qat-GGUF` UD-Q4_K_XL (6.7, QAT); largest `unsloth/gemma-4-12b-it-GGUF` quant | `mtp-gemma-4-12B-it.gguf` | — |
 | Bonsai 2 27B | PQ2_0 (7.2) | — | PrismML fork |
+
+LFM2.5 24B-A2B has a side measurement on this laptop
+(`side-measurements/lfm2.5-24b-a2b-speed/`, an instrumented llama-bench, not
+S1): on Vulkan, Q4_K_M ran tg128 at depth 16K at 30.9 tok/s and a cold 32K
+prefill in about 201s; its Q8_0 (25.5) did not load with full offload (larger
+than the 20.8 GiB heap budget), so it is not listed. The Q4_K_M and Q8_0 files
+measured there are byte-identical to the publisher's (sha256 d3334405...,
+f09bf094...). Its sampling is the card's (temperature 0.1, top-k 50, repeat
+penalty 1.05, also in the GGUF metadata). S1 still starts with the fit check.
 
 The three Qwen3.8-27B IQ3 files are also a publisher comparison at equal
 bits: same base model, standard llama.cpp formats, different quantizer
