@@ -46,7 +46,9 @@ own = ["HTP0:0", "HTP0:0", "HTP0:1", "HTP0:1"]
 def node(k, op, name, src):
     f = lambda s: f"{s[:20]:<20} (     ) [      x       ]"
     return f"node #{k:3d} ({op:>9}): {f(name)} use=1,c=0:{f(src)}"
-def graph(L, move=None, cpu_mid=False, out="output.weight", cpu0=(), hd=(), ):
+def graph(L, move=None, cpu_mid=False, out="output.weight", cpu0=(), hd=(), supp=(), cpu_empty=None):
+    for op, name, shape, verdict in supp:
+        L.append(f"ggml-hex: HTP0:0 supports-op {op}|a x b -> {name}|{shape} x {shape} -> {shape}|f32 x f32 -> f32|4:4 x 4:4 -> 4:4|NONE x NONE -> NONE|{verdict}")
     k = 0; L.append("## SPLIT #0: CPU # 0 inputs"); L.append(node(k, "GET_ROWS", "inp_embd", "token_embd.weight")); k += 1
     for op, src in cpu0: L.append(node(k, op, f"cpu0-{op}", src)); k += 1
     si = 1
@@ -59,10 +61,17 @@ def graph(L, move=None, cpu_mid=False, out="output.weight", cpu0=(), hd=(), ):
             if tgt == s: L.append(node(k, "MUL_MAT", f"mm-{n}", n)); k += 1
         if cpu_mid and s == "HTP0:0":
             L.append(f"## SPLIT #{si}: CPU # 1 inputs"); si += 1; L.append(node(k, "GATED_DELTA_NET", "gdn-1", "x")); k += 1
+        if cpu_empty and s == "HTP0:0":
+            L.append(f"## SPLIT #{si}: CPU # 1 inputs"); si += 1; L.append(node(k, cpu_empty[0], cpu_empty[1], "x")); k += 1
+            L.append(f"## SPLIT #{si}: HTP0:0 # 1 inputs"); si += 1
     L.append(node(k, "MUL_MAT", "result_output", out))
-def write(name, **kw):
-    L = [f"load_tensors: layer {i:3d} assigned to device {d}, is_swa = 0" for i, d in enumerate(own + ["HTP0:1"])]
-    graph(L, **kw); graph(L, **kw)
+def write(name, sizing=None, kw2=None, **kw):
+    L = []
+    if sizing is not None:   # an earlier phase (llama-server's parameter fitting): loader lines and its own graphs
+        L += [f"load_tensors: layer {i:3d} assigned to device {d}, is_swa = 0" for i, d in enumerate(own + ["HTP0:1"])]
+        graph(L, **sizing)
+    L += [f"load_tensors: layer {i:3d} assigned to device {d}, is_swa = 0" for i, d in enumerate(own + ["HTP0:1"])]
+    graph(L, **kw); graph(L, **(kw if kw2 is None else kw2))
     open(f"{W}/{name}", "w").write("\n".join(L) + "\n")
 write("q-ok.log"); write("q-move.log", move="blk.1.ffn_up.weight"); write("q-cpu.log", cpu_mid=True); write("q-out.log", out="token_embd.weight")
 H = ("HTP0:0", "HTP0:1"); RESTORE = (("MUL_MAT", "prism.hadamard.128"), ("MUL", "cpu0-MUL_MAT"))
@@ -70,6 +79,15 @@ write("q-hd.log", hd=H, cpu0=RESTORE)                                  # the emb
 write("q-hd-rms.log", hd=H, cpu0=RESTORE + (("RMS_NORM", "cpu0-MUL"),))   # plus a fallback sharing split #0
 write("q-hd-mm.log", hd=H, cpu0=RESTORE + (("MUL_MAT", "blk.0.ffn_up.weight"),))
 write("q-hd-missing.log", hd=("HTP0:0",), cpu0=RESTORE)                # no Hadamard input rotation under HTP0:1
+# phases and empty CPU splits (B1c-4B Step 1 result)
+write("q-phase.log", sizing=dict(hd=("HTP0:0",), cpu0=RESTORE), hd=H, cpu0=RESTORE)   # the sizing pass misplaced, the load right
+write("q-phase-bad.log", sizing=dict(hd=H, cpu0=RESTORE), hd=("HTP0:0",), cpu0=RESTORE)  # the reverse
+Z = [("ADD", "l_out-1", "2560:0", "no")]
+write("q-empty.log", hd=H, cpu0=RESTORE, supp=Z, cpu_empty=("ADD", "l_out-1"))           # zero-element decline, own graph
+write("q-empty-nz.log", hd=H, cpu0=RESTORE, supp=[("ADD", "l_out-1", "2560:1", "no")], cpu_empty=("ADD", "l_out-1"))
+write("q-empty-other.log", hd=H, cpu0=RESTORE, supp=Z, kw2=dict(hd=H, cpu0=RESTORE, cpu_empty=("ADD", "l_out-1")))
+write("q-empty-mixed.log", hd=H, cpu0=RESTORE, supp=Z + [("ADD", "l_out-1", "2560:1", "yes")], cpu_empty=("ADD", "l_out-1"))
+write("q-empty-mm.log", hd=H, cpu0=RESTORE, supp=[("MUL_MAT", "ffn_up-0", "2560:0", "no")], cpu_empty=("MUL_MAT", "blk.0.ffn_up.weight"))
 PY
 QR='attn_q|attn_k|attn_v|attn_output|attn_qkv|attn_gate|ssm_out|ssm_alpha|ssm_beta|ffn_gate|ffn_up|ffn_down'
 qexpect() { local name=$1 want=$2 log=$3; shift 3; n=$((n + 1)); out=$(python3 -I "$D/r2_placement.py" "$W/$log" --tensors "$W/q.tsv" --split 2,3 --sessions HTP0:0,HTP0:1 --variant NPU-R --roles "$QR" "$@" 2>&1); rc=$?
@@ -86,4 +104,12 @@ qexpect "the same log with the default first-split rule (GET_ROWS only): MISPLAC
 qexpect "B1 args: an RMS_NORM fallback sharing CPU split #0 (review of fd5e987): MISPLACED" 1 q-hd-rms.log "${B1[@]}"
 qexpect "B1 args: a block weight's MUL_MAT sharing CPU split #0: MISPLACED" 1 q-hd-mm.log "${B1[@]}"
 qexpect "B1 args: no Hadamard rotation under HTP0:1: MISPLACED" 1 q-hd-missing.log "${B1[@]}"
+qexpect "two phases, the sizing pass misplaced and the real load right: PLACED (last phase judged)" 0 q-phase.log "${B1[@]}"
+qexpect "two phases, the sizing pass right and the real load misplaced: MISPLACED" 1 q-phase-bad.log "${B1[@]}"
+qexpect "an extra CPU split of a zero-element declined ADD, without --empty-cpu-ok: MISPLACED" 1 q-empty.log "${B1[@]}"
+qexpect "the same with --empty-cpu-ok: PLACED" 0 q-empty.log "${B1[@]}" --empty-cpu-ok
+qexpect "--empty-cpu-ok, the declined ADD has a non-empty shape: MISPLACED" 1 q-empty-nz.log "${B1[@]}" --empty-cpu-ok
+qexpect "--empty-cpu-ok, the zero-element decline belongs to another graph: MISPLACED" 1 q-empty-other.log "${B1[@]}" --empty-cpu-ok
+qexpect "--empty-cpu-ok, the same name also queried non-empty in that graph's block: MISPLACED" 1 q-empty-mixed.log "${B1[@]}" --empty-cpu-ok
+qexpect "--empty-cpu-ok, a CPU split node not matching its declined name: MISPLACED" 1 q-empty-mm.log "${B1[@]}" --empty-cpu-ok
 echo "failures: $fails of $n"; exit $fails
