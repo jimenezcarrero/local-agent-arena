@@ -2,11 +2,13 @@ B1 alternative candidate: Ternary-Bonsai-2-4B Q2_0. CPU-only exploratory check o
 llama.cpp ff5a2337, done 2026-10-19, plus its size on one NPU session. Not an NPU stage, not a campaign run.
 
 Why (the owner, 2026-10-19: "Ok to look for smaller that fit ... and ok to see what new in the new version")
-  The Bonsai-2 family (prism-ml on Hugging Face, checked 2026-10-19): 27B (Qwen3.8-27B based) ships only PQ2_0 and
-  PTQ1_0 (5.9-7.2 GB), which upstream llama.cpp and ggml-hexagon reject (PrismML fork, CUDA/Metal/CPU), so it is out
-  for the NPU now. 9B, 4B and 2B ship a Q2_0 file that upstream runs. The 4B (Qwen3.5-4B based, same qwen35 hybrid as
-  the 9B: 24 linear-attention, 8 full-attention layers, tied embedding/LM head) fits one NPU session, so it avoids the
-  multi-session split and stays well below R2's suspected per-session limit.
+  The Bonsai-2 family (prism-ml on Hugging Face, checked 2026-10-19): the 27B's (Qwen3.8-27B based) compact ternary
+  packings are PQ2_0 and PTQ1_0 (5.9-7.2 GB), which upstream llama.cpp and ggml-hexagon reject (PrismML fork,
+  CUDA/Metal/CPU), and there is no upstream-compatible Q2_0 file (besides a 53.8 GB F16 reference, no board option),
+  so it is out for the NPU now. 9B, 4B and 2B ship a Q2_0 file that upstream runs. The 4B (Qwen3.5-4B based, same qwen35 hybrid as
+  the 9B: 24 linear-attention, 8 full-attention layers, tied embedding/LM head) is small enough that one NPU session
+  is planned for it, avoiding the multi-session split. By arithmetic only, its weights plus KV are below the total at
+  which R2's map was refused; that is not validated headroom or a measured limit, and only a load can show it fits.
 
 The file
   prism-ml/Ternary-Bonsai-2-4B-gguf Ternary-Bonsai-2-4B-Q2_0.gguf, 1,212,103,520 bytes, sha256
