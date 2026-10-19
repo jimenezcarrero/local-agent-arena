@@ -1,0 +1,61 @@
+B1c-4B Step 2: PASS. The NPU's outputs match the board's CPU reference within T3a's frozen thresholds at both ubatch
+sizes. Run 2026-10-20 00:35-01:02 +02:00, spec b1c-4b/SPEC.txt revision 4 (merged 9cc5b19, Codex READY at b63502d),
+the owner's approval of Steps 2-4 (2026-10-19, each after the previous step's PASS; Step 1 PASS: RESULT-step1-a3.txt).
+Arms run with step2-arm.sh (in the evidence), each a separate wrapper run. REF (cpu-ref.kld, sha256 7fd9868c...) was
+checked by the script before each arm (it refuses to launch otherwise). FARF files (~/npu-dev/farf, three, each sha256
+7acc31cd...) were checked before each arm.
+Identity and reference audit trail (review of df8a33a), stated as captured:
+  - before Step 2: 4b-step2-identity-before.txt (in the evidence; pkg-identity PASS, dpkg 0 differences, the FARF
+    hashes);
+  - after Step 2: step2-identity-after-step3-before.txt (next to this file), dated 2026-10-20T01:02:51+02:00, file
+    mtime 01:02:52, taken after 2c's END (01:01:51) and VERDICT (01:02:27) and before Step 3a's launch; it was made as
+    Step 3's pre-window record and is the first identity record after Step 2's windows (pkg-identity PASS, retry
+    library and .farf unchanged, measured checkout clean, dpkg 0 differences, the FARF hashes unchanged);
+  - between the arms: no identity record was taken (each arm's wrapper preflight ran as usual);
+  - REF after 2c: checked with sha256sum -c at about 01:02, after 2c's verdict and before the identity record above,
+    result OK; that output went only to the operator's session console and was not saved to a file, so this archive
+    does not hold it. A deviation from the spec's "checked after the last" as a recorded file; no evidence suggests a
+    change (the file is also re-hashed before every later use).
+  The acceptance below rests on the wrapper records and logs; the identity trail is complete before and after the
+  Step 2 period as a whole, not per arm.
+
+Parity against CPU-ref (llama-perplexity --kl-divergence, 10 chunks x 1,024, 5,110 scored positions, all complete and
+finite; the comparisons are of these aggregate statistics, not a per-position guarantee):
+                         mean KLD              99.0 % KLD   max KLD    top-1 ("Same top p")   PPL ratio
+  2a NPU  -ub 512        0.000154 +/- 0.000011  0.000975     0.046798   99.413 +/- 0.107 %     1.000473 +/- 0.000675
+  2b NPU  -ub 384        0.000154 +/- 0.000011  0.000981     0.046797   99.413 +/- 0.107 %     1.000613 +/- 0.000674
+  2c CPU-pkg -ub 512     0.000257 +/- 0.000019  0.001527     0.088010   99.178 +/- 0.126 %     1.000686 +/- 0.000701
+  T3a bars (NPU arms)    <= 0.01                <= 0.10                 >= 97 %
+  Both NPU arms pass every bar by a wide margin. 2c, the package's own CPU backend (built for armv8.2a+fp16+dotprod
+  on the laptop, B1a's compile flags), is further from CPU-ref (the board's native build) than either NPU arm: the
+  NPU's difference from the board's CPU is within the difference between two CPU builds of the same commit (an
+  observation on this text and model, not a general claim). 2c is valid and complete (wrapper PASS, 10 chunks, finite).
+
+Acceptance of the NPU arms (all PASS)
+  a. wrapper VERDICT PASS with DSP evidence: 2a 44 s, 2b 47 s (CPU-ref's base run took 29 min; not a speed result);
+     journal check "ok: 1 members, 205 lines"; DSP classes fault 0, benign_modtable 1, info 103 in each. 2c (no NPU,
+     --expect-dsp no): PASS, 1,285 s.
+  c. r2_mapped_peak.py 1950: 2a peak 1,733.9 MiB own + clones, pinned 10.4, total 1,744.3: WITHIN; 2b total
+     1,617.8: WITHIN.
+  d. d1 r2_placement.py (rev 3 invocation, --empty-cpu-ok): PLACED in both (2a: 27 last-phase graphs, 90 zero-extent
+     CPU splits dropped in 10 graphs; 2b: 37 graphs, 90 in 10). d2 by hand on every last-phase graph: each first CPU
+     split holds only GET_ROWS; the graphs with extra CPU splits are 10 per arm (each chunk's first ubatch requests no
+     outputs), 9 extra splits each, every node among that graph's 58 declines, all with a zero result dimension; all
+     others exactly CPU, HTP0:0; no other problem.
+  e. buffers (last phase): HTP0:0 model 1,145.43 MiB; KV 32.00 MiB; RS 50.25 MiB; compute 506.02 MiB (2a) and 379.52
+     MiB (2b), so RS + compute 556.27 / 429.77 MiB (<= 772); CPU compute 21.03 / 15.77 MiB. The NPU compute buffers
+     are within 1 % of the CPU-measured whole-graph figures (511.03 / 383.27) used for the budget.
+  Board: MemAvailable minimum 11,070 MiB (2a), 10,994 (2b), 12,181 (2c); floor 1,536.
+
+Deviation, recorded: during 2c's window (00:40-01:02, CPU only, no NPU) the payload tests of #83 ran on the board at
+00:44-00:46 (small loopback Python servers, about 2 minutes). 2c is deterministic CPU work whose summaries are judged
+for validity, not timed; its results are reported as measured. No other process ran during the NPU arms (2a and 2b
+ended before those tests began: 2a's END 00:36:22, the first test server 00:36:43; 2b ran 00:38:50-00:39:38).
+
+Not claimed: speed (Step 4), T5 on the NPU (Step 3), agent quality, campaign admission, or parity at other contexts,
+batch sizes or texts.
+
+Evidence: b1c-4b-step2-evidence-20261020.tar.gz, sha256 67879aa10ea51c837cccbe693e65d3c1625258359d5fe12d275e384ba874c5c1
+(10,160,634 bytes): the three wrapper directories with their logs, consoles, the budget measurement's logs, the
+identity record, the script. Redacted: boot ids in run.txt, the hostname in the journal exports; then scanned for the
+machine-id, the boot id, the hostname, MAC addresses, UUIDs, link-local addresses and key fingerprints: none.
