@@ -1,10 +1,11 @@
 B1c-4B (NPU dev, B1): Ternary-Bonsai-2-4B Q2_0 on ONE NPU session, compared with the board's CPU. PROPOSED for review,
 written 2026-10-19 on the owner's request ("Can you use the [board] in some of them to compare npu and cpu?", then "Ok
-write it"; order agreed: 4B first, then the 9B). Revision 3 (after Step 1's STOP, RESULT-step0-step1.txt; revision 2
-was reviewed at 24c0fdd). Nothing on the NPU runs before the
-review, the B1a package's checks and the owner's final go. Step 0 is CPU only and may run once this spec is reviewed.
-Executable here: Step 0 and Step 1. Steps 2-4 are sketches: each runs only after its own full commands, environment,
-timeouts, declared budgets and placement checks are added to this file in a reviewed commit, and the owner's go.
+write it"; order agreed: 4B first, then the 9B). Revision 4 (Step 2's commands and budget; revision 3, after Step
+1's first STOP, was reviewed at 7ffd847). Status: Step 0 PASS (RESULT-step0-step1.txt), Step 1 PASS on attempt 3
+(RESULT-step1-a3.txt). Executable now: Step 2, after this revision's review (the owner approved Steps 2-4 on
+2026-10-19, each after the previous step's PASS and Codex READY on its commands). Steps 3-4 are sketches: each runs
+only after its own full commands, environment, timeouts, declared budgets and placement checks are added to this file
+in a reviewed commit.
 
 Arms (this stage's own labels; the plan's CPU-A/CPU-B named R1's repack variants and are not used here)
   CPU-ref  the board's own CPU build of ff5a2337, ~/npu-dev/b1/llama.cpp/build-cpu (B1b's binaries.sha256): the
@@ -18,7 +19,8 @@ Inputs (each checked before use; any mismatch stops)
       64a5183b44921bdb5ac4a6f5f92007821d6ebe5c66997d3c147fd214ab9433d4 (b1-4b/RESULT-cpu.txt).
   P   the B1a package (laptop, tools/r1_build_master_x86.sh at BUILD_COMMIT ff5a23376725e5a889fa0bfb987b7541dc304da0),
       installed at ~/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337, checked against its own manifest, plus the
-      lib/libcdsprpc.so symlink after its ext check (k5-r2/README.txt staging note). Not yet built.
+      lib/libcdsprpc.so symlink after its ext check (k5-r2/README.txt staging note). Built and staged 2026-10-19
+      (tarball 9ce694a0..., 133 files OK; RESULT-step0-step1.txt).
   C   CPU-ref's build directory above.
   T   WikiText-2 raw test at the pinned revision of k5-t7/README.txt (zip ef7edb56..., wiki.test.raw 173c87a5...).
   K   the token file of Step 0b: 10 x 1,024 int32 ids, sha256
@@ -110,22 +112,61 @@ Step 1 (NPU, owner's go): load
     e. the last load phase's logged buffers: model = 1,145.43 +/- 0.01 MiB, KV <= 256.01 MiB, RS + compute <= 250
        MiB, all recorded (by hand).
 
-Step 2 (NPU, sketch until its reviewed commit): parity
-  Arms: NPU at -ub 512 and at -ub 384 (each 1,024-token chunk runs 384 + 384 + 256: a second size and a remainder
-  ubatch, as T3a option A), and CPU-pkg at -ub 512; each P's llama-perplexity with --kl-divergence-base cpu-ref.kld
-  --kl-divergence, -c 1024 -b 1024 --chunks 10 -t 8 -fa on, under the wrapper with the same environment as Step 1.
-  PASS for each NPU size: mean KLD <= 0.01, 99th-percentile KLD <= 0.10, top-1 ("Same top p") >= 97 %, every value
-  finite, all 10 chunks and 5,110 positions (T3a's frozen thresholds; never enlarged after NPU results; CPU noise does
-  not loosen them). Perplexity reported, secondary. CPU-pkg reported as the cross-build floor, and must itself be
-  valid and complete.
-  Budget, required in the reviewed commit before Step 2: the perplexity graph is not the server's. llama-perplexity
-  requests logits for every position >= 512 of each chunk, so one 512-position F32 output is 512 x 248,320 x 4 =
-  508,559,360 bytes (485 MiB) before any other copy, and the NPU compute buffers, clones and host output/staging
-  depend on the ubatch shape. Step 1's measured buffers inform the budget but do not bound it. The commit must give,
-  for each ubatch shape (512; 384 and its 256 remainder), either a dry-run ledger of this exact graph (all-logits
-  output) or a separately justified conservative bound, including host output and staging; the declared peaks; and
-  the measured-budget and placement acceptance checks of the parity run itself (as Step 1 c-e), not only its
-  statistical thresholds.
+Step 2 (NPU, revision 4: executable after its review; the owner approved Steps 2-4 on 2026-10-19, each after the
+previous step's PASS, and Step 1 passed: RESULT-step1-a3.txt): parity
+  Arms, in this order, each a separate wrapper run (any STOP ends Step 2 there):
+    2a NPU at -ub 512; 2b NPU at -ub 384 (each 1,024-token chunk runs 384 + 384 + 256: a second size and a remainder
+    ubatch, as T3a option A); 2c CPU-pkg at -ub 512 (P's own CPU backend, --device none, no NPU).
+  DSP logging (review of d41ffd1): FastRPC names the logging file after the process (log_config.c builds
+  "<basename>.farf"), so llama-perplexity needs llama-perplexity.farf; ~/v0/farf holds only llama-server.farf. Steps
+  2-4 use their own directory F = ~/npu-dev/farf holding llama-server.farf, llama-perplexity.farf and llama-bench.farf,
+  each byte-identical to the campaign's ~/v0/farf/llama-server.farf ("0x1f", sha256 7acc31cd...), so the campaign
+  directory is not changed. Before each NPU window the three files are checked against that hash and recorded with
+  the identity record; ADSP_LIBRARY_PATH="$HOME/npu-dev/farf;$P/lib". Acceptance a (library-open and CDSP0 lines)
+  is unchanged.
+  Common: P, M and REF = ~/npu-dev/b1/b1c-4b/step0/cpu-ref.kld (sha256 7fd9868c..., checked before each arm and
+  after the last); no -f (--kl-divergence evaluates the tokens stored in REF). The launcher bin/llama-perplexity is the
+  package's common launcher, so the implementation and core libraries are hashed too.
+    npu_dev_run.sh --stage b1 --run 4b-parity-<arm> --timeout 5400 --expect-dsp <yes for 2a/2b, no for 2c> \
+      --floor-mib 1536 --stall-s 120 [--declared-peak-mib 1950 for 2a/2b] --declared-board-mib 4500 \
+      --hash $M --hash $P/bin/llama-perplexity --hash $P/lib/libllama-perplexity-impl.so --hash $P/lib/libllama.so.0.7.0 \
+      --hash $P/lib/libggml-base.so.0.27.0 --hash $P/lib/libggml-hexagon.so.0.27.0 --hash $P/lib/libggml-htp-v75.so \
+      --env GGML_HEXAGON_NHMX=1 --env LD_LIBRARY_PATH=$P/lib --env "ADSP_LIBRARY_PATH=$HOME/npu-dev/farf;$P/lib" \
+      --env GGML_HEXAGON_DEVICES=HTP0:0 --env GGML_HEXAGON_VERBOSE=1 --env GGML_SCHED_DEBUG=2 -- \
+      $P/bin/llama-perplexity -m $M --kl-divergence-base $REF --kl-divergence -c 1024 -b 1024 -ub <512|384> \
+        --chunks 10 -t 8 -fa on -lv 5 <-ngl 999 --device HTP0:0 for 2a/2b | -ngl 0 --device none for 2c>
+    (llama-perplexity writes its log to the wrapper's stderr.txt; that file is the "log" below.)
+  Budget (an estimate and allowance, from a measurement of this exact graph on the CPU; not a proven bound). The graph is reserved with
+  n_outputs = min(ubatch, n_outputs_max = n_batch 1024) (llama-context.cpp:770 at ff5a2337), so 512 (or 384) output
+  rows, unlike the server's 1. Measured on the board's CPU build of the same commit, same model, -c 1024 -b 1024
+  (evidence 4b-step2-budget-cpu-*, CPU only, no NPU): the whole graph's compute buffer is 511.03 MiB at -ub 512 and
+  383.27 MiB at -ub 384 (the 256 remainder ubatch is smaller and reuses the reservation); KV 32.00 MiB; RS 50.25 MiB
+  (each measuring run was stopped by its 900 s timeout after chunk 5: only the buffer sizes logged at start-up are
+  used; they are not parity results). For the NPU arms the session holds the weights (1,145.43 MiB,
+  Step 1), KV, RS and the session's compute buffer, which holds the output layer's logits (512 x 248,320 x 4 bytes =
+  485 MiB at -ub 512) and almost all of the graph; the CPU split holds only the embedding lookup. Allowance per session:
+  1,145.43 + 32.00 + 50.25 + 1.25 x 511.03 (the whole CPU graph, plus 25 % for the backend's own alignment and
+  tiling, not measured) = 1,866.5, rounded up to 1,950 declared. Board: NPU 1,950 + CPU input embedding 170.5 + the
+  host output buffer (llama-context.cpp output_reserve: n_vocab x outputs per decode, about 512 x 248,320 x 4 bytes =
+  485 MiB; perplexity configures no backend samplers, so the 2 x n_vocab sampler buffers are not allocated) + the
+  reference's per-chunk log-probabilities read by perplexity (511 x 248,324 x 2 bytes = 242 MiB, two buffers allowed)
+  + CPU compute (only the embedding lookup; 100 allowed) + about 660 for the process = 3,850, rounded up to 4,500.
+  This is an allowance, not a ledger: R2's suspected per-session limit (a map refused at 2,144.55 MiB, not isolated)
+  leaves about 194 MiB above the declared 1,950.
+  Acceptance of each NPU arm (all needed; any one failed stops Step 2):
+    a. the wrapper's verdict PASS, with DSP evidence;
+    c. tools/r2_mapped_peak.py <log> 1950 --sessions HTP0:0: WITHIN;
+    d. placement: d1 tools/r2_placement.py <log> with Step 1's rev 3 invocation (--empty-cpu-ok): PLACED; d2 by hand
+       as Step 1 (every graph; zero-extent splits only; the first ubatch of each chunk requests no outputs, so its
+       graph is expected to show the zero-extent tail);
+    e. logged buffers: HTP0:0 model 1,145.43 +/- 0.01 MiB, KV <= 32.01 MiB, RS + compute <= 1950 - 1,177.4 = 772
+       MiB, all recorded;
+    p. parity: mean KLD <= 0.01, 99th-percentile KLD <= 0.10, top-1 ("Same top p") >= 97 %, every value finite,
+       the log shows all 10 chunks (5,110 positions) (T3a's frozen thresholds; never enlarged after NPU results; CPU
+       noise does not loosen them). Perplexity reported, secondary.
+  2c (CPU-pkg) must be valid and complete (wrapper PASS without DSP expectation, 10 chunks, finite summaries); it is
+  reported as the cross-build floor, not thresholded.
+  Order and stops: 2a, then 2b only if 2a passes, then 2c. REF's sha256 is checked before 2a and after 2c.
 
 Step 3 (NPU, sketch until its reviewed commit; after Step 2 PASS): T5 on the NPU
   P's llama-server on HTP0:0 (explicit -ngl 999 --device HTP0:0; --jinja and --slot-save-path do not select the
