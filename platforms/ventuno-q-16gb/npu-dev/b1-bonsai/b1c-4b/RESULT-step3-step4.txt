@@ -42,17 +42,19 @@ Step 4 (llama-bench -m M -fa 1 -p 512 -n 128 -r 3 -ngl 999 -dev HTP0:0 -o md -v)
   Acceptance: a. wrapper PASS, 38 s, DSP evidence (216 lines; fault 0, benign_modtable 1, info 130), llama-bench exit
   0; c. r2_mapped_peak.py 1950: peak 1,717.4 own + clones, pinned 10.4, total 1,727.8 MiB: WITHIN; d. d1 PLACED (one
   phase, 19 graphs, no extra CPU split at all), d2 by hand: all 19 exactly CPU, HTP0:0, first CPU split GET_ROWS only;
-  the md table's dev column is HTP0:0; e. model 1,145.43 MiB (llama-bench's contexts: KV 8.00 MiB at the largest shape,
+  the md table's dev column is HTP0:0; e. model 1,145.43 MiB (llama-bench's contexts: KV 16.00 MiB for the first and 8.00 MiB for the second,
   compute up to 505.52 MiB, RS 50.25). Board MemAvailable minimum 11,793 MiB.
 
 Not claimed: agent quality or campaign admission (V0e and the arenas stay separate and needed), speed at long
 contexts, or anything about the 9B.
 
 Evidence: b1c-4b-step3-step4-evidence-20261020.tar.gz, sha256
-a89586be9b4635300fccb95e567c1641ea55f54d1730f3f51287e60a099d28c3 (9,911,618 bytes): the three wrapper directories
+d887f6c33273d56906d939f478c9b72713b138b2b44541a7827eef962c9d60d5 (17,549,113 bytes): the three wrapper directories
 except the full server/stderr logs, which are too large for the repository (741, 450 and 134 MB, in bytes / 10^6); for each, an extract
-(checks-extract.log.gz) of exactly the lines the checks read (loader, split, node, declined supports-op, buffer and
-mapping lines), on which r2_mapped_peak.py, r2_placement.py and d2audit.py reproduce the results above; the identity
+(checks-extract.log.gz) of the lines the checks read, in log order (loader, split and node lines, every supports-op
+query, accepted and declined, buffer and mapping lines; made by make_extract.sh, in the evidence, a fixed grep of the
+full log; review of 5f2d4d6: the first extracts kept only declined queries), on which r2_mapped_peak.py,
+r2_placement.py and d2audit.py reproduce the results above; the identity
 records, consoles, scripts and d2audit.py. The full logs stay on the board, gzipped, with the sha256 of each
 uncompressed log taken before compression: 3a 290885d6..., 3b 9d3bdb33..., Step 4 4f6d6fd8... (gz files fd2eac01...,
 0e266460..., b5e7f6ff...). Redacted: boot ids in run.txt, the hostname in the journal exports; then scanned (including
