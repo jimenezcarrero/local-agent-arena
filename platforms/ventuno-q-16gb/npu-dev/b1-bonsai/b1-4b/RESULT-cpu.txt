@@ -1,0 +1,56 @@
+B1 alternative candidate: Ternary-Bonsai-2-4B Q2_0. CPU-only exploratory check on the VENTUNO Q board with upstream
+llama.cpp ff5a2337, done 2026-10-19, plus its size on one NPU session. Not an NPU stage, not a campaign run.
+
+Why (the owner, 2026-10-19: "Ok to look for smaller that fit ... and ok to see what new in the new version")
+  The Bonsai-2 family (prism-ml on Hugging Face, checked 2026-10-19): the 27B's (Qwen3.8-27B based) compact ternary
+  packings are PQ2_0 and PTQ1_0 (5.9-7.2 GB), which upstream llama.cpp and ggml-hexagon reject (PrismML fork,
+  CUDA/Metal/CPU), and there is no upstream-compatible Q2_0 file (besides a 53.8 GB F16 reference, no board option),
+  so it is out for the NPU now. 9B, 4B and 2B ship a Q2_0 file that upstream runs. The 4B (Qwen3.5-4B based, same qwen35 hybrid as
+  the 9B: 24 linear-attention, 8 full-attention layers, tied embedding/LM head) is small enough that one NPU session
+  is planned for it, avoiding the multi-session split. By arithmetic only, its weights plus KV are below the total at
+  which R2's map was refused; that is not validated headroom or a measured limit, and only a load can show it fits.
+
+The file
+  prism-ml/Ternary-Bonsai-2-4B-gguf Ternary-Bonsai-2-4B-Q2_0.gguf, 1,212,103,520 bytes, sha256
+  64a5183b44921bdb5ac4a6f5f92007821d6ebe5c66997d3c147fd214ab9433d4 (the repository's SHA256SUMS; checked).
+  On the board in ~/npu-dev/b1/models/. Apache-2.0.
+
+CPU result (same script and settings as the 9B's B1b, ../b1b-cpu/RESULT.txt; same binaries, sha256 lists identical)
+  Smoke (greedy, 48 tokens, "The capital of France is"): " Paris." then other capitals, correct; 3.03 t/s.
+  T5 (the frozen 20 requests, k5-t7/t5-requests.json, --timeout 900):
+    template default (thinking on):                   passes 20/20, valid 20/20
+    --chat-template-kwargs '{"enable_thinking":false}': passes 20/20, valid 20/20
+  llama-bench -fa 1 -p 512 -n 128 -r 3, 8 threads:   pp512 6.44 +/- 0.00 t/s, tg128 3.14 +/- 0.04 t/s
+    (the 9B on the same build and board: 3.43 and 2.17)
+
+  Per trial (median = mean of the two middle values of 20):
+                     generated tokens min/median/max   seconds min/median/max   reasoning_content present
+    thinking on      58 / 75.5 / 127                   211 / 219 / 241          20 of 20
+    thinking off     27 / 39.5 / 63                    200 / 205 / 218          0 of 20
+  Prompts 1,197-1,222 tokens at a median 6.3 t/s in the server; generation a median 2.58 t/s in both arms.
+
+  Interruption: the first run (cpu4b-20261019-060923) was cut by an abrupt board reset at 06:10:31 (sar records LINUX
+  RESTART; that boot's journal ends at 06:10:17 with no shutdown sequence) during its first thinking-on trial, after
+  the smoke; no trial was completed. It is kept with INTERRUPTED.txt and not counted. The whole check was rerun from
+  the start (cpu4b-20261019-080835); every figure above is from the rerun.
+
+Size on one NPU session (table-bonsai2-4b-q2_0.txt/.tsv, tools/gguf_tensor_table.py, header only, ctx 8192)
+  201 Q2_0 tensors (4,200.9 M params) and 225 F32. The tool's NPU allocation is 1,145.43 MiB: the 32 blocks plus the
+  output layer, which is the tied input embedding duplicated (170.5 MiB); the input embedding itself (170.5 MiB) on
+  the CPU. KV at ctx 8192: 256 MiB F16 (8 attention layers); at 16384: 512 MiB.
+  HTP0:0 at ctx 8192: weights 1,145 + KV 256 = 1,401 MiB before recurrent state and compute (at 16384: 1,657 MiB).
+  Against R2's refused map at 2,144.55 MiB in one session (suspected limit, not isolated): about 740 MiB of room at
+  8192, about 490 MiB at 16384, before compute buffers (R2's sessions logged 60-101 MiB).
+  Unverified placement question: with -ot 'token_embd\.weight=CPU' (as B1c's command uses), the tied output copy may
+  also be overridden to the CPU, since the duplicate carries the same tensor name; then the NPU holds about 975 MiB and
+  the LM head runs on the CPU. Which buffer the copy lands in is a load observation, not a fit claim (by buffer
+  identity in the log); a 4B load stage would state its expected placement and check it.
+
+Not claimed: anything about the NPU, the publisher's quality figures, campaign fitness, or that the 4B and the 9B are
+equally good: T5 checks single tool calls only, and both pass it. A 4B NPU load would be a new stage (B1c-4B) with its
+own reviewed command, budgets and PASS conditions, run only on the owner's approval.
+
+Evidence
+  b1-4b-cpu-evidence-20261019.tar.gz, sha256 3228fab19cc3ae1e44761ebe6991501be6a46702790290104851f3ac30156065 (28,757
+  bytes): both run directories and the script. Scanned before packing for the machine-id, the boot id, the hostname,
+  MAC addresses and UUIDs: none found.
