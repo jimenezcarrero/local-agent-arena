@@ -1,11 +1,10 @@
 B1c-4B (NPU dev, B1): Ternary-Bonsai-2-4B Q2_0 on ONE NPU session, compared with the board's CPU. PROPOSED for review,
 written 2026-10-19 on the owner's request ("Can you use the [board] in some of them to compare npu and cpu?", then "Ok
-write it"; order agreed: 4B first, then the 9B). Revision 4 (Step 2's commands and budget; revision 3, after Step
-1's first STOP, was reviewed at 7ffd847). Status: Step 0 PASS (RESULT-step0-step1.txt), Step 1 PASS on attempt 3
-(RESULT-step1-a3.txt). Executable now: Step 2, after this revision's review (the owner approved Steps 2-4 on
-2026-10-19, each after the previous step's PASS and Codex READY on its commands). Steps 3-4 are sketches: each runs
-only after its own full commands, environment, timeouts, declared budgets and placement checks are added to this file
-in a reviewed commit.
+write it"; order agreed: 4B first, then the 9B). Revision 5 (Steps 3-4's commands and budgets; revision 4, Step 2's, was reviewed at b63502d; revision 3, after
+Step 1's first STOP, at 7ffd847). Status: Step 0 PASS (RESULT-step0-step1.txt), Step 1 PASS on attempt 3
+(RESULT-step1-a3.txt). Executable: Step 2 (reviewed at b63502d), and Steps 3-4 after this revision's review, each
+only after the previous step's PASS (the owner approved Steps 2-4 on 2026-10-19, each after the previous step's PASS
+and Codex READY on its commands).
 
 Arms (this stage's own labels; the plan's CPU-A/CPU-B named R1's repack variants and are not used here)
   CPU-ref  the board's own CPU build of ff5a2337, ~/npu-dev/b1/llama.cpp/build-cpu (B1b's binaries.sha256): the
@@ -168,19 +167,54 @@ previous step's PASS, and Step 1 passed: RESULT-step1-a3.txt): parity
   reported as the cross-build floor, not thresholded.
   Order and stops: 2a, then 2b only if 2a passes, then 2c. REF's sha256 is checked before 2a and after 2c.
 
-Step 3 (NPU, sketch until its reviewed commit; after Step 2 PASS): T5 on the NPU
-  P's llama-server on HTP0:0 (explicit -ngl 999 --device HTP0:0; --jinja and --slot-save-path do not select the
-  device) with B1b's settings (-c 8192 -np 1 --cache-ram 0 --slot-save-path <dir> --jinja -fa on), the frozen 20
-  requests with fresh paired payloads as B1b, thinking on (template default) and off (--chat-template-kwargs
-  '{"enable_thinking":false}'), r1_t5_screen.py --timeout 900, under the wrapper with --expect-dsp yes, a timeout and
-  declared budgets. Rule: each arm valid and passes >= 17/20 and >= the CPU arm's count - 2 (B1b-4B: 20/20 both, so
-  >= 18/20). The screen exits 0 for a valid run whatever its pass count: the stage reads the count, and an invalid run
-  or a count below the rule stops progression.
+Step 3 (NPU, revision 5: executable after its review and Step 2's PASS): T5 on the NPU
+  Two arms, each a separate wrapper run, in order (any STOP or failed rule ends Step 3 there): 3a thinking on (the
+  template's default), 3b thinking off. The payload is tools/b1_t5_payload.sh (new in this revision, tests
+  test_b1_t5_payload.sh): it starts the server, waits for /health, runs the frozen screen (r1_t5_screen.py,
+  k5-t7/t5-requests.json, per-request timeout 900 s, fresh paired payloads as B1b), and stops the server cleanly.
+  For each arm, O = ~/bench-runs/npu-dev/b1/4b-t5-<on|off>, S = $O-slots (created empty before the window):
+    npu_dev_run.sh --stage b1 --run 4b-t5-<on|off> --timeout 7200 --expect-dsp yes --floor-mib 1536 --stall-s 120 \
+      --declared-peak-mib 1700 --declared-board-mib 2800 \
+      --hash $M --hash $P/bin/llama-server --hash $P/lib/libllama-server-impl.so --hash $P/lib/libllama.so.0.7.0 \
+      --hash $P/lib/libggml-base.so.0.27.0 --hash $P/lib/libggml-hexagon.so.0.27.0 --hash $P/lib/libggml-htp-v75.so \
+      --env GGML_HEXAGON_NHMX=1 --env LD_LIBRARY_PATH=$P/lib --env "ADSP_LIBRARY_PATH=$HOME/npu-dev/farf;$P/lib" \
+      --env GGML_HEXAGON_DEVICES=HTP0:0 --env GGML_HEXAGON_VERBOSE=1 --env GGML_SCHED_DEBUG=2 -- \
+      /bin/bash tools/b1_t5_payload.sh $O/payload 18090 900 bonsai4b-npu-<on|off> 900 -- \
+        $P/bin/llama-server -m $M -c 8192 -np 1 --cache-ram 0 --slot-save-path $S --jinja -fa on -b 2048 -ub 512 \
+        -ngl 999 --device HTP0:0 -lv 5 --no-webui [3b only: --chat-template-kwargs '{"enable_thinking":false}']
+  B1b's CPU arm used the same server settings except the device (-b 2048 -ub 512 are llama-server's defaults).
+  Budget: the server reserves one output row (n_outputs_max 1, Step 1's log), so Step 1's measured figures apply:
+  weights 1,145.43 + KV 256 + RS 50.25 + compute 87.02 = 1,538.7 MiB (Step 1 peak 1,549.3 with pinned); declared 1,700
+  per session and 2,800 for the board, as Step 1 (allowances; the 20 requests are about 1,200 prompt tokens each,
+  well inside -c 8192).
+  Acceptance of each arm (all needed):
+    a. the wrapper's verdict PASS with DSP evidence; the payload exit 0 (server ready, screen exit 0 = a valid run,
+       clean stop);
+    c. tools/r2_mapped_peak.py $O/payload/server.log 1700 --sessions HTP0:0: WITHIN;
+    d. placement d1 (Step 1's rev 3 invocation on $O/payload/server.log): PLACED; d2 by hand on every graph as Step 1;
+    e. the last load phase's buffers as Step 1 (model 1,145.43 +/- 0.01, KV <= 256.01, RS + compute <= 250 MiB);
+    t. the screen's last line "T5 bonsai4b-npu-<arm>: passes P/20, valid 20/20" with P >= 17 and P >= the CPU arm's
+       count - 2 (B1b-4B: 20/20 in both profiles, so P >= 18). The screen exits 0 for any valid run, so the stage reads
+       P from screen.console; an invalid run or P below the rule stops Step 3.
 
-Step 4 (NPU, sketch until its reviewed commit; only after Step 3 PASS): speed
-  P's llama-bench -m M -fa 1 -p 512 -n 128 -r 3 -ngl 999 --device HTP0:0, under the wrapper with --expect-dsp yes,
-  a timeout and declared budgets; reported next to CPU-ref's figures (pp512 6.44, tg128 3.14 t/s). No threshold: a
-  measurement. If Step 3 fails, a speed run is a separate diagnostic that needs its own approval.
+Step 4 (NPU, revision 5: executable after its review and Step 3's PASS): speed
+  One wrapper run, O = ~/bench-runs/npu-dev/b1/4b-bench:
+    npu_dev_run.sh --stage b1 --run 4b-bench --timeout 3600 --expect-dsp yes --floor-mib 1536 --stall-s 120 \
+      --declared-peak-mib 1950 --declared-board-mib 3500 \
+      --hash $M --hash $P/bin/llama-bench --hash $P/lib/libllama-bench-impl.so --hash $P/lib/libllama.so.0.7.0 \
+      --hash $P/lib/libggml-base.so.0.27.0 --hash $P/lib/libggml-hexagon.so.0.27.0 --hash $P/lib/libggml-htp-v75.so \
+      --env (the same six as Step 3) -- \
+      $P/bin/llama-bench -m $M -fa 1 -p 512 -n 128 -r 3 -ngl 999 -dev HTP0:0 -o md -v
+  (-v makes llama-bench log at debug level, so the loader, buffer, mapping and scheduler lines are in stderr.txt.)
+  Budget: llama-bench reserves ubatch-sized outputs (n_outputs_max = n_batch, as perplexity), so Step 2a's measured
+  figures bound it: weights 1,145.43 + KV for 640 tokens (at most 32 MiB) + RS 50.25 + compute 506.02 = 1,733.7 MiB
+  (2a's peak 1,744.3 with pinned); declared 1,950 per session (as Step 2); board 3,500 (NPU 1,950 + embedding 170.5 +
+  host logits for at most 512 outputs 485 + CPU compute 100 + process 660 = 3,366).
+  Acceptance (all needed): a. wrapper PASS with DSP evidence and llama-bench exit 0; c. r2_mapped_peak.py on stderr.txt
+  1950: WITHIN; d. d1 (Step 1's rev 3 invocation on stderr.txt): PLACED, and d2 by hand; the md table's backend
+  column names the NPU device; e. the last load phase's model 1,145.43 +/- 0.01 MiB. Reported: pp512 and tg128 with
+  their spread next to CPU-ref's (6.44 and 3.14 t/s, B1b-4B). No speed threshold: a measurement. If Step 3 fails, a
+  speed run is a separate diagnostic that needs its own approval.
 
 Stops and risks
   Any fault, stall, wrapper FAIL or board reset ends the stage at that step; nothing is re-run without the owner.
