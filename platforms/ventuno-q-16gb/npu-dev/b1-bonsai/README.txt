@@ -31,7 +31,8 @@ Stages (each ends with a written result in this folder)
   B1a (laptop, offline) Package: tools/r1_build_master_x86.sh with BUILD_COMMIT=ff5a23376725e5a889fa0bfb987b7541dc304da0
       BUILD_COMMIT_DATE=2026-10-18T17:48:47Z, from a reviewed commit (#75 adds the option). Output
       pkg-unpatched-ff5a2337-<stamp>.tar.gz and its manifest, sent to the board.
-  B1b (board, CPU only, done 2026-10-19 as an exploratory check; result to be added here): upstream ff5a2337 CPU build
+  B1b (board, CPU only, done 2026-10-19 as an exploratory check; b1b-cpu/RESULT.txt: T5 20/20 with thinking on and
+      off, pp512 3.43 t/s, tg128 2.17 t/s): upstream ff5a2337 CPU build
       on the board, the file's smoke generation, the frozen T5 screen (k5-t7/t5-requests.json) with the template's
       default and with thinking disabled, llama-bench pp512/tg128. The CPU arm for B1c's comparison.
   B1c (NPU, owner's approval) Load. Staged as R2 with its fixes: the package checked against its own manifest, the
