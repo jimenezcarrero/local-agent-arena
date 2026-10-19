@@ -1,6 +1,7 @@
 B1c-4B (NPU dev, B1): Ternary-Bonsai-2-4B Q2_0 on ONE NPU session, compared with the board's CPU. PROPOSED for review,
 written 2026-10-19 on the owner's request ("Can you use the [board] in some of them to compare npu and cpu?", then "Ok
-write it"; order agreed: 4B first, then the 9B). Revision 2 (review of 04e7d04). Nothing on the NPU runs before the
+write it"; order agreed: 4B first, then the 9B). Revision 3 (after Step 1's STOP, RESULT-step0-step1.txt; revision 2
+was reviewed at 24c0fdd). Nothing on the NPU runs before the
 review, the B1a package's checks and the owner's final go. Step 0 is CPU only and may run once this spec is reviewed.
 Executable here: Step 0 and Step 1. Steps 2-4 are sketches: each runs only after its own full commands, environment,
 timeouts, declared budgets and placement checks are added to this file in a reviewed commit, and the owner's go.
@@ -55,11 +56,17 @@ Step 0 (CPU only, before the laptop): the reference
   Step 0 result: a RESULT file in b1c-4b/ with the hashes, sizes, summaries and evidence (scanned for identifiers).
 
 Step 1 (NPU, owner's go): load
-  As B1c (b1-bonsai/README.txt) with one session, under the wrapper, O = ~/bench-runs/npu-dev/b1/4b-load1:
-    npu_dev_run.sh --stage b1 --run 4b-load1 --timeout 1800 --expect-dsp yes --floor-mib 1536 --stall-s 120 \
+  Revision 3 changes, from Step 1's STOP (RESULT-step0-step1.txt): (1) DSP-side logging: ~/v0/farf first on
+  ADSP_LIBRARY_PATH, the campaign's form (phase-v0 arm F; every A32 run), without the retry library since P is
+  unpatched; before the window ~/v0/farf/llama-server.farf must read 0x1f (identity.sh records it), and the wrapper's
+  DSP-evidence check must then find the library-open and CDSP0 lines; (2) d1 judges the last load phase only (the
+  tool now does) and takes --empty-cpu-ok; d2 accepts the same zero-extent splits only. Run name 4b-load1-a3 (attempts
+  1 and 2 are kept). The same ADSP_LIBRARY_PATH is used in Steps 2-4.
+  As B1c (b1-bonsai/README.txt) with one session, under the wrapper, O = ~/bench-runs/npu-dev/b1/4b-load1-a3:
+    npu_dev_run.sh --stage b1 --run 4b-load1-a3 --timeout 1800 --expect-dsp yes --floor-mib 1536 --stall-s 120 \
       --declared-peak-mib 1700 --declared-board-mib 2800 \
       --hash $M --hash $P/bin/llama-server --hash $P/lib/libllama-server-impl.so --hash $P/lib/libggml-htp-v75.so \
-      --env GGML_HEXAGON_NHMX=1 --env LD_LIBRARY_PATH=$P/lib --env ADSP_LIBRARY_PATH=$P/lib \
+      --env GGML_HEXAGON_NHMX=1 --env LD_LIBRARY_PATH=$P/lib --env "ADSP_LIBRARY_PATH=$HOME/v0/farf;$P/lib" \
       --env GGML_HEXAGON_DEVICES=HTP0:0 --env GGML_HEXAGON_VERBOSE=1 --env GGML_SCHED_DEBUG=2 -- \
       /bin/bash tools/r2_load_probe.sh $O/probe 18090 900 -- $P/bin/llama-server -m $M -c 8192 -np 1 -fa on \
         -b 2048 -ub 512 -ngl 999 --device HTP0:0 --cache-ram 0 -lv 5 --no-webui
@@ -85,14 +92,19 @@ Step 1 (NPU, owner's go): load
        d1. automated: tools/r2_placement.py $O/probe/server.log --tensors b1-bonsai/b1-4b/table-bonsai2-4b-q2_0.tsv
            --split 33 --sessions HTP0:0 --variant NPU-R --types Q2_0 --output-weight token_embd.weight
            --roles 'attn_q|attn_k|attn_v|attn_output|attn_qkv|attn_gate|ssm_out|ssm_alpha|ssm_beta|ffn_gate|ffn_up|ffn_down'
-           --cpu-first 'GET_ROWS,MUL_MAT@prism.hadamard,MUL' --session-src0 prism.hadamard
+           --cpu-first 'GET_ROWS,MUL_MAT@prism.hadamard,MUL' --session-src0 prism.hadamard --empty-cpu-ok
            : PLACED (Codex's offline fixture with the real 4B table shows the tool accepts this invocation and fails
            when result_output moves to a CPU split; that is parser support, not board placement);
        d2. by hand, by buffer identity and from the raw log: every block weight in HTP0:0's model buffer, the
            duplicated output in HTP0:0's buffer (not the CPU's), token_embd.weight's input copy in the CPU buffer;
            every graph's splits exactly CPU, HTP0:0; every graph's CPU split holds only the embedding restore's chain
            (GET_ROWS, the prism.hadamard MUL_MAT, its MUL; MUL count at most the Hadamard MUL_MAT count), as B1c d.
-       Any extra CPU split (an op the NPU did not take) is a placement mismatch and fails d, even when listed. If the
+       Any extra CPU split (an op the NPU did not take) is a placement mismatch and fails d, even when listed, with one
+       exception (revision 3): a split whose every node is zero-extent in that graph, i.e. declined by the backend with a
+       zero-element result shape in that graph's own supports-op records (a graph that requests no output rows crops
+       the last layer to zero rows; ggml-cpu returns at once for empty tensors, so such nodes do no arithmetic). The
+       tool drops only those (--empty-cpu-ok, its tests in test_r2_placement.sh) and d2 confirms them by hand from the
+       raw log. Non-empty CPU fallback stays a mismatch. If the
        output lands on the CPU, that is recorded as the observed placement and d fails (no re-run without a revised,
        reviewed command). d1 and d2 are reported separately;
     e. the last load phase's logged buffers: model = 1,145.43 +/- 0.01 MiB, KV <= 256.01 MiB, RS + compute <= 250
