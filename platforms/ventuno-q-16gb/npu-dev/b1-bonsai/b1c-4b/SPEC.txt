@@ -1,7 +1,16 @@
 B1c-4B (NPU dev, B1): Ternary-Bonsai-2-4B Q2_0 on ONE NPU session, compared with the board's CPU. PROPOSED for review,
 written 2026-10-19 on the owner's request ("Can you use the [board] in some of them to compare npu and cpu?", then "Ok
-write it"; order agreed: 4B first, then the 9B). Nothing on the NPU runs before the review, the B1a package's checks
-and the owner's final go. Step 0 is CPU only and may run once this spec is reviewed.
+write it"; order agreed: 4B first, then the 9B). Revision 2 (review of 04e7d04). Nothing on the NPU runs before the
+review, the B1a package's checks and the owner's final go. Step 0 is CPU only and may run once this spec is reviewed.
+Executable here: Step 0 and Step 1. Steps 2-4 are sketches: each runs only after its own full commands, environment,
+timeouts, declared budgets and placement checks are added to this file in a reviewed commit, and the owner's go.
+
+Arms (this stage's own labels; the plan's CPU-A/CPU-B named R1's repack variants and are not used here)
+  CPU-ref  the board's own CPU build of ff5a2337, ~/npu-dev/b1/llama.cpp/build-cpu (B1b's binaries.sha256): the
+           reference that every other arm is compared with.
+  CPU-pkg  the B1a package's llama-perplexity with -ngl 0 and no NPU device (the package's own CPU backend): the
+           cross-build noise floor (Step 2).
+  NPU      the B1a package on HTP0:0.
 
 Inputs (each checked before use; any mismatch stops)
   M   ~/npu-dev/b1/models/Ternary-Bonsai-2-4B-Q2_0.gguf, 1,212,103,520 bytes, sha256
@@ -9,24 +18,41 @@ Inputs (each checked before use; any mismatch stops)
   P   the B1a package (laptop, tools/r1_build_master_x86.sh at BUILD_COMMIT ff5a23376725e5a889fa0bfb987b7541dc304da0),
       installed at ~/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337, checked against its own manifest, plus the
       lib/libcdsprpc.so symlink after its ext check (k5-r2/README.txt staging note). Not yet built.
-  C   the board's own CPU build of the same commit, ~/npu-dev/b1/llama.cpp/build-cpu (B1b's; binaries.sha256 in the
-      B1b evidence); the CPU reference arm (CPU-B).
+  C   CPU-ref's build directory above.
   T   WikiText-2 raw test at the pinned revision of k5-t7/README.txt (zip ef7edb56..., wiki.test.raw 173c87a5...).
+  K   the token file of Step 0b: 10 x 1,024 int32 ids, sha256
+      f2259ac78d19f170df2883f216f01d7db853d25cd693b4b7a3e0b17e87243736 (made 2026-10-19 22:07 +02:00 with
+      tools/r1_t7_tokens.cpp built against C's tree; the model reports 297,193 tokens for the text, add_bos 0, so
+      llama-perplexity substitutes no BOS at chunk starts). Pinned before any logits exist.
   Tools from the reviewed commit that merges this spec: npu_dev_run.sh, r2_load_probe.sh, r2_mapped_peak.py,
-      r2_placement.py, r1_t7_tokens.cpp, r1_t5_screen.py, k5-t7/t5-requests.json.
+      r2_placement.py, r1_t7_tokens.cpp, r1_t7_compare.cpp, r1_t5_screen.py, k5-t7/t5-requests.json.
 
-Step 0 (CPU only, no package, can run before the laptop): the CPU reference
-  0a. T fetched and checked by sha256.
-  0b. Tokens: r1_t7_tokens built against C's tree (ff5a2337), run on M: n_ctx 1024, 10 chunks; the file's sha256 is
-      recorded and pinned here before any NPU result (Bonsai's tokenizer differs from LFM2.5's, so k5-t7's token file
-      does not apply). 10 chunks, not T7's 20: Bonsai's vocabulary is 248,320 entries, so the logits file is about
-      2.5 GB at 10 chunks (about 5.1 GB at 20), and the board has about 7.4 GB free. Positions: llama-perplexity's own
-      rule at -c 1024, scored at 512..1022 of each chunk: 5,110 positions.
-  0c. CPU-B base: C's llama-perplexity -m M -f wiki.test.raw -c 1024 -b 1024 -ub 512 --chunks 10 -t 8 -fa on
-      --kl-divergence-base cpu-b.kld. The comparator checks that the stored tokens equal 0b's file.
-  0d. Noise floor, reported (no threshold): CPU-B again at -ub 512 and at -ub 384, each --kl-divergence against
-      cpu-b.kld. If either exceeds T3a's thresholds below, the CPU itself is not a stable reference at these settings:
-      stop and report before any NPU step.
+Logits file (tools/perplexity/perplexity.cpp at ff5a2337, the format r1_t7_compare.cpp reads: "_logits_", n_ctx u32,
+n_vocab i32, n_chunk i32, the n_chunk x n_ctx tokens, then per chunk n_ctx - 1 - n_ctx/2 rows of 2*((n_vocab+1)/2)+4
+uint16). For n_ctx 1024, n_vocab 248,320, 10 chunks: 20 + 40,960 + 5,110 x 248,324 x 2 = 2,537,912,260 bytes; 511
+scored positions per chunk (512..1022), 5,110 in all. 10 chunks, not T7's 20, because a 20-chunk file is about 5.1 GB
+and the board has about 7.4 GB free: a smaller sample, not a change to any threshold.
+
+Step 0 (CPU only, before the laptop): the reference
+  Evidence directory E0 = ~/bench-runs/npu-dev/b1/4b-step0-<stamp>; every command's log kept there.
+  0a. T fetched and checked by sha256 (both hashes above).
+  0b. K made as stated and checked against its pinned sha256.
+  0c. Reference: $C/bin/llama-perplexity -m $M -f wiki.test.raw -c 1024 -b 1024 -ub 512 --chunks 10 -t 8 -fa on
+      --kl-divergence-base cpu-ref.kld > ppl-ref-base.log 2>&1
+  0d. Validation, failing closed (llama-perplexity can return early on a decode or read error and still exit 0, so its
+      exit status alone proves nothing): r1_t7_compare (built from the reviewed commit, it reads the file format only)
+        r1_t7_compare cpu-ref.kld cpu-ref.kld f2259ac78d19f170df2883f216f01d7db853d25cd693b4b7a3e0b17e87243736
+      must exit 0: magic, header (1024, 248320, 10), exact size 2,537,912,260 bytes, stored tokens equal to K; and its
+      self-comparison must report 5,110 positions, top-1 100 %, KLD 0. ppl-ref-base.log must show all 10 chunks and a
+      finite final estimate. cpu-ref.kld's sha256 is then recorded in E0 and is the reference for every later
+      comparison; it is not rewritten.
+  0e. Noise floor (reported, and itself valid): CPU-ref again with --kl-divergence-base cpu-ref.kld --kl-divergence
+      at -ub 512 and at -ub 384 (no -f: --kl-divergence evaluates the tokens stored in cpu-ref.kld, it does not
+      retokenize the text). Each log must show all 10 chunks and finite "Mean KLD", "99.0% KLD" and "Same top p"
+      values for 5,110 positions; a missing, partial or non-finite summary stops before any NPU step. If either
+      exceeds T3a's thresholds (Step 2), the CPU is not a stable reference at these settings: stop and report.
+      Ranks of the reference's top token are not in upstream's KL summary; this stage reports no rank figures.
+  Step 0 result: a RESULT file in b1c-4b/ with the hashes, sizes, summaries and evidence (scanned for identifiers).
 
 Step 1 (NPU, owner's go): load
   As B1c (b1-bonsai/README.txt) with one session, under the wrapper, O = ~/bench-runs/npu-dev/b1/4b-load1:
@@ -41,54 +67,73 @@ Step 1 (NPU, owner's go): load
   creates the output as token_embd.weight with TENSOR_DUPLICATED, and src/llama-model-loader.cpp (buft_for_tensor,
   about line 1167) treats a duplicated token_embd as LLM_TENSOR_OUTPUT, so it is placed with the output layer; but the
   -ot check (about line 1236) matches the tensor's name, token_embd.weight, so an -ot rule on token_embd\.weight
-  would move the duplicate to the CPU too (read from the source, not observed). Expected placement, stated before the
-  load: input embedding (token_embd.weight, GET_ROWS) on the CPU; blocks 0-31 and the duplicated output on HTP0:0.
+  would move the duplicate to the CPU too (read from the source, not observed).
+  Expected placement, stated before the load: input embedding (token_embd.weight, GET_ROWS) on the CPU; blocks 0-31
+  and the duplicated output on HTP0:0.
   Declared figures (estimates, not a ledger): session = table weights 1,145.43 MiB (b1-4b/table-bonsai2-4b-q2_0.txt,
   incl. the duplicated output) + KV 256 MiB at 8192 + 250 MiB for recurrent state and compute (a margin, as in B1c;
   R2 logged 60-101 MiB compute) = 1,651.4, rounded up to 1,700. Board: NPU 1,145.4 + CPU input embedding 170.5 + KV
   256 + 250 + about 100 MiB CPU compute = 1,922, plus about 660 MiB for the process, libraries and logging
-  (unmeasured), rounded up to 2,800.
+  (unmeasured), rounded up to 2,800. Allowances, not a validated safe mapping bound.
   PASS needs all of (any one missing or failed stops B1c-4B):
     a. the wrapper's verdict PASS (exit 0, DSP journal with the library opened and CDSP0 lines, no DSP fault, kernel
        audit, no floor, stall, orphans or watchdog event);
-    b. the probe's generation: 1..32 tokens, finite timings; its text recorded next to C's greedy output for the
-       same prompt (no parity claim; Step 2 is the parity test);
+    b. the probe's generation: 1..32 tokens, finite timings; its text recorded next to CPU-ref's greedy output for the
+       same prompt (no parity claim; parity is Step 2);
     c. tools/r2_mapped_peak.py $O/probe/server.log 1700 --sessions HTP0:0: WITHIN;
-    d. placement as expected above, read by buffer identity from the log: every block weight in HTP0:0's model
-       buffer, the duplicated output in HTP0:0's buffer (not the CPU's), token_embd.weight's input copy in the CPU
-       buffer; graph splits exactly CPU, HTP0:0 (any extra split listed and audited by hand as in B1c d). If the
+    d. placement, both of:
+       d1. automated: tools/r2_placement.py $O/probe/server.log --tensors b1-bonsai/b1-4b/table-bonsai2-4b-q2_0.tsv
+           --split 33 --sessions HTP0:0 --variant NPU-R --types Q2_0 --output-weight token_embd.weight
+           --roles 'attn_q|attn_k|attn_v|attn_output|attn_qkv|attn_gate|ssm_out|ssm_alpha|ssm_beta|ffn_gate|ffn_up|ffn_down'
+           --cpu-first 'GET_ROWS,MUL_MAT@prism.hadamard,MUL' --session-src0 prism.hadamard
+           : PLACED (Codex's offline fixture with the real 4B table shows the tool accepts this invocation and fails
+           when result_output moves to a CPU split; that is parser support, not board placement);
+       d2. by hand, by buffer identity and from the raw log: every block weight in HTP0:0's model buffer, the
+           duplicated output in HTP0:0's buffer (not the CPU's), token_embd.weight's input copy in the CPU buffer;
+           every graph's splits exactly CPU, HTP0:0; every graph's CPU split holds only the embedding restore's chain
+           (GET_ROWS, the prism.hadamard MUL_MAT, its MUL; MUL count at most the Hadamard MUL_MAT count), as B1c d.
+       Any extra CPU split (an op the NPU did not take) is a placement mismatch and fails d, even when listed. If the
        output lands on the CPU, that is recorded as the observed placement and d fails (no re-run without a revised,
-       reviewed command). r2_placement.py is used only where it supports a one-session, tied-output load; before the
-       stage, its support is shown by a mocked test or the check is done by hand, and the report says which;
+       reviewed command). d1 and d2 are reported separately;
     e. the last load phase's logged buffers: model = 1,145.43 +/- 0.01 MiB, KV <= 256.01 MiB, RS + compute <= 250
        MiB, all recorded (by hand).
 
-Step 2 (NPU, after Step 1 PASS): parity (T3a's thresholds, as frozen in the plan; never enlarged after NPU results)
-  P's llama-perplexity on HTP0:0 (-ngl 999 --device HTP0:0, the same -c 1024 -b 1024 --chunks 10 -t 8 -fa on, the
-  same text), --kl-divergence against cpu-b.kld, at -ub 512 and at -ub 384 (each 1,024-token chunk runs 384 + 384 +
-  256: a second size and a remainder ubatch, as T3a option A), each under the wrapper with the same environment.
-  Also CPU-A: P's llama-perplexity with -ngl 0 and no NPU device (P's own CPU backend) at -ub 512 against cpu-b.kld,
-  reported as the cross-build noise floor.
+Step 2 (NPU, sketch until its reviewed commit): parity
+  Arms: NPU at -ub 512 and at -ub 384 (each 1,024-token chunk runs 384 + 384 + 256: a second size and a remainder
+  ubatch, as T3a option A), and CPU-pkg at -ub 512; each P's llama-perplexity with --kl-divergence-base cpu-ref.kld
+  --kl-divergence, -c 1024 -b 1024 --chunks 10 -t 8 -fa on, under the wrapper with the same environment as Step 1.
   PASS for each NPU size: mean KLD <= 0.01, 99th-percentile KLD <= 0.10, top-1 ("Same top p") >= 97 %, every value
-  finite, and the stored tokens equal 0b's file. Perplexity reported, secondary.
-  Declared peaks for Step 2 are fixed from Step 1's logged buffers before Step 2 runs (n_ctx 1024 needs less KV than
-  Step 1's 8192); the figures and the commands are added to this file in a reviewed commit first.
+  finite, all 10 chunks and 5,110 positions (T3a's frozen thresholds; never enlarged after NPU results; CPU noise does
+  not loosen them). Perplexity reported, secondary. CPU-pkg reported as the cross-build floor, and must itself be
+  valid and complete.
+  Budget, required in the reviewed commit before Step 2: the perplexity graph is not the server's. llama-perplexity
+  requests logits for every position >= 512 of each chunk, so one 512-position F32 output is 512 x 248,320 x 4 =
+  508,559,360 bytes (485 MiB) before any other copy, and the NPU compute buffers, clones and host output/staging
+  depend on the ubatch shape. Step 1's measured buffers inform the budget but do not bound it. The commit must give,
+  for each ubatch shape (512; 384 and its 256 remainder), either a dry-run ledger of this exact graph (all-logits
+  output) or a separately justified conservative bound, including host output and staging; the declared peaks; and
+  the measured-budget and placement acceptance checks of the parity run itself (as Step 1 c-e), not only its
+  statistical thresholds.
 
-Step 3 (NPU, after Step 2 PASS): T5 on the NPU
-  P's llama-server on HTP0:0 with B1b's settings (-c 8192 -np 1 --cache-ram 0 --slot-save-path <dir> --jinja -fa on),
-  the frozen 20 requests, thinking on (template default) and off (--chat-template-kwargs '{"enable_thinking":false}'),
-  r1_t5_screen.py --timeout 900, under the wrapper. Rule: each arm valid and passes >= 17/20 and >= the CPU arm's
-  count - 2 (B1b-4B: 20/20 both, so >= 18/20).
+Step 3 (NPU, sketch until its reviewed commit; after Step 2 PASS): T5 on the NPU
+  P's llama-server on HTP0:0 (explicit -ngl 999 --device HTP0:0; --jinja and --slot-save-path do not select the
+  device) with B1b's settings (-c 8192 -np 1 --cache-ram 0 --slot-save-path <dir> --jinja -fa on), the frozen 20
+  requests with fresh paired payloads as B1b, thinking on (template default) and off (--chat-template-kwargs
+  '{"enable_thinking":false}'), r1_t5_screen.py --timeout 900, under the wrapper with --expect-dsp yes, a timeout and
+  declared budgets. Rule: each arm valid and passes >= 17/20 and >= the CPU arm's count - 2 (B1b-4B: 20/20 both, so
+  >= 18/20). The screen exits 0 for a valid run whatever its pass count: the stage reads the count, and an invalid run
+  or a count below the rule stops progression.
 
-Step 4 (NPU, after Step 3): speed
-  P's llama-bench -m M -fa 1 -p 512 -n 128 -r 3 -ngl 999 --device HTP0:0, under the wrapper; reported next to C's
-  figures (pp512 6.44, tg128 3.14 t/s). No threshold: a measurement.
+Step 4 (NPU, sketch until its reviewed commit; only after Step 3 PASS): speed
+  P's llama-bench -m M -fa 1 -p 512 -n 128 -r 3 -ngl 999 --device HTP0:0, under the wrapper with --expect-dsp yes,
+  a timeout and declared budgets; reported next to CPU-ref's figures (pp512 6.44, tg128 3.14 t/s). No threshold: a
+  measurement. If Step 3 fails, a speed run is a separate diagnostic that needs its own approval.
 
 Stops and risks
   Any fault, stall, wrapper FAIL or board reset ends the stage at that step; nothing is re-run without the owner.
   #30309: P is unpatched (ff5a2337 does not change the dspqueue_peek handling), so a peek failure is a fault and stops.
-  The board reset four times on 2026-10-19 night (unattributed; journal ends without a shutdown sequence): the owner
-  is asked to confirm stable power before Step 1.
+  The board reset four times on 2026-10-19 night (cause not attributed; the journal ends without a shutdown sequence):
+  the owner is asked to confirm stable power before Step 1.
   Campaign identity before and after each NPU window as R2 did (identity-before/after.txt), then the campaign's
   launch checks before any campaign session.
 
