@@ -10,6 +10,7 @@ if mode == "noterm": signal.signal(signal.SIGTERM, signal.SIG_IGN)
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *x): pass
     def do_GET(self):
+        if mode == "hang": time.sleep(60)   # accepts /health and never answers within the readiness window
         self.send_response(200 if mode != "never" else 503); self.end_headers(); self.wfile.write(b"{}")
         if mode == "dies" and self.path == "/health" and os.environ.get("DIE_NOW"): os._exit(3)
     def do_POST(self):
@@ -39,6 +40,9 @@ expect "the screen reports an invalid run (exit 1): FAIL" 1 good 1
 expect "never ready: FAIL" 1 never 0
 expect "server exits before ready: FAIL" 1 early 0
 expect "server ignores SIGTERM: FAIL" 1 noterm 0
+# a /health that hangs (review of e156439): with READY 5 the payload must give up by the wall clock, not after 60 s
+n=$((n + 1)); t0=$SECONDS; FAKE_MODE=hang STUB_RC=0 B1_T5_SCREEN="$W/stub.py" timeout 300 bash "$D/b1_t5_payload.sh" "$W/o$n" $((30000 + RANDOM % 20000)) 5 stub 30 -- python3 -I "$W/fake.py" > /dev/null 2>&1; got=$?; el=$((SECONDS - t0))
+grep -q "not ready after 5 s" "$W/o$n/probe.txt" && [ "$got" = 1 ] && [ "$el" -lt 75 ] && echo "ok   /health hangs: not ready by the wall clock (rc $got, readiness gave up in time; whole run ${el} s incl. the stop)" || { echo "FAIL /health hangs (rc $got, ${el} s): $(tail -2 "$W/o$n/probe.txt" | tr '\n' ' ')"; fails=$((fails + 1)); }
 expect "real r1_t5_screen.py against a server that answers without tool calls: FAIL (invalid or not passing)" 1 good 0 "$D/r1_t5_screen.py"
 # the dies mode: the fake exits only when DIE_NOW is in ITS environment, so pass it at launch and let the stub hit /health
 n=$((n + 1)); DIE_NOW=1 FAKE_MODE=good STUB_RC=0 B1_T5_SCREEN="$W/stub.py" timeout 300 bash "$D/b1_t5_payload.sh" "$W/o$n" $((30000 + RANDOM % 20000)) 5 stub 30 -- env FAKE_MODE=dies DIE_NOW=1 python3 -I "$W/fake.py" > /dev/null 2>&1; got=$?
