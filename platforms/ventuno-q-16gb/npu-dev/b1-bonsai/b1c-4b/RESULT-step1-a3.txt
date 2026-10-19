@@ -1,0 +1,37 @@
+B1c-4B Step 1, attempt 3: PASS. Ternary-Bonsai-2-4B Q2_0 loaded on one NPU session (HTP0:0) and generated.
+Run 2026-10-19 23:57 +02:00, spec b1c-4b/SPEC.txt revision 3 (merged b8331f5, Codex READY on 7ffd847), tools from the
+merged main checkout, the owner's go for the re-run ("Yes to both", after attempt 2's STOP in RESULT-step0-step1.txt).
+Command: step1-load-a3.sh (in the evidence), the spec's with ADSP_LIBRARY_PATH="$HOME/v0/farf;$P/lib"; the script
+checked ~/v0/farf/llama-server.farf = 0x1f before the window.
+
+  a. Wrapper: VERDICT PASS (exit 0, 13 s, 9 members). DSP evidence present this time: journal check "ok: 9 members,
+     185 lines"; DSP classes fault 0, benign_modtable 1, benign_retry 0, info 103; kernel audit pass; no floor, stall,
+     orphans or watchdog event (watchdog.txt empty). Preflight MemAvailable 13,853 MiB.
+  b. Generation: 32 tokens, " Paris.\nThe capital of the United States is Washington, D.C.\nThe capital of Germany
+     is Berlin.\nThe capital of Italy is Rome.\n", the same text as attempt 2 and as the start of CPU-ref's greedy
+     output for the prompt (no parity claim; Step 2 is the parity test); 10.76 t/s in this short request.
+  c. tools/r2_mapped_peak.py server.log 1700 --sessions HTP0:0: HTP0:0 peak 1,538.9 MiB own + clones, pinned 10.4,
+     total 1,549.3 MiB; RESULT WITHIN.
+  d1. tools/r2_placement.py with the spec's rev 3 invocation (--empty-cpu-ok): 2 phases, the last judged; 33 loader
+     lines, all on HTP0:0; 10 graphs; 9 extra CPU splits of zero-extent declined nodes dropped, in 1 graph; 200 block
+     matmul weights and result_output on token_embd.weight (the tied output) under HTP0:0 in every graph; RESULT PLACED.
+  d2. By hand, from the raw log's last phase: model buffers HTP0:0 1,145.43 MiB (the table's figure, which includes
+     the duplicated output, so the tied output is in the NPU buffer) and CPU 170.51 MiB (the input embedding); every
+     graph's first CPU split holds only GET_ROWS (on token_embd.weight; the embedding's Hadamard restore runs on
+     HTP0:0 in this model); nine graphs have exactly the splits CPU, HTP0:0; graph 8 of the last phase has 16 splits,
+     its 9 extra CPU splits hold 10 nodes (ADD, MUL, MUL_MAT), every one among the 58 declines logged for that graph,
+     all 58 with a zero result dimension (zero-extent: no arithmetic). PASS.
+  e. Last load phase's buffers: HTP0:0 model 1,145.43 MiB (table +/- 0.01), KV 256.00 MiB (<= 256.01), RS 50.25 +
+     compute 87.02 = 137.27 MiB (<= 250); CPU compute 28.02, output 0.95 MiB. PASS.
+  Campaign identity before and after (4b-a3-identity-before/after.txt): pkg-identity PASS (133 files, 0 mismatches),
+  retry library aa2ae2a9..., .farf 0x1f, measured checkout 7badb21 clean, dpkg baseline 7a78aa72... with 0 differences.
+
+Step 1 PASS. Next, per the spec: Step 2 (parity) runs only after its full commands and budget are added in a reviewed
+commit (the owner approved Steps 2-4 on 2026-10-19, each after the previous step's PASS and Codex READY on its commands).
+
+Not claimed: parity, speed, T5 on the NPU, or anything about the 9B.
+
+Evidence: b1c-4b-step1-a3-evidence-20261019.tar.gz, sha256
+b913159c7deb9a81972aa4b8014df758c06899e74b88a5594ee0a57b9f521efa (2,541,033 bytes): the wrapper directory, its console,
+identity before/after, the script. Redacted: the boot id in run.txt, the hostname in the journal export; then scanned
+for the machine-id, the boot id, the hostname, MAC addresses, UUIDs, link-local addresses and key fingerprints: none.
