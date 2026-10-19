@@ -1,0 +1,72 @@
+R2 result (NPU dev plan, Track R, stage R2): STOP at load 1. M2 did not load on the NPU in the admitted configuration
+(NPU-R', four sessions, -ts 11,10,10,10, ubatch 512, context 16384): fastrpc_mmap failed while session HTP0:0 mapped its
+weights during the warmup decode. Times are from the evidence (run.txt, probe.txt, the kernel journal), 2026-10-19 +02:00.
+
+Authorization
+  T7 FAILED for M2 (../../k5-t7/result/), so R2's precondition "M2 passed T7" was not met. The owner waived it on
+  2026-10-19, before the run: "1 ok to close but I would test the full runs in the Arduino for Beckham the q2 model and
+  the improved with the Q3". The launch: the owner's message "! bash ~/npu-dev/r2-load1.sh" (it arrived as text and did
+  not run; the agent ran that command at 00:49). The R1 admission (r1-budget/) and the R2 manifest (../README.txt, #68)
+  were otherwise followed. T7's FAIL for M2 is unchanged by anything here.
+
+Staging (00:42-00:51)
+  M2 copied from the laptop to ~/npu-dev/models/: 8,809,757,984 bytes, sha256 43b42f90... (match). The K2 package
+  tarball: sha256 d0ca1bb5... (match), extracted; its install directory is ~/npu-dev/pkg-unpatched-af0579c7/
+  pkg-unpatched-af0579c7/ (the tarball holds it one level down; P in the commands points there). All 132 files match
+  ../../r1-host/k2/pkg-unpatched-af0579c7.sha256; no other file.
+  Deviation (staging-notes.txt): the package had no lib/libcdsprpc.so. The campaign's package has that one symlink, to
+  /lib/aarch64-linux-gnu/libcdsprpc.so.1 (the system FastRPC library, which has no unversioned name). The same symlink was
+  added, after checking the system library's sha256 against the campaign manifest's ext entry (eb04ce8a..., OK).
+  Disk after staging: 12.20 GB free (the K6 rule: logs 2 GB + reserve 10 GB).
+  Identity before and after the window (identity-before.txt, identity-after.txt): campaign package pkg_identity PASS (133
+  files, 15 links, 1 external), retry library aa2ae2a9..., .farf 0x1f, measured checkout 7badb21 clean, dpkg baseline
+  7a78aa72... with 0 differing lines. Unchanged. Health before: no alerts, no drift, no swap, sampler and watchdog running.
+
+Attempts (each a new evidence directory; the command is the manifest's, launch scripts r2-load1*.sh in the tarball)
+  a1 00:49:09 Launch failed: exit 126, "r2_load_probe.sh: Permission denied" (the probe is committed without the
+     executable bit; the wrapper runs COMMAND directly). Nothing reached the NPU. Verdict STOP: DSP evidence missing.
+  a2 00:50:27 Payload invoked as "/bin/bash r2_load_probe.sh". The server exited before ready: "failed to load
+     libcdsprpc.so", then "invalid device: HTP0:0". Nothing reached the NPU. Verdict STOP: DSP evidence missing.
+  a3 00:51:49 With the libcdsprpc.so link. The model loaded (four sessions allocated their buffers). HTP0:0's maps in the
+     log, none unmapped before the failure: at session start 10,903,552 B pinned (the op queue) and 69,632 B; in the
+     warmup decode (common_init_from_params -> llama_context::decode) 135,168 B, 105,926,656 B (compute), 1,021,632,512 B
+     (weights), 100,667,392 B (KV). Mapped successfully: 1,228,431,360 B not pinned (1,171.5 MiB) + 10,903,552 B pinned.
+     Then the pending request, 1,020,297,216 B (its second weights buffer): "E ggml-hex: HTP0:0 buffer mapping failed : domain_id 3 size
+        1020297216 fd 57 error 0x00000001", kernel 00:53:38 "qcom,fastrpc-cb ...compute-cb@3: failed to map buffer, fd = 57".
+     std::runtime_error "fastrpc_mmap failed", abort (status 134) at 00:53:42, 113 s after launch. Verdict STOP: DSP
+     evidence missing (the DSP journal export lacked the library-open and CDSP0 lines) and kernel audit npu_map=1.
+     The wrapper's other checks: no floor (minimum MemAvailable 3,549 MiB in memory.tsv against the 1,536 floor), no
+     stall, no timeout, no orphans, no watchdog intervention; the group was gone before the verdict.
+
+Checks of section 3 on a3's log (run offline after the STOP, for the record; not a PASS of anything)
+  b. r2_mapped_peak.py: WITHIN, but only session HTP0:0 had mapped weights (1,171.5 MiB own) when it failed; the other
+     three had mapped 0.1 MiB each. It shows nothing about the configuration's peaks.
+  c. r2_logged_buffers.py: reports OVER for every session's compute and KV+RS. That is the checker counting two
+     reservation passes: the server logged a first reservation (00:00.69, KV 0.00 MiB) and the real one (01:48). The real
+     pass is within the ledger: compute HTP0:0..3 101.01 / 60.38 / 60.38 / 64.01 MiB (ledger 102.01 / 61.38 / 61.38 /
+     65.01), KV 96.00 / 64.00 / 96.00 / 64.00 + RS 0.12 / 0.12 / 0.11 / 0.11 MiB, model buffers equal to the ledger. The
+     checker needs to read only the last reservation before it can be used again.
+  d-e. Not reached (no generation).
+
+Reading (suspected, not confirmed: the cause is not isolated)
+  HTP0:0's map was refused with 2,248,728,576 B not pinned (2,144.55 MiB) including the pending request, or
+  2,259,632,128 B (2,154.95 MiB) with the pinned op queue: below the 3,189.61 MiB per-session limit that R1's admission used (HTP_OP_MAX_VMEM_DEFAULT minus the op queue's buffer, from the source, never measured).
+  The kernel refused the map (the FastRPC compute context bank), not the DSP's own VMEM check. A single 1.02 GB map had
+  succeeded just before, which argues against a simple fixed per-map size cutoff; it does not distinguish an aggregate
+  capacity limit, fragmentation or an address constraint. Suspected: the mappable total per session (or per process,
+  or per context bank) on this board is about 2 GiB, which no campaign run has approached (A32's NeoHorse file, 2.38 GB over two sessions,
+  is about 1.2 GB per session). If so, M2 does not fit in four sessions at all (each needs 2,048-2,276 MiB of weights alone), and the plan's
+  fit facts (F5/F7) and r1-budget's admission are wrong in the limit, not in the buffer sizes.
+  Untested possibilities, contingent on isolating the limit first: more sessions could help only if the limit is per
+  session (not if it is shared by the process or the context bank); a smaller file would help in either case. Neither
+  is established as a way to fit M2; either needs the owner's decision, the isolation measurement and a new admission.
+
+Not done, by the rules: no repeat of load 1, no load 2, no R3. Recovery and next steps are the owner's.
+  A measurement that would isolate the limit (one session, buffers of known size mapped until refusal) is a new NPU
+  stage and needs the owner's approval.
+
+Evidence: r2-evidence-20261019-redacted.tar.gz, sha256 8e1c485f2dd4ee2ea7d953e1d65596cce9d1bd4ec44dc1022afc3f6f2fcbb8f7 (the
+three attempt directories with the wrapper's files and probe logs, identity-before/after, staging-notes.txt, the launch
+scripts). Published copy: the boot id in the three run.txt files is replaced by BOOT-ID-REDACTED (its only occurrences;
+no other UUID-shaped value remains); nothing else changed. The original (sha256 f3910c79...) stays on the board in
+~/r2-evidence-20261019.tar.gz and ~/bench-runs/npu-dev/r2/. Checked: no machine-id, no USB serials, no MAC address.
