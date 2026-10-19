@@ -34,10 +34,15 @@ stop() { local i st
   [ "$st" = 0 ] || [ "$st" = 143 ]; }
 # on every exit path (an error, a signal from the wrapper) the server is stopped and reaped
 trap 'stop > /dev/null 2>&1' EXIT; trap 'say "probe interrupted"; stop; exit 1' INT TERM HUP
-up=0
-for i in $(seq 1 "$READY"); do
+# readiness by wall clock (review of e156439): each /health request is capped at the time left (at most 5 s), so a
+# server that accepts the connection but never answers cannot hold the payload past READY seconds
+up=0; T0=$SECONDS; DL=$((SECONDS + READY))
+while [ "$SECONDS" -lt "$DL" ]; do
   kill -0 "$SPID" 2>/dev/null || { wait "$SPID" 2>/dev/null; say "server exited before ready (status $?)"; STOPPED=1; exit 1; }
-  curl -fs "http://127.0.0.1:$PORT/health" > /dev/null 2>&1 && { up=1; say "ready after ${i} s"; break; }; sleep 1
+  rem=$((DL - SECONDS)); [ "$rem" -gt 5 ] && rem=5; [ "$rem" -lt 1 ] && break
+  curl -fs --connect-timeout "$rem" --max-time "$rem" "http://127.0.0.1:$PORT/health" > /dev/null 2>&1 \
+    && { up=1; say "ready after $((SECONDS - T0)) s"; break; }
+  [ "$SECONDS" -lt "$DL" ] && sleep 1
 done
 [ "$up" = 1 ] || { say "not ready after $READY s"; stop; exit 1; }
 python3 -I "$SCREEN" --server "http://127.0.0.1:$PORT" --requests "$REQ" --out "$OUT/screen" --label "$LABEL" \
