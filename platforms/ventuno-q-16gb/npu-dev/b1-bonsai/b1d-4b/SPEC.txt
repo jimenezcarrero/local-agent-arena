@@ -1,0 +1,136 @@
+B1d-4B (NPU dev, B1): how Ternary-Bonsai-2-4B Q2_0 holds the KV cache at V0e's window (32768). PROPOSED for review,
+written 2026-10-20 on the owner's decision "Test the options a[nd] choose what is better" (the three options put to
+the owner: two NPU sessions, a q8_0 KV cache, the KV cache on the CPU). Approval: that message, for this stage after
+Codex READY on this spec; the choice it produces is reported to the owner before any V0e plan for this model.
+Revision 3 (review of 98ebbd0: the CK checker proves empty CPU nodes per graph and fails closed on incomplete
+loader or per-graph evidence). Revision 2 (review of 09a7a43): CK redefined from the source (-nkvo moves the recurrent state too, and pins attention to
+the CPU only without flash attention), its acceptance frozen; a T5 score gate before the speed probe; the stage-wide
+STOP policy kept; every run's parameters fixed in a reviewed launcher (tools/b1d_kv_arm.sh); the choice rule as
+filters; S2's weights from the table.
+
+Why (from B1c-4B, RESULT-step3-step4.txt): one session at -c 8192 mapped 1,549.3 MiB (model 1,145.43, KV 256.00, RS
+50.25, compute 87.02, pinned 10.4). The KV cache grows 32 KiB per token (8 attention layers 3, 7, ..., 31, F16 K and V,
+4 KV heads of 256): 1,024 MiB at 32768, so one session with F16 KV would map about 2,317 MiB, above the 2,144.55 MiB map
+R2 saw refused in one session (k5-r2/result/RESULT.txt; suspected limit, not isolated). That configuration is not run.
+
+Options (everything else as B1c-4B Step 3: -c 32768 -np 1 --cache-ram 0 --jinja -b 2048 -ub 512 -ngl 999 -lv 5
+--no-webui, thinking on, the template default; the exact commands are tools/b1d_kv_arm.sh's)
+  S2   two sessions, F16 KV, flash attention: --device HTP0:0,HTP0:1 -ts 16,17 -fa on. At ff5a2337 the split is
+       cumulative (llama-model.cpp :1660-1675): 16/33 puts blocks 0-15 on HTP0:0 and blocks 16-31 and the output layer
+       (the tied, duplicated token_embd.weight) on HTP0:1. The campaign's own 4B (A32, V0e QUALIFIED at 32768) runs on
+       two sessions.
+  Q8   one session, q8_0 KV, flash attention: --device HTP0:0 -ctk q8_0 -ctv q8_0 -fa on. At ff5a2337 the backend
+       accepts q8_0 K and V in FLASH_ATTN_EXT and q8_0 SET_ROWS (ggml-hexagon.cpp :3638 and :5921, subject to its shape
+       and VTCM checks; capability read from the source, not an observed placement).
+  CK   one session, KV cache and recurrent state on the CPU, attention on the CPU: --device HTP0:0 -nkvo -fa off.
+       From the source at ff5a2337 (review of 09a7a43): offload_kqv false reaches both memories of the hybrid model, so
+       the KV cache (llama-kv-cache.cpp :216) and the recurrent state (llama-memory-recurrent.cpp :87) are allocated
+       on the CPU; llama-graph.cpp :3026 pins the attention output to the CPU only in the non-flash branch, and the
+       scheduler skips FLASH_ATTN_EXT in its weight rule (ggml-backend.cpp :1107), so with -fa on the attention could
+       run on the NPU over copies of the whole cache. -fa off is therefore part of CK: the KQ and KQV products, the
+       softmax and the cache writes run on the CPU; the weight matmuls, including those that feed the recurrent state,
+       stay on HTP0:0 (the weight rule), and the state's reads and writes are on the CPU's buffer. Which non-weight
+       nodes land on the CPU is the option's design and is priced by its speed; it is inventoried, not judged (c).
+
+Declared figures (estimates, not a ledger; the load is the fit test). Weights from b1-4b/table-bonsai2-4b-q2_0.tsv:
+blocks 0-15 487.45 MiB, blocks 16-31 487.45 + output 170.52 = 657.97, all 1,145.43. KV at 32768: F16 1,024 MiB (512
+per S2 session), q8_0 34/64 of it, 544. RS 50.25 (all of it counted in each S2 session). Compute 250 per session
+(B1c-4B logged 87.02 at 8192). Per-session peaks are vectors in session order; launch (--declared-peak-mib) and
+acceptance b (r2_mapped_peak.py <log> <vector> --sessions <sessions>) use the same vector, printed by the launcher.
+  server  S2 1,350,1,500 (HTP0:0 487.5 + 512 + 50.25 + 250 = 1,299.7; HTP0:1 658.0 + 512 + 50.25 + 250 = 1,470.2)
+          Q8 2,000 (1,145.4 + 544 + 50.25 + 250 = 1,989.7: about 145 MiB under R2's refused map)
+          CK 1,500 (1,145.4 + 250 = 1,395.4, plus margin for the state and activations crossing to the NPU)
+  parity  (llama-perplexity reserves ubatch-sized outputs, 485 MiB of logits, in the session holding the output layer:
+          B1c-4B Step 2's 1,950 there) S2 1,350,1,950; Q8 1,950; CK 1,950.
+  board   server: NPU total + CPU input embedding 170.5 + 300 CPU compute + about 660 for the process, plus CK's CPU
+          memory (KV 1,024 + RS 50.25 + the non-flash attention's scores, 16 heads x 512 x 32,768 x 4 bytes = 1,024 MiB
+          per layer, reused, estimated 2,300 with the softmax): S2 2,850 + 1,130.5 = 3,980.5 -> 4,000; Q8 3,130.5 ->
+          3,500; CK 1,500 + 170.5 + 1,074.25 + 2,300 + 660 = 5,704.8 -> 6,000.
+          parity, as B1c-4B Step 2 (NPU + 170.5 embedding + 485 host output buffer + 2 x 242 for the reference's
+          per-chunk log-probabilities + 100 CPU compute + 660): Q8 1,950 + 1,899.5 = 3,849.5 -> 4,500; S2 3,300 +
+          1,899.5 = 5,199.5 -> 5,500; CK 1,950 + 1,899.5 + KV 32 + RS 50.25 + 32 MiB of scores at 1,024 = 3,963.8 ->
+          4,500.
+
+Inputs (each checked before use; any mismatch stops)
+  M, P, F (~/npu-dev/farf, three .farf files, sha256 7acc31cd...), the lib/libcdsprpc.so link: as B1c-4B
+  (b1c-4b/SPEC.txt). C: CPU-ref's build directory (B1b binaries.sha256). Tools from the reviewed commit that merges
+  this spec: npu_dev_run.sh, b1d_kv_arm.sh, b1_t5_payload.sh (with --speed and --min-pass), r1_t5_screen.py,
+  k5-t7/t5-requests.json, suite/tools/speed_probe.py, r2_mapped_peak.py, r2_placement.py, b1_cpu_weight_check.py,
+  r1_t7_compare.cpp.
+
+Step 0 (CPU only): the reference again. B1c-4B's cpu-ref.kld was deleted on the owner's instruction (2026-10-20 06:32;
+  its sha256 7fd9868c... matched the committed record before deletion). It is regenerated with B1c-4B Step 0c's exact
+  command (same build, model, token text, -t 8) at its old path, ~/npu-dev/b1/b1c-4b/step0/cpu-ref.kld (REF), by
+  ~/npu-dev/b1/b1d-4b/step0.sh (B1c-4B's step0.sh without 0e, plus the hash comparison; in the evidence), and
+  validated as Step 0d (r1_t7_compare self-comparison: 5,110 positions, top-1 100 %, KLD 0; header and size
+  2,537,912,260 bytes; stored tokens equal to K, f2259ac7...). Its sha256 is compared with 7fd9868c...: equal or
+  different, it is recorded (a difference is an observation, not attributed to a cause), and the validated file is
+  this stage's reference; its hash is given to every parity launch. Its logs, self-check and hash are kept in the
+  evidence. CPU only and B1c-4B's reviewed command, so it was started before this spec's review (2026-10-20 20:16).
+
+Step 1 (NPU): per option, in the order S2, CK, Q8 (Q8, the one nearest R2's refused map, last), two wrapper runs,
+  parity first, each started by tools/b1d_kv_arm.sh <opt> parity <REF sha256> and tools/b1d_kv_arm.sh <opt> server:
+  run names 4b-kv-<opt>-parity and 4b-kv-<opt>-server under ~/bench-runs/npu-dev/b1/ (new names; the launcher refuses
+  an existing one), consoles <run>-wrapper-console.txt, timeouts 5,400 s (parity) and 7,200 s (server).
+  parity: llama-perplexity --kl-divergence-base REF --kl-divergence -c 1024 -b 1024 -ub 512 --chunks 10 -t 8, with
+     the option's device, KV and attention flags (B1c-4B Step 2a's command otherwise).
+  server: b1_t5_payload.sh --speed 1024,8192,16384,28672 --min-pass 18: the frozen T5 screen (20 trials); only if it
+     is valid with at least 18 passes, the speed probe at those prompt depths on the same server (each a fresh prompt
+     with a unique first line, cache_prompt false, 128 generated; time to first token, prefill and decode rates, the
+     actual prompt-token count and the server's own timings beside them).
+  The FARF hashes (checked by the launcher), REF's hash (before each parity run) and the campaign identity record
+  (identity.sh, saved to a file) are taken before the first window, between consecutive windows and after the last.
+  Launch checks as B1c-4B, plus the package drift found after today's boot (unattended upgrades at 06:13 of git,
+  git-man, libxtst6, tzdata): none is a library the package's binaries link (ldd: libc6, libgcc-s1, libstdc++6 only),
+  handled as D164/D177 (the old baseline kept beside the new one, both hashes recorded).
+
+Stopping (review of 09a7a43; the wrapper's contract and plan section 7)
+  STOP: a wrapper verdict STOP (timeout, floor, stall, orphans, interruption, a DSP or kernel fault, a refused map, a
+     watchdog intervention, missing or failed evidence) ends the stage: no later run or option starts, nothing is
+     retried or recovered automatically, and the owner decides. The same for an identity record that changed.
+  Rejection: an option fails acceptance cleanly when its wrappers report PASS or FAIL (the command failed, nothing
+     else wrong: e.g. T5 below 18 or a speed depth not measured, which make the payload fail) and a-f below is not
+     met. A rejected option's remaining run is not started (first failure; a parity rejection skips its server run),
+     and the next option runs.
+
+Acceptance of an option (all needed)
+  a. both wrapper verdicts PASS with DSP evidence (library open, CDSP0 lines, DSP fault 0);
+  b. fit: r2_mapped_peak.py on each log with the launcher's vector and sessions: WITHIN; the last load phase's logged
+     buffers recorded per device (model, KV and its type, RS, compute; for CK the CPU's KV, RS and compute);
+  c. placement, frozen before the load:
+       S2: d1 r2_placement.py with B1c-4B's invocation but --split 16,17 --sessions HTP0:0,HTP0:1 (--empty-cpu-ok):
+       PLACED; d2 by hand as B1c-4B (zero-extent splits only).
+       Q8: d1 with --split 33 --sessions HTP0:0: PLACED; d2 as B1c-4B, plus FLASH_ATTN_EXT and SET_ROWS under HTP0:0
+       in every graph that has them, and the logged KV type q8_0 for K and V.
+       CK: tools/b1_cpu_weight_check.py <log> --tensors b1-bonsai/b1-4b/table-bonsai2-4b-q2_0.tsv --session HTP0:0:
+       OK (revision 3, review of 98ebbd0: a loader line for every layer 0..32 of the last load phase, each on
+       HTP0:0; no node in a CPU split has a model weight as a source, except GET_ROWS on token_embd.weight and nodes
+       proved empty in their own graph by its supports-op records, as r2_placement.py --empty-cpu-ok; in every graph,
+       every block weight and output_norm.weight read under HTP0:0 or by a proved-empty node, and exactly one
+       result_output there reading token_embd.weight); its CPU inventory recorded; the logged KV and RS buffers on the
+       CPU. On B1c-4B's logs the tool reports OK: Step 4 (19 graphs, CPU inventory GET_ROWS 38) and Step 2a (27
+       graphs, 100 CPU nodes proved empty in the 10 zero-output graphs); a mutation of the Step 2a log that gives one
+       of them a conflicting accepted query is a DIFF (test_b1_cpu_weight_check.sh, 20/20). The full logs keep every
+       supports-op record, accepted and declined. r2_placement.py is not judged for CK;
+  d. parity (against REF, T3a's frozen bars as B1c-4B Step 2): mean KLD <= 0.01, 99.0 % KLD <= 0.10, "Same top p"
+     >= 97 %, all 10 chunks, finite (at 1,024 tokens of context only: KV precision at 28K is not measured here; V0e's
+     own items test long context);
+  e. T5: passes >= 18 of 20 (CPU-ref's 20 - 2, as B1c-4B Step 3), valid 20/20;
+  f. speed: every depth measured (speed_probe exit 0) and time to first token at 28672 <= 300 s (V0e's limit). The
+     probe accepts a prompt within +/- 20 % of the depth, so each result is reported with its actual prompt-token
+     count; this is a screening estimate, not V0e's own timing.
+
+Choice (stated before any run), as filters over the options that pass a-f:
+  1. keep those whose time to first token at 28672 is within 10 % of the lowest one;
+  2. of those, keep those whose decode rate at 28672 is within 10 % of the highest among them;
+  3. of those, keep those with the fewest sessions;
+  4. if more than one remains (CK and Q8 both have one session), the lowest time to first token; the remaining ones'
+     figures are reported beside it as a tie.
+All options' figures are reported, with the logging overhead noted (-lv 5 and GGML_SCHED_DEBUG=2, as B1c-4B Step 4:
+not a clean hardware ratio). If none passes, no V0e plan for this model is proposed and the result says why.
+
+Not claimed: agent quality, V0e qualification (its own plan and run, after the owner sees this result), parity at
+long context, or anything about the 9B.
+
+Result: b1d-4b/RESULT.txt with the evidence as B1c-4B (full logs on the board, gzipped, uncompressed sha256 recorded;
+committed check extracts by a committed recipe; redacted and scanned for identifiers).
