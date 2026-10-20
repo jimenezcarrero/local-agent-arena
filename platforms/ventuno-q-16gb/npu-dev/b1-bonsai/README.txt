@@ -42,7 +42,7 @@ Stages (each ends with a written result in this folder)
       each window; without it the wrapper STOPs on missing DSP evidence (B1c-4B Step 1 attempt 2, and R2).
     - r2_placement.py judges the last load phase only and takes --empty-cpu-ok: a graph that requests no output rows
       crops the last layer to zero rows, the backend declines those zero-extent nodes and the scheduler gives them
-      extra CPU splits that do no arithmetic; only those are accepted, matched per graph (d2 by hand as d2audit.py).
+      extra CPU splits that do no arithmetic; only those are accepted, matched per graph (d2 by hand; B1c-4B's d2audit.py is 4B-specific, see d).
     - The input embedding's Hadamard restore ran on the NPU in the 4B (its first CPU split held only GET_ROWS); the
       allow-list above admits either placement. The 9B has an untied output.weight, so -ot on token_embd stays safe.
     - A parity stage with llama-perplexity reserves ubatch-sized outputs (n_outputs_max = n_batch): about 485 MiB of
