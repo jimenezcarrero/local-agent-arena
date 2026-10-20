@@ -27,7 +27,7 @@ if os.environ.get("FAKE_MODE") == "dies":   # the server exits during the screen
     try: urllib.request.urlopen(srv + "/health?die", timeout=5)
     except Exception: pass
 rc = int(os.environ.get("STUB_RC", "0"))
-print(f"T5 stub: passes 20/20, valid 20/20" if rc == 0 else "T5 stub: INVALID"); sys.exit(rc)
+print(os.environ.get("STUB_LINE", "T5 stub: passes 20/20, valid 20/20") if rc == 0 else "T5 stub: INVALID"); sys.exit(rc)
 PY
 cat > "$W/speed.py" <<'PY2'
 import os, sys
@@ -68,6 +68,20 @@ sexpect "--speed, the screen is invalid: FAIL and the probe does not run" 1 "$W/
 [ ! -e "$W/o$n/speed.console" ] && echo "ok   --speed: no probe after an invalid screen" || { echo "FAIL the probe ran after an invalid screen"; fails=$((fails + 1)); }; n=$((n + 1))
 sexpect "--speed with the real suite speed_probe.py against a server that streams nothing: FAIL" 1 "$D/../../../../suite/tools/speed_probe.py" good 1024 STUB_RC=0
 grep -q "ERROR" "$W/o$n/speed.txt" 2>/dev/null && echo "ok   the real probe recorded the depth as ERROR" || { echo "FAIL the real probe's ERROR line missing"; fails=$((fails + 1)); }; n=$((n + 1))
+# --min-pass (review of 09a7a43): the score gate runs before the probe
+mexpect() { local name=$1 want=$2 line=$3; n=$((n + 1))
+  STUB_LINE="$line" FAKE_MODE=good STUB_RC=0 SPEED_RC=0 B1_T5_SCREEN="$W/stub.py" B1_SPEED_PROBE="$W/speed.py" timeout 300 bash "$D/b1_t5_payload.sh" \
+    --speed 1024 --min-pass 18 "$W/o$n" $((30000 + RANDOM % 20000)) 5 stub 30 -- python3 -I "$W/fake.py" > /dev/null 2>&1; got=$?
+  ran=no; [ -e "$W/o$n/speed.console" ] && ran=yes
+  wantran=no; [ "$want" = 0 ] && wantran=yes
+  [ "$got" = "$want" ] && [ "$ran" = "$wantran" ] \
+    && echo "ok   $name (rc $got, probe ran: $ran)" || { echo "FAIL $name (rc $got, wanted $want, probe ran: $ran)"; fails=$((fails + 1)); }; }
+mexpect "--min-pass 18, valid 17/20: FAIL, no probe" 1 "T5 stub: passes 17/20, valid 20/20"
+mexpect "--min-pass 18, valid 18/20: OK, probe ran" 0 "T5 stub: passes 18/20, valid 20/20"
+mexpect "--min-pass 18, a malformed summary: FAIL, no probe" 1 "T5 stub: passes 19 of 20"
+mexpect "--min-pass 18, no summary line: FAIL, no probe" 1 ""
+n=$((n + 1)); bash "$D/b1_t5_payload.sh" --speed 1024 --min-pass 21 "$W/bad3" 18000 5 stub 30 -- true > /dev/null 2>&1; got=$?
+[ "$got" = 2 ] && [ ! -e "$W/bad3" ] && echo "ok   --min-pass above 20: usage error (rc 2)" || { echo "FAIL --min-pass 21 (rc $got)"; fails=$((fails + 1)); }
 n=$((n + 1)); bash "$D/b1_t5_payload.sh" --speed 1024,x "$W/bad2" 18000 5 stub 30 -- true > /dev/null 2>&1; got=$?
 [ "$got" = 2 ] && [ ! -e "$W/bad2" ] && echo "ok   --speed with a malformed depth list: usage error (rc 2)" || { echo "FAIL malformed depths (rc $got)"; fails=$((fails + 1)); }
 echo "failures: $fails of $n"; exit $fails
