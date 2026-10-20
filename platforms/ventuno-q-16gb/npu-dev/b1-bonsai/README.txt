@@ -80,15 +80,23 @@ Stages (each ends with a written result in this folder)
            --split 18,15 --sessions HTP0:0,HTP0:1 --variant NPU-R --types Q2_0 --output-weight output.weight
            --roles 'attn_q|attn_k|attn_v|attn_output|attn_qkv|attn_gate|ssm_out|ssm_alpha|ssm_beta|ffn_gate|ffn_up|ffn_down'
            --cpu-first 'GET_ROWS,MUL_MAT@prism.hadamard,MUL' --session-src0 prism.hadamard --empty-cpu-ok
-           : PLACED. That is: loader layers 0-17 on HTP0:0, 18-31 and the output layer 32 on HTP0:1; every graph's
-           splits exactly CPU, HTP0:0, HTP0:1 (an op the NPU does not take makes an extra CPU split, or shares the
-           first CPU split, which is audited next); the first CPU split holds only GET_ROWS (the input embedding,
+           : PLACED (the tool judges the last load phase only). That is: loader layers 0-17 on HTP0:0, 18-31 and the
+           output layer 32 on HTP0:1; every graph's splits exactly CPU, HTP0:0, HTP0:1 after one normalization only
+           (--empty-cpu-ok, as B1c-4B rev 3): an extra CPU split is discarded only if every node in it has a matching
+           declined supports-op query with a zero-element result shape in that graph's own block and no accepted or
+           non-empty query under the same op and name there; adjacent splits of one session are then merged; any other
+           extra CPU split, i.e. any non-empty fallback, fails (an op the NPU does not take can also share the first
+           CPU split, which is audited next); the first CPU split holds only GET_ROWS (the input embedding,
            token_embd.weight kept on the CPU by -ot) and the embedding's Hadamard restore (llama-graph.cpp build_tok at
            ff5a2337: a MUL_MAT with a runtime prism.hadamard.* matrix, then a MUL by its signs); every session split
            holds at least one MUL_MAT with a prism.hadamard.* src0 (the blocks' input rotations); each of the 200
            block Q2_0 matmul weights is the weight of a MUL_MAT under its block's session; result_output takes
            output.weight on HTP0:1. By hand, from the printed CPU-split inventory (the tool allows any MUL there): its
            MUL count is at most its prism.hadamard MUL_MAT count, and no other op appears. Both are part of PASS.
+           The by-hand audit (d2) also confirms, for every graph with discarded splits, that each discarded node is
+           zero-extent in that graph's records. B1c-4B's d2audit.py hardcodes that model's GET_ROWS-only first split and
+           one session, so it is not this audit: the 9B's d2 is done by hand as written here, or with a reviewed
+           adaptation of that script (the 9B allow-list, two sessions).
            The automated PLACED and the by-hand audit are reported separately. The allow-lists and the count do not prove
            dataflow, and the tool prints only the first graph's inventory: the audit reads every graph's CPU splits from
            the raw log, checks that their nodes are the embedding restore's chain, and keeps any graph whose inventory

@@ -10,6 +10,7 @@ start = time.time()
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *x): pass
     def do_GET(self):
+        if mode == "hang": time.sleep(60)   # accepts /health and never answers within the readiness window
         ready = mode != "never"
         self.send_response(200 if ready else 503); self.end_headers(); self.wfile.write(b"{}")
     def do_POST(self):
@@ -26,6 +27,9 @@ expect() { local name=$1 want=$2 mode=$3; n=$((n + 1))
   [ "$rc" = "$want" ] && echo "ok   $name (rc $rc: $(tail -1 "$W/o$n/probe.txt"))" || { echo "FAIL $name (rc $rc, wanted $want): $(tail -2 "$W/o$n/probe.txt" | tr '\n' ' ')"; fails=$((fails + 1)); }; }
 expect "ready, generation, clean stop: OK" 0 good
 expect "never ready: FAIL" 1 never
+# a /health that hangs: with READY 5 the probe must give up by the wall clock, not after 60 s
+n=$((n + 1)); t0=$SECONDS; FAKE_MODE=hang timeout 200 bash "$D/r2_load_probe.sh" "$W/o$n" $((30000 + RANDOM % 20000)) 5 -- python3 -I "$W/fake.py" > /dev/null 2>&1; got=$?; el=$((SECONDS - t0))
+grep -q "not ready after 5 s" "$W/o$n/probe.txt" && [ "$got" = 1 ] && [ "$el" -lt 75 ] && echo "ok   /health hangs: not ready by the wall clock (rc $got, ${el} s incl. the stop)" || { echo "FAIL /health hangs (rc $got, ${el} s): $(tail -2 "$W/o$n/probe.txt" | tr '\n' ' ')"; fails=$((fails + 1)); }
 expect "server exits before ready: FAIL" 1 early
 expect "generation with 0 tokens: FAIL" 1 badgen
 expect "server ignores SIGTERM: FAIL (killed)" 1 noterm
