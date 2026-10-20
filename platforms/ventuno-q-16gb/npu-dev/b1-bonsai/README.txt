@@ -35,6 +35,20 @@ Stages (each ends with a written result in this folder)
       off, pp512 3.43 t/s, tg128 2.17 t/s): upstream ff5a2337 CPU build
       on the board, the file's smoke generation, the frozen T5 screen (k5-t7/t5-requests.json) with the template's
       default and with thinking disabled, llama-bench pp512/tg128. The CPU arm for B1c's comparison.
+  Lessons from B1c-4B (b1c-4b/, Steps 0-4 PASS, 2026-10-19/20), applied here before B1c runs (PROPOSED revision,
+  for review; the 9B's B1c still needs the owner's approval):
+    - DSP evidence needs the process's own FARF file on ADSP_LIBRARY_PATH (FastRPC reads "<basename>.farf"): the
+      command uses ~/npu-dev/farf (llama-server/perplexity/bench .farf, each the campaign's 0x1f file), checked before
+      each window; without it the wrapper STOPs on missing DSP evidence (B1c-4B Step 1 attempt 2, and R2).
+    - r2_placement.py judges the last load phase only and takes --empty-cpu-ok: a graph that requests no output rows
+      crops the last layer to zero rows, the backend declines those zero-extent nodes and the scheduler gives them
+      extra CPU splits that do no arithmetic; only those are accepted, matched per graph (d2 by hand; B1c-4B's d2audit.py is 4B-specific, see d).
+    - The input embedding's Hadamard restore ran on the NPU in the 4B (its first CPU split held only GET_ROWS); the
+      allow-list above admits either placement. The 9B has an untied output.weight, so -ot on token_embd stays safe.
+    - A parity stage with llama-perplexity reserves ubatch-sized outputs (n_outputs_max = n_batch): about 485 MiB of
+      logits at -ub 512 in the session holding the output layer (HTP0:1 here), so its budget is not the server's;
+      for the 4B the NPU compute buffer was 506 MiB against 87 for the server. A 9B parity stage needs its own budget
+      against R2's suspected per-session limit.
   B1c (NPU, owner's approval) Load. Staged as R2 with its fixes: the package checked against its own manifest, the
       lib/libcdsprpc.so symlink after its ext check (k5-r2/README.txt), P the install directory
       (~/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337), M the model above, O the wrapper's evidence directory
@@ -44,7 +58,7 @@ Stages (each ends with a written result in this folder)
         npu_dev_run.sh --stage b1 --run load1-s2 --timeout 1800 --expect-dsp yes --floor-mib 1536 --stall-s 120 \
           --declared-peak-mib 1650,1650 --declared-board-mib 4200 \
           --hash $M --hash $P/bin/llama-server --hash $P/lib/libllama-server-impl.so --hash $P/lib/libggml-htp-v75.so \
-          --env GGML_HEXAGON_NHMX=1 --env LD_LIBRARY_PATH=$P/lib --env ADSP_LIBRARY_PATH=$P/lib \
+          --env GGML_HEXAGON_NHMX=1 --env LD_LIBRARY_PATH=$P/lib --env "ADSP_LIBRARY_PATH=$HOME/npu-dev/farf;$P/lib" \
           --env GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 --env GGML_HEXAGON_VERBOSE=1 --env GGML_SCHED_DEBUG=2 -- \
           /bin/bash tools/r2_load_probe.sh $O/probe 18090 900 -- $P/bin/llama-server -m $M -c 16384 -np 1 -fa on \
             -b 2048 -ub 512 -ngl 999 --device HTP0:0,HTP0:1 -ts 18,15 -ot 'token_embd\.weight=CPU' --cache-ram 0 \
@@ -65,16 +79,24 @@ Stages (each ends with a written result in this folder)
         d. placement: tools/r2_placement.py $O/probe/server.log --tensors b1-bonsai/table-bonsai2-9b-q2_0.tsv
            --split 18,15 --sessions HTP0:0,HTP0:1 --variant NPU-R --types Q2_0 --output-weight output.weight
            --roles 'attn_q|attn_k|attn_v|attn_output|attn_qkv|attn_gate|ssm_out|ssm_alpha|ssm_beta|ffn_gate|ffn_up|ffn_down'
-           --cpu-first 'GET_ROWS,MUL_MAT@prism.hadamard,MUL' --session-src0 prism.hadamard
-           : PLACED. That is: loader layers 0-17 on HTP0:0, 18-31 and the output layer 32 on HTP0:1; every graph's
-           splits exactly CPU, HTP0:0, HTP0:1 (an op the NPU does not take makes an extra CPU split, or shares the
-           first CPU split, which is audited next); the first CPU split holds only GET_ROWS (the input embedding,
+           --cpu-first 'GET_ROWS,MUL_MAT@prism.hadamard,MUL' --session-src0 prism.hadamard --empty-cpu-ok
+           : PLACED (the tool judges the last load phase only). That is: loader layers 0-17 on HTP0:0, 18-31 and the
+           output layer 32 on HTP0:1; every graph's splits exactly CPU, HTP0:0, HTP0:1 after one normalization only
+           (--empty-cpu-ok, as B1c-4B rev 3): an extra CPU split is discarded only if every node in it has a matching
+           declined supports-op query with a zero-element result shape in that graph's own block and no accepted or
+           non-empty query under the same op and name there; adjacent splits of one session are then merged; any other
+           extra CPU split, i.e. any non-empty fallback, fails (an op the NPU does not take can also share the first
+           CPU split, which is audited next); the first CPU split holds only GET_ROWS (the input embedding,
            token_embd.weight kept on the CPU by -ot) and the embedding's Hadamard restore (llama-graph.cpp build_tok at
            ff5a2337: a MUL_MAT with a runtime prism.hadamard.* matrix, then a MUL by its signs); every session split
            holds at least one MUL_MAT with a prism.hadamard.* src0 (the blocks' input rotations); each of the 200
            block Q2_0 matmul weights is the weight of a MUL_MAT under its block's session; result_output takes
            output.weight on HTP0:1. By hand, from the printed CPU-split inventory (the tool allows any MUL there): its
            MUL count is at most its prism.hadamard MUL_MAT count, and no other op appears. Both are part of PASS.
+           The by-hand audit (d2) also confirms, for every graph with discarded splits, that each discarded node is
+           zero-extent in that graph's records. B1c-4B's d2audit.py hardcodes that model's GET_ROWS-only first split and
+           one session, so it is not this audit: the 9B's d2 is done by hand as written here, or with a reviewed
+           adaptation of that script (the 9B allow-list, two sessions).
            The automated PLACED and the by-hand audit are reported separately. The allow-lists and the count do not prove
            dataflow, and the tool prints only the first graph's inventory: the audit reads every graph's CPU splits from
            the raw log, checks that their nodes are the embedding restore's chain, and keeps any graph whose inventory
