@@ -79,7 +79,7 @@ accepted attempt; the probe re-sizes once when the first attempt is outside +/- 
              8192        7,957           29.8 s              266.6          6.39
             16384       17,172           76.8 s              223.6          4.48
             28672       27,313          143.3 s              190.6          3.34    pass f
-  The server's own timings agree within 0.3 %. Measured with -lv 5 and GGML_SCHED_DEBUG=2 (as B1c-4B Step 4): not a
+  The server's own timings agree within about 1 % (largest at depth 1024: Q8 261.4 vs 263.9 t/s prefill). Measured with -lv 5 and GGML_SCHED_DEBUG=2 (as B1c-4B Step 4): not a
   clean hardware ratio. A screening estimate at 27,3xx tokens, not V0e's own timing.
 
 Acceptance (SPEC a-f)
@@ -92,7 +92,9 @@ S2's wrong outputs: cause not isolated. What the evidence shows: a clean run (wr
 lines, buffers as declared, fit WITHIN), the loader's split as declared, and outputs wrong from the first chunk (PPL
 ratio about 12,700), while one session of the same package, model and settings is correct (B1c-4B Step 2, CK and Q8
 here). What two sessions change: the Hadamard restore runs on HTP0:1 and its result crosses into HTP0:0; the hidden
-state crosses back at block 16; the recurrent state is split (25.12 MiB on each). Suspected, not confirmed: the copies
+state crosses back at block 16; the recurrent state is split (25.12 MiB on each); and the log reports "pipeline
+parallelism enabled" in both load phases (the pinned source enables it for this multi-device configuration; absent from
+the one-session CK and Q8 logs; another difference, not an established cause). Suspected, not confirmed: the copies
 between two Hexagon sessions in this package (ff5a2337), the restored embedding's crossing, or the hybrid model's
 state across sessions. The campaign's own 4B ran correctly on two sessions with another package (836d57176) and a
 non-hybrid model, which does not separate these. Isolating it is a new NPU stage (owner's approval).
@@ -102,8 +104,9 @@ Deviations, recorded
      ended in the kernel's OOM killer at 22:05:56, before the window; the second ran from about 22:06:2x and was killed
      at 22:07:30, after the run's END at 22:07:14 and before its verdict at 22:07:41). MemAvailable fell to 1,984 MiB at
      22:06:32 (floor 1,536, not breached); the wrapper's kernel audit passed. Parity is deterministic aggregate
-     statistics, judged for validity, not timed; Q8's parity results are reported as measured, and they match CK's
-     top-1 exactly. The checks were afterwards run only between windows, on the gzipped logs' extracts.
+     statistics, judged for validity, not timed; Q8's parity results are reported as measured. The overlap limits the
+     isolation of that window (matching CK's top-1 does not by itself prove no interference); the result is kept as a
+     disclosed screening result, with this qualification to be carried into any summary of it. The checks were afterwards run only between windows, on the gzipped logs' extracts.
   2. The waiter used for the CK server run treated an empty wrapper console as idle; that changed nothing in the run
      (it was replaced by one that waits for verdict.txt).
   3. The payload's "speed exit 0:" line shows an empty summary (the probe's file ends with a blank line); speed.txt's
