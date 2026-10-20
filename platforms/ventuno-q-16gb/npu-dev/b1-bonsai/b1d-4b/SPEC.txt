@@ -2,7 +2,8 @@ B1d-4B (NPU dev, B1): how Ternary-Bonsai-2-4B Q2_0 holds the KV cache at V0e's w
 written 2026-10-20 on the owner's decision "Test the options a[nd] choose what is better" (the three options put to
 the owner: two NPU sessions, a q8_0 KV cache, the KV cache on the CPU). Approval: that message, for this stage after
 Codex READY on this spec; the choice it produces is reported to the owner before any V0e plan for this model.
-Revision 2 (review of 09a7a43): CK redefined from the source (-nkvo moves the recurrent state too, and pins attention to
+Revision 3 (review of 98ebbd0: the CK checker proves empty CPU nodes per graph and fails closed on incomplete
+loader or per-graph evidence). Revision 2 (review of 09a7a43): CK redefined from the source (-nkvo moves the recurrent state too, and pins attention to
 the CPU only without flash attention), its acceptance frozen; a T5 score gate before the speed probe; the stage-wide
 STOP policy kept; every run's parameters fixed in a reviewed launcher (tools/b1d_kv_arm.sh); the choice rule as
 filters; S2's weights from the table.
@@ -102,10 +103,15 @@ Acceptance of an option (all needed)
        Q8: d1 with --split 33 --sessions HTP0:0: PLACED; d2 as B1c-4B, plus FLASH_ATTN_EXT and SET_ROWS under HTP0:0
        in every graph that has them, and the logged KV type q8_0 for K and V.
        CK: tools/b1_cpu_weight_check.py <log> --tensors b1-bonsai/b1-4b/table-bonsai2-4b-q2_0.tsv --session HTP0:0:
-       OK (every layer of the last load phase on HTP0:0; no node in a CPU split has a model weight as a source,
-       except GET_ROWS on token_embd.weight; every block weight read under HTP0:0); its CPU inventory recorded; the
-       logged KV and RS buffers on the CPU. On B1c-4B's Step 4 log the tool reports OK (19 graphs, 424/424 block
-       weights under HTP0:0, CPU inventory GET_ROWS 38). r2_placement.py is not judged for CK;
+       OK (revision 3, review of 98ebbd0: a loader line for every layer 0..32 of the last load phase, each on
+       HTP0:0; no node in a CPU split has a model weight as a source, except GET_ROWS on token_embd.weight and nodes
+       proved empty in their own graph by its supports-op records, as r2_placement.py --empty-cpu-ok; in every graph,
+       every block weight and output_norm.weight read under HTP0:0 or by a proved-empty node, and exactly one
+       result_output there reading token_embd.weight); its CPU inventory recorded; the logged KV and RS buffers on the
+       CPU. On B1c-4B's logs the tool reports OK: Step 4 (19 graphs, CPU inventory GET_ROWS 38) and Step 2a (27
+       graphs, 100 CPU nodes proved empty in the 10 zero-output graphs); a mutation of the Step 2a log that gives one
+       of them a conflicting accepted query is a DIFF (test_b1_cpu_weight_check.sh, 20/20). The full logs keep every
+       supports-op record, accepted and declined. r2_placement.py is not judged for CK;
   d. parity (against REF, T3a's frozen bars as B1c-4B Step 2): mean KLD <= 0.01, 99.0 % KLD <= 0.10, "Same top p"
      >= 97 %, all 10 chunks, finite (at 1,024 tokens of context only: KV precision at 28K is not measured here; V0e's
      own items test long context);
