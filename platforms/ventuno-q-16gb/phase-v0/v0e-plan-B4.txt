@@ -1,5 +1,7 @@
 Plan for configuration B4 (Ternary-Bonsai-2-4B Q2_0 on one NPU session with a q8_0 KV cache): V0d admission (set B4),
-then V0e at window 32768. Declared 2026-10-20, PROPOSED for review. Nothing runs until the owner approves this plan
+then V0e at window 32768. Declared 2026-10-20, PROPOSED for review (revision 2, review of ed12fa1: -np 1
+pinned, the admission runner's D2 change and its tests declared, the package identity counts, launch-time model hash
+checks). Nothing runs until the owner approves this plan
 after review. Not a GO: V0d admits, V0e qualifies, GO is the owner's.
 Owner: "Ok continue" (2026-10-20, after B1d-4B's result was merged, #89, with the V0e plan for Q8 named as the next step).
 
@@ -21,7 +23,9 @@ Owner: "Ok continue" (2026-10-20, after B1d-4B's result was merged, #89, with th
     laptop (r1_build_master_x86.sh), installed at PB=~/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337, with
     the lib/libcdsprpc.so link (k5-r2 staging note). Checked at every launch like D176's check of the campaign
     package: a committed pkg_identity manifest for PB (tools/pkg-identity-ff5a2337.txt, made once from the staged
-    package and compared with the build's own sha256 list before it is committed; 133 files and the one symlink).
+    package and compared with the build's own sha256 list before it is committed; 133 files, 15 symlinks by target and the external FastRPC library,
+    as the staged identity record; the added lib/libcdsprpc.so link is one of the 15). The model file's sha256 is
+    checked at launch and before every session and step (review of ed12fa1; not only after the fact, the D177 limit).
   DSP library: PB's own libggml-htp-v75.so (unpatched; the campaign's retry patch exists only for 836d57176). DSP
     error logging: ~/npu-dev/farf/llama-server.farf (0x1f, sha256 7acc31cd..., the campaign's file) first on
     ADSP_LIBRARY_PATH. See decision D1.
@@ -34,11 +38,14 @@ Owner: "Ok continue" (2026-10-20, after B1d-4B's result was merged, #89, with th
   V0e (B4):
     env LD_LIBRARY_PATH=$PB/lib "ADSP_LIBRARY_PATH=$HOME/npu-dev/farf;$PB/lib" GGML_HEXAGON_DEVICES=HTP0:0 GGML_HEXAGON_NHMX=1
       $PB/bin/llama-server -m $MB/Ternary-Bonsai-2-4B-Q2_0.gguf -c 32768 --cache-ram 5120 -lv 4 --host 127.0.0.1
-      --port 8080 --device HTP0:0 -ngl 999 -fa on -ctk q8_0 -ctv q8_0 --jinja --ctx-checkpoints 0
+      --port 8080 --device HTP0:0 -ngl 999 -np 1 -fa on -ctk q8_0 -ctv q8_0 --jinja --ctx-checkpoints 0
     As B1d-4B's Q8 except: -lv 4 (the campaign's level) without GGML_SCHED_DEBUG or GGML_HEXAGON_VERBOSE, a prompt
     cache of 5,120 MiB (A32's cap; memfloor --admit 5120 decides), --ctx-checkpoints 0 (A32's; D171 reports reuse,
-    never requires it) and the server's default batch sizes (-b 2048 -ub 512, as B1d's).
-  Admission: see decision D2.
+    never requires it) and the server's default batch sizes (-b 2048 -ub 512, as B1d's). -np 1 is explicit (review of
+    ed12fa1): at ff5a2337 the server's default slot count is auto (common/arg.cpp :1406), resolved to 4 with a
+    unified KV cache (tools/server/server.cpp :168-173), which would change the sequence and recurrent-state layout
+    B1d measured.
+  Admission: the same command, with the window of decision D2 (-c 32768 under D2(a), -c 40960 under D2(b)).
 
 4. Stage 1: V0d admission, set B4. As A32's (v0e-plan-A32.txt section 4): initial baseline probe; warm-up
   (discarded), r1, r2, r3 (speed_probe, fresh prefix, 128 tokens), then the tool gates (probe_toolcalls 10/10,
@@ -78,10 +85,20 @@ Owner: "Ok continue" (2026-10-20, after B1d-4B's result was merged, #89, with th
      accepting an untested fit; a refused map would be a clean load failure, retried once, then stop.
 
 10. Implementation (after this plan's review, before any run; offline tests, mocked as A32's)
-  v0d_admit.sh: set B4 (its command, cap 5120, D2's window and depths, the identity checks of section 2 at entry,
-  before every step and after the set). v0e_A_retry.sh: set B4 (phase v0e-B4, the attempt-5 behaviour, B4's AW, an
-  ident() that checks PB's manifest and the npu-dev .farf for B4's sessions and keeps the campaign checks for the
-  baseline). tools/pkg-identity-ff5a2337.txt. Tests: test_admit_entry.sh and test_v0e_A_retry.sh with SET=B4 (the
-  A32 policy cases against B4, B4's command and cap, a stop when only an A32 admission exists, a PB manifest
-  mismatch at entry and mid-run). Then a deployment check (the ~/v0 copies byte-compared) and the owner's go.
+  v0d_admit.sh: set B4 (its command with -np 1, cap 5120, D2's window, the identity checks of section 2 and the
+  model hash at entry, before every step and after the set). v0d_runner.sh (shared; review of ed12fa1): step_once()
+  hardcodes --nctx 40960 and admit_set() the depths 512,8192,16384,32768; both become set-scoped, so that under D2(a)
+  B4's warm-up and r1-r3 run speed_probe with --nctx 32768 --depths 512,8192,16384,28672 (under D2(b): 40960 and the
+  frozen depths), while the baseline and recovery probes keep --nctx 40960 --depths 512 and every existing set keeps
+  its arguments. D2(a) is a deviation from the frozen admission depths, approved by the owner if chosen: the gate at
+  16384 is unchanged and no 32768-token prompt is measured or claimed.
+  v0e_A_retry.sh: set B4 (phase v0e-B4, the attempt-5 behaviour, B4's AW, an ident() that checks PB's manifest, the
+  model hash and the npu-dev .farf for B4's sessions and keeps the campaign checks for the baseline).
+  tools/pkg-identity-ff5a2337.txt.
+  Tests: test_admit_entry.sh and test_v0e_A_retry.sh with SET=B4 (the A32 policy cases against B4; B4's command with
+  -np 1 and its cap asserted in both; a stop when only an A32 admission exists; a PB manifest mismatch and a model
+  hash mismatch at entry and mid-run), and argument-level regressions for D2: B4's discarded warm-up and all three
+  measured runs use the chosen --nctx and depths, the baseline and recovery probes keep --nctx 40960 --depths 512, AR
+  and A32 keep theirs, and the real unchanged 16K gate is re-applied to the mocked B4 evidence.
+  Then a deployment check (the ~/v0 copies byte-compared) and the owner's go.
   Estimated NPU time if everything passes: about 4-5.5 h (as A32).
