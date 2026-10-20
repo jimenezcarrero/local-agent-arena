@@ -29,6 +29,11 @@ if os.environ.get("FAKE_MODE") == "dies":   # the server exits during the screen
 rc = int(os.environ.get("STUB_RC", "0"))
 print(f"T5 stub: passes 20/20, valid 20/20" if rc == 0 else "T5 stub: INVALID"); sys.exit(rc)
 PY
+cat > "$W/speed.py" <<'PY2'
+import os, sys
+a = sys.argv[1:]; rc = int(os.environ.get("SPEED_RC", "0"))
+open(a[1], "a").write("SUMMARY stub: all depths measured\n" if rc == 0 else "SUMMARY stub: 1 depth(s) FAILED\n"); sys.exit(rc)
+PY2
 run() { local out=$1 mode=$2 rc=$3 scr=$4; shift 4
   FAKE_MODE=$mode STUB_RC=$rc B1_T5_SCREEN=$scr timeout 300 bash "$D/b1_t5_payload.sh" "$out" $((30000 + RANDOM % 20000)) 5 stub 30 "$@" \
     -- python3 -I "$W/fake.py" > /dev/null 2>&1; }
@@ -51,4 +56,18 @@ n=$((n + 1)); mkdir -p "$W/exists"; bash "$D/b1_t5_payload.sh" "$W/exists" 18000
 [ "$got" = 2 ] && echo "ok   an existing out dir: usage error (rc 2)" || { echo "FAIL existing out dir (rc $got)"; fails=$((fails + 1)); }
 n=$((n + 1)); bash "$D/b1_t5_payload.sh" "$W/bad" 18000 5 'bad label' 30 -- true > /dev/null 2>&1; got=$?
 [ "$got" = 2 ] && echo "ok   a label with a space: usage error (rc 2)" || { echo "FAIL bad label (rc $got)"; fails=$((fails + 1)); }
+# --speed (B1d-4B): the speed probe runs after a valid screen; its exit status counts
+sexpect() { local name=$1 want=$2 src=$3 srv=$4 depths=$5; shift 5; n=$((n + 1))
+  env "$@" FAKE_MODE=good B1_T5_SCREEN="$W/stub.py" B1_SPEED_PROBE="$src" timeout 300 bash "$D/b1_t5_payload.sh" --speed "$depths" "$W/o$n" \
+    $((30000 + RANDOM % 20000)) 5 stub 30 -- python3 -I "$W/fake.py" > /dev/null 2>&1; got=$?
+  [ "$got" = "$want" ] && echo "ok   $name (rc $got: $(tail -1 "$W/o$n/probe.txt" 2>/dev/null))" || { echo "FAIL $name (rc $got, wanted $want): $(tail -2 "$W/o$n/probe.txt" 2>/dev/null | tr '\n' ' ')"; fails=$((fails + 1)); }; }
+sexpect "--speed, screen and probe exit 0: OK" 0 "$W/speed.py" good 1024,28672 SPEED_RC=0 STUB_RC=0
+grep -q "speed exit 0: SUMMARY stub: all depths measured" "$W/o$n/probe.txt" && echo "ok   --speed records the probe's summary in probe.txt" || { echo "FAIL --speed summary not recorded"; fails=$((fails + 1)); }; n=$((n + 1))
+sexpect "--speed, the probe fails a depth (exit 1): FAIL" 1 "$W/speed.py" good 1024 SPEED_RC=1 STUB_RC=0
+sexpect "--speed, the screen is invalid: FAIL and the probe does not run" 1 "$W/speed.py" good 1024 SPEED_RC=0 STUB_RC=1
+[ ! -e "$W/o$n/speed.console" ] && echo "ok   --speed: no probe after an invalid screen" || { echo "FAIL the probe ran after an invalid screen"; fails=$((fails + 1)); }; n=$((n + 1))
+sexpect "--speed with the real suite speed_probe.py against a server that streams nothing: FAIL" 1 "$D/../../../../suite/tools/speed_probe.py" good 1024 STUB_RC=0
+grep -q "ERROR" "$W/o$n/speed.txt" 2>/dev/null && echo "ok   the real probe recorded the depth as ERROR" || { echo "FAIL the real probe's ERROR line missing"; fails=$((fails + 1)); }; n=$((n + 1))
+n=$((n + 1)); bash "$D/b1_t5_payload.sh" --speed 1024,x "$W/bad2" 18000 5 stub 30 -- true > /dev/null 2>&1; got=$?
+[ "$got" = 2 ] && [ ! -e "$W/bad2" ] && echo "ok   --speed with a malformed depth list: usage error (rc 2)" || { echo "FAIL malformed depths (rc $got)"; fails=$((fails + 1)); }
 echo "failures: $fails of $n"; exit $fails
