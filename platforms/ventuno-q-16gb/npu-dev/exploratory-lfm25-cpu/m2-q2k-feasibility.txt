@@ -1,0 +1,15 @@
+M2 (LFM2.5-24B-A2B Q2_K, the R1/T7 file) on the board's CPU: a feasibility check for arenas, 2026-10-20. Exploratory,
+not campaign evidence and not a V0e step. Asked by the owner (2026-10-19: M2 "can call tools should be benchmarked").
+
+File   ~/npu-dev/models/LFM2.5-24B-A2B-M2-Q2_K-af0579c7.gguf, 8,809,757,984 bytes, sha256 43b42f90...e7 (checked).
+Build  ~/v0/llama.cpp/build-cpu-v82 (llama.cpp 836d57176, CPU backend only), as this folder's 2026-10-13 runs.
+Run    llama-bench -t 4 --cpu-mask 0xF --cpu-strict 1 -fa 1 -p 512 -n 128 -d 0,8192,16384 -r 2 -o md
+       (2026-10-20T01:24:40+02:00 to 2026-10-20T02:07:55+02:00; nothing else running).
+Result (m2-q2k-llama-bench.md)   pp512 13.42 / 11.68 / 10.22 t/s and tg128 10.00 / 6.16 / 4.50 t/s at depth 0 / 8192 / 16384.
+
+Reading against V0e (RUNBOOK): step 3 needs every request's time to first token within 300 s, including a cold read of
+a prompt near the window. At 10-13 t/s, 300 s covers about 3,000-4,000 fresh prompt tokens; a cold 16K prompt takes
+about 16,384 / 11 = roughly 25 minutes and a 32K prompt (the smallest campaign window, the crusher) longer still
+(not measured beyond depth 16,384; prompt speed falls with depth). So M2 on this CPU cannot meet V0e step 3 at any
+campaign window, whatever its tool-call quality (T5 20/20 on the laptop). The NPU path is closed for M2 at R2's
+mapping refusal. Estimates from llama-bench rates, not a V0e run; nothing here is a qualification result.
