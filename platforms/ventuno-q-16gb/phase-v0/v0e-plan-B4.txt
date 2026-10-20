@@ -1,0 +1,87 @@
+Plan for configuration B4 (Ternary-Bonsai-2-4B Q2_0 on one NPU session with a q8_0 KV cache): V0d admission (set B4),
+then V0e at window 32768. Declared 2026-10-20, PROPOSED for review. Nothing runs until the owner approves this plan
+after review. Not a GO: V0d admits, V0e qualifies, GO is the owner's.
+Owner: "Ok continue" (2026-10-20, after B1d-4B's result was merged, #89, with the V0e plan for Q8 named as the next step).
+
+1. Why, and what B4 is
+  B1d-4B (npu-dev/b1-bonsai/b1d-4b/RESULT.txt) chose Q8 as the only one of three KV options that fits one session at
+  32768 and passes parity, T5 and the screening speed bar: one session, q8_0 K and V, flash attention; peak 1,861.5 MiB
+  mapped at -c 32768; parity against the board's CPU reference mean KLD 0.000168, top-1 99.39 % (at 1,024 tokens of
+  context; that parity window overlapped an agent-run checker, a recorded deviation); T5 20/20; time to first token
+  143.3 s at 27,313 tokens with debug logging. Not measured there: agent quality, long-context parity, sustained use.
+  V0e is the campaign's qualification for those, unchanged in method; B4 enters it as A32 did (v0e-plan-A32.txt):
+  its own admission with the frozen 16K gate, then S1 and S2.
+  Same architecture as A32's NeoHorse (qwen35 hybrid, 32 blocks, 8 attention layers, a reasoning chat template), so
+  the D171-D175 methods for hybrid cache reuse and reasoning replies apply as they are.
+
+2. Exact identities
+  Model ~/npu-dev/b1/models/Ternary-Bonsai-2-4B-Q2_0.gguf, 1,212,103,520 bytes, sha256
+    64a5183b44921bdb5ac4a6f5f92007821d6ebe5c66997d3c147fd214ab9433d4 (b1-4b/RESULT-cpu.txt).
+  Host runtime for B4's server: the B1a package, llama.cpp ff5a23376725e5a889fa0bfb987b7541dc304da0, built on the
+    laptop (r1_build_master_x86.sh), installed at PB=~/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337, with
+    the lib/libcdsprpc.so link (k5-r2 staging note). Checked at every launch like D176's check of the campaign
+    package: a committed pkg_identity manifest for PB (tools/pkg-identity-ff5a2337.txt, made once from the staged
+    package and compared with the build's own sha256 list before it is committed; 133 files and the one symlink).
+  DSP library: PB's own libggml-htp-v75.so (unpatched; the campaign's retry patch exists only for 836d57176). DSP
+    error logging: ~/npu-dev/farf/llama-server.farf (0x1f, sha256 7acc31cd..., the campaign's file) first on
+    ADSP_LIBRARY_PATH. See decision D1.
+  Baseline probe before every step and session: unchanged from A32-5 (campaign package 836d57176, NeoHorse, patched
+    library, -ngl 99, depth 512), with its identity checks (patched library, .farf, D176 package check). It probes the
+    NPU's health, not B4; keeping it unchanged keeps the recovery rule's meaning.
+  Measurement commit 7badb21; pi 0.80.10, provider bench, model local32k (contextWindow 32768, maxTokens 8192).
+
+3. Server commands (PB as above, MB=~/npu-dev/b1/models)
+  V0e (B4):
+    env LD_LIBRARY_PATH=$PB/lib "ADSP_LIBRARY_PATH=$HOME/npu-dev/farf;$PB/lib" GGML_HEXAGON_DEVICES=HTP0:0 GGML_HEXAGON_NHMX=1
+      $PB/bin/llama-server -m $MB/Ternary-Bonsai-2-4B-Q2_0.gguf -c 32768 --cache-ram 5120 -lv 4 --host 127.0.0.1
+      --port 8080 --device HTP0:0 -ngl 999 -fa on -ctk q8_0 -ctv q8_0 --jinja --ctx-checkpoints 0
+    As B1d-4B's Q8 except: -lv 4 (the campaign's level) without GGML_SCHED_DEBUG or GGML_HEXAGON_VERBOSE, a prompt
+    cache of 5,120 MiB (A32's cap; memfloor --admit 5120 decides), --ctx-checkpoints 0 (A32's; D171 reports reuse,
+    never requires it) and the server's default batch sizes (-b 2048 -ub 512, as B1d's).
+  Admission: see decision D2.
+
+4. Stage 1: V0d admission, set B4. As A32's (v0e-plan-A32.txt section 4): initial baseline probe; warm-up
+  (discarded), r1, r2, r3 (speed_probe, fresh prefix, 128 tokens), then the tool gates (probe_toolcalls 10/10,
+  agentic 3/3); every PASS step passes memfloor --admit 5120; the identity checks of section 2 before anything, before
+  every step's probe and load, and after the set. Fault budget D89 unchanged. 16K gate unchanged (frozen RUNBOOK,
+  tools/admit_gate.py): one RESULT at 16384 each, prompt within +-20 %, median prefill >= 145 and decode >= 4.4
+  tok/s. B1d's Q8 measured 223.6 and 4.48 at 17,172 tokens with debug logging: the decode margin is thin; the gate
+  decides. "GATE B4: PASS" -> provisionally eligible.
+
+5. Stage 2: V0e at 32768. "v0e_A_retry.sh B4" (phase v0e-B4), A32-5's driver and policy (attempt-5 behaviour: the
+  D171-D175 items, the D174 sizing, identity before every baseline load and every session and after every session),
+  with set B4's command and identity checks. Sessions S1 (budget 7200 s) and S2 (9000 s) exactly as A32-5's, pause
+  180 s. Starts only if the latest B4 admission attempt is complete and passing and the gate re-applied passes.
+
+6. Sampling: as A32 (llama-server defaults; pi's effective parameters recorded from -lv 4). Thinking: the template's
+  default (on), as B1d measured; pi sends what it sends.
+
+7. Stop and recovery policy: A32's (v0e-plan-A32.txt section 7), unchanged. QUALIFIED only if GATE B4 passed, S1 and
+  S2 PASS, memory ADMIT in both, the sustained summary VALID and no fault. A qualification covers this exact
+  configuration at window 32768 only.
+
+8. Monitoring and preconditions: as A32-5 (launch-checks.txt in runs/v0d-admit-B4 and runs/v0e-B4): no
+  llama-server; watchdog and health sampler running; health check pass without package drift (after today's
+  baseline reset, e48da99a...); measured checkout clean; the ~/v0 copies identical to the reviewed revision's tools/;
+  both packages' identity checks; the three .farf files' hash; disk >= 10 GB free. Nothing else runs on the board
+  during a session (B1d deviation 1).
+
+9. Decisions for the owner (recommendation first)
+  D1 runtime library. (a) PB's unpatched library (recommended): B1d's two server windows (70 and 12 min, 0 DSP faults)
+     ran it; a dspqueue fault in V0e is then recorded and ends the attempt NOT QUALIFIED. (b) Port the campaign's
+     retry patch to ff5a2337 (a laptop build, the owner's step) and run with it: closer to A32's runtime, but a new
+     build to identify and review first.
+  D2 admission window. The frozen admission probes 512/8192/16384/32768 at -c 40960; at 40960 B4's q8_0 KV grows by
+     136 MiB to about 1,990 MiB mapped (estimated, never loaded), about 150 MiB under R2's refused map. (a) Admission
+     at -c 32768 with depths 512/8192/16384/28672 (recommended): the configuration V0e runs and B1d measured; the
+     gate is at 16384 and unchanged; the 32K figure is diagnostic in A32's admission too. (b) -c 40960 as frozen,
+     accepting an untested fit; a refused map would be a clean load failure, retried once, then stop.
+
+10. Implementation (after this plan's review, before any run; offline tests, mocked as A32's)
+  v0d_admit.sh: set B4 (its command, cap 5120, D2's window and depths, the identity checks of section 2 at entry,
+  before every step and after the set). v0e_A_retry.sh: set B4 (phase v0e-B4, the attempt-5 behaviour, B4's AW, an
+  ident() that checks PB's manifest and the npu-dev .farf for B4's sessions and keeps the campaign checks for the
+  baseline). tools/pkg-identity-ff5a2337.txt. Tests: test_admit_entry.sh and test_v0e_A_retry.sh with SET=B4 (the
+  A32 policy cases against B4, B4's command and cap, a stop when only an A32 admission exists, a PB manifest
+  mismatch at entry and mid-run). Then a deployment check (the ~/v0 copies byte-compared) and the owner's go.
+  Estimated NPU time if everything passes: about 4-5.5 h (as A32).
