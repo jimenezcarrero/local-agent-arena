@@ -1,0 +1,129 @@
+B1d-4B result: Q8 CHOSEN. Of the three ways to hold Ternary-Bonsai-2-4B Q2_0's KV cache at V0e's window (32768), only
+Q8 (one NPU session, q8_0 K and V, flash attention) passes acceptance a-f: parity within T3a's bars, T5 20/20, and a
+time to first token of 143.3 s at 27,313 prompt tokens (limit 300 s). S2 (two sessions) is rejected on parity (its
+outputs are wrong) and placement; CK (KV cache, recurrent state and attention on the CPU) is rejected on speed (1,425.1 s
+at 27,311 tokens). The owner sees this before any V0e plan for this model.
+Run 2026-10-20 20:16-22:20 +02:00 under b1d-4b/SPEC.txt revision 3 (merged 38fb476, Codex READY at bf7cc9a), on the
+owner's decision "Test the options a[nd] choose what is better" and "Merge 88 and continue". Every run launched by
+tools/b1d_kv_arm.sh from the merged checkout (its npu-dev tools identical to bf7cc9a).
+
+Step 0 (CPU only, 20:16-20:46): the reference regenerated with B1c-4B Step 0c's command at its old path. Valid (self-check
+5,110 positions, top-1 100 %, KLD 0; size and header as specified; stored tokens f2259ac7...; final PPL 20.5527 +/- 0.96379,
+10 chunks). sha256 7fd9868c39deca75adb50e529ae8b005519c75eafa31df3c074aed76cece4444: equal to B1c-4B's recorded
+reference, so the same file. Its hash was checked by the launcher before every parity run.
+
+Launch checks (launch-checks.txt): unattended upgrades at 06:13 changed git, git-man, libxtst6 and tzdata; none is a
+library the package's binaries link (libc6, libgcc-s1, libstdc++6 only). The dpkg baseline was reset at 20:47:31 as
+D164/D177: the old one (7a78aa72...) kept as dpkg-baseline-20261020-pre-unattended.txt, the new one e48da99a...;
+identity.sh for this stage expects the new hash. Identity records (identity-0..5): before the first run, between
+every two consecutive runs and after the last: pkg-identity PASS (133 files, 15 links, 1 external, 0 mismatches),
+retry library and .farf unchanged, measured checkout 7badb21 clean, 0 dpkg differences.
+
+Runs (order S2, CK, Q8; wrapper verdicts all PASS; DSP fault 0 in every run)
+  run                  window (START-END)     verdict  DSP evidence (journal check; classes)
+  4b-kv-S2-parity      20:48:52-20:49:39      PASS     ok, 349 lines; fault 0, benign_modtable 2, info 225
+  4b-kv-CK-parity      20:50:54-20:52:06      PASS     ok, 168 lines; fault 0, benign_modtable 1, info 86
+  4b-kv-CK-server      20:53:06-22:03:37      PASS     ok, 165 lines; fault 0, benign_modtable 1, info 83
+  4b-kv-Q8-parity      22:06:13-22:07:14      PASS     ok, 205 lines; fault 0, benign_modtable 1, info 103
+  4b-kv-Q8-server      22:08:23-22:20:22      PASS     ok, 439 lines; fault 0, benign_modtable 1, info 102
+  S2's server run was not started (a parity rejection skips it, SPEC "Stopping").
+
+Parity (llama-perplexity against REF, 10 chunks x 1,024, 5,110 scored positions, all finite; T3a bars: mean KLD <= 0.01,
+99.0 % KLD <= 0.10, top-1 >= 97 %)
+          mean KLD                99.0 % KLD   max KLD     top-1 ("Same top p")   PPL ratio
+  S2      10.169542 +/- 0.047306  17.292540    20.779829    0.528 +/- 0.101 %     12,748.57 +/- 797.11   FAIL
+  CK       0.000168 +/- 0.000019   0.000905     0.084054   99.393 +/- 0.109 %     1.000826 +/- 0.000673  pass
+  Q8       0.000168 +/- 0.000010   0.001100     0.035604   99.393 +/- 0.109 %     1.000363 +/- 0.000685  pass
+  For comparison, B1c-4B Step 2a (one session, F16 KV): 0.000154, 0.000975, 99.413 %.
+
+Fit (r2_mapped_peak.py with the launcher's vectors: all WITHIN) and logged buffers, last load phase
+  S2 parity  HTP0:0 802.3 MiB total (limit 1,350), HTP0:1 1,457.8 (1,950); RS 25.12 MiB on each session; compute
+             99.06 / 649.09 MiB.
+  CK parity  HTP0:0 1,661.0 (1,950); model 1,145.43 on HTP0:0; KV 32.00 and RS 50.25 MiB on the CPU; HTP0:0 compute
+             505.00, CPU compute 56.02 MiB.
+  CK server  HTP0:0 1,230.0 (1,500).
+  Q8 parity  HTP0:0 1,729.5 (1,950); KV q8_0 17.00 MiB on HTP0:0.
+  Q8 server  HTP0:0 1,861.5 (2,000); model 1,145.43, KV q8_0 544.00 MiB (K 272, V 272, 32,768 cells), RS 50.25, compute
+             111.29 MiB, all on HTP0:0; CPU model 170.51, compute 52.29. Peak 1,851.1 own + clones, about 293 MiB under
+             R2's refused map (2,144.55 MiB; suspected limit, not isolated).
+  Board: MemAvailable minimum 10,919 MiB (CK parity), 11,480 (Q8 server); Q8 parity 1,984 MiB (deviation below).
+
+Placement
+  S2: MISPLACED (r2_placement.py, --split 16,17): in all 27 graphs the splits are CPU, HTP0:1, HTP0:0, HTP0:1, not the
+     declared CPU, HTP0:0, HTP0:1. The loader put blocks 0-15 on HTP0:0 and blocks 16-31 and the output on HTP0:1 as
+     declared; the input embedding's Hadamard restore (prism.hadamard.512 and its signs, kept with the tied output on
+     HTP0:1) runs in a first HTP0:1 split and its result is copied into HTP0:0.
+  CK: b1_cpu_weight_check.py OK in both runs (parity 27 graphs, server 280; 33 loader lines; 425 table weights read
+     per graph under HTP0:0 or by proved-empty nodes; 100 and 2,120 proved-empty CPU nodes). CPU inventory (server):
+     ADD 424, CONT 2,240, CPY 26,880, GET_ROWS 14,000, MUL 1,060, MUL_MAT 5,116, SCALE 13,440, SET_ROWS 4,480, SOFT_MAX
+     2,240: the non-flash attention, the cache writes and the recurrent state's reads and writes, as designed.
+  Q8: PLACED in both runs (27 and 280 graphs, splits exactly CPU, HTP0:0; first CPU split GET_ROWS on token_embd.weight
+     only; 90 and 1,899 zero-extent splits dropped). d2 (q8_d2.sh, in the evidence): FLASH_ATTN_EXT under HTP0:0 in
+     every graph (8 per graph: 216 nodes in 27 graphs; 2,240 in 280), SET_ROWS under HTP0:0 only; KV type q8_0 for K
+     and V in both logs.
+
+T5 (server runs; the frozen screen, 20 trials, thinking on; rule P >= 18)
+  CK  passes 20/20, valid 20/20; generated tokens 58 / 75.5 / 127 (min / median / max); prompt 104-109 t/s, generation
+      1.54-1.73 t/s.
+  Q8  passes 20/20, valid 20/20; generated tokens 58 / 75.5 / 127; prompt 251-264 t/s, generation 9.54-10.06 t/s.
+  Both match CPU-ref's and B1c-4B Step 3a's distributions exactly (58 / 75.5 / 127).
+
+Speed (the suite's speed_probe.py on the same server; fresh prompt, cache_prompt false, 128 generated; the depth's
+accepted attempt; the probe re-sizes once when the first attempt is outside +/- 20 % of the depth, logged as RETRY)
+            depth   prompt tokens   time to first token   prefill t/s   decode t/s
+  CK         1024        1,044            9.7 s              107.6          1.60
+             8192        7,958          151.2 s               52.6          1.49
+            16384       17,175          587.3 s               29.2          1.39
+            28672       27,311        1,425.1 s               19.2          1.25    over 300 s: FAIL f
+  Q8         1024        1,049            4.0 s              261.4          9.69
+             8192        7,957           29.8 s              266.6          6.39
+            16384       17,172           76.8 s              223.6          4.48
+            28672       27,313          143.3 s              190.6          3.34    pass f
+  The server's own timings agree within about 1 % (largest at depth 1024: Q8 261.4 vs 263.9 t/s prefill). Measured with -lv 5 and GGML_SCHED_DEBUG=2 (as B1c-4B Step 4): not a
+  clean hardware ratio. A screening estimate at 27,3xx tokens, not V0e's own timing.
+
+Acceptance (SPEC a-f)
+  S2  a pass; b pass; c FAIL (MISPLACED); d FAIL (mean KLD 10.17); e, f not run.                       REJECTED
+  CK  a pass; b pass; c pass; d pass; e pass (20/20); f FAIL (1,425.1 s > 300 s).                      REJECTED
+  Q8  a pass; b pass; c pass; d pass; e pass (20/20); f pass (143.3 s).                                PASS
+  Choice: Q8 is the only option that passes, so the filters leave Q8.
+
+S2's wrong outputs: cause not isolated. What the evidence shows: a clean run (wrapper PASS, no DSP fault, no error
+lines, buffers as declared, fit WITHIN), the loader's split as declared, and outputs wrong from the first chunk (PPL
+ratio about 12,700), while one session of the same package, model and settings is correct (B1c-4B Step 2, CK and Q8
+here). What two sessions change: the Hadamard restore runs on HTP0:1 and its result crosses into HTP0:0; the hidden
+state crosses back at block 16; the recurrent state is split (25.12 MiB on each); and the log reports "pipeline
+parallelism enabled" in both load phases (the pinned source enables it for this multi-device configuration; absent from
+the one-session CK and Q8 logs; another difference, not an established cause). Suspected, not confirmed: the copies
+between two Hexagon sessions in this package (ff5a2337), the restored embedding's crossing, or the hybrid model's
+state across sessions. The campaign's own 4B ran correctly on two sessions with another package (836d57176) and a
+non-hybrid model, which does not separate these. Isolating it is a new NPU stage (owner's approval).
+
+Deviations, recorded
+  1. During Q8's parity window the agent ran b1_cpu_weight_check.py on the 1.8 GB CK server log (the first attempt
+     ended in the kernel's OOM killer at 22:05:56, before the window; the second ran from about 22:06:2x and was killed
+     at 22:07:30, after the run's END at 22:07:14 and before its verdict at 22:07:41). MemAvailable fell to 1,984 MiB at
+     22:06:32 (floor 1,536, not breached); the wrapper's kernel audit passed. Parity is deterministic aggregate
+     statistics, judged for validity, not timed; Q8's parity results are reported as measured. The overlap limits the
+     isolation of that window (matching CK's top-1 does not by itself prove no interference); the result is kept as a
+     disclosed screening result, with this qualification to be carried into any summary of it. The checks were afterwards run only between windows, on the gzipped logs' extracts.
+  2. The waiter used for the CK server run treated an empty wrapper console as idle; that changed nothing in the run
+     (it was replaced by one that waits for verdict.txt).
+  3. The payload's "speed exit 0:" line shows an empty summary (the probe's file ends with a blank line); speed.txt's
+     SUMMARY line reads "all depths measured" for both runs.
+
+Not claimed: agent quality, V0e qualification (its own plan and run; the next step, for the owner), parity at long
+context (KV precision at 27K is not measured here), the cause of S2's outputs, or anything about the 9B.
+
+Evidence: b1d-4b-evidence-20261020.tar.gz, sha256 579cc0c01ef5e3567a0560ac9151ca25de4eb4cb826b1a1c47eee04e30eaaab7
+(46,957,785 bytes): Step 0's directory and script, the five wrapper directories with their logs (the three parity
+logs in full), consoles, launch checks, identity records, checks.txt (every check above rerun on the archived files),
+q8_d2.sh and q8-d2.txt, wait-verdict.sh. The two server logs are too large for the repository (1,790,844,864 and
+1,239,092,969 bytes); for each, checks-extract.log.gz made by make_extract.sh (B1c-4B's recipe, in the evidence) from
+the gzipped full log, on which r2_mapped_peak.py, r2_placement.py, b1_cpu_weight_check.py and q8_d2.sh reproduce the
+results above. The full logs stay on the board, gzipped (gz sha256 673e0d6a... CK, f2de5043... Q8), with the sha256
+of each uncompressed log taken before compression (server.log.sha256: CK 1417eb19..., Q8 0574d6a3...). Redacted: boot
+ids in run.txt, the hostname in the journal exports; then scanned for the machine-id, the boot id, the hostname, MAC
+addresses, UUIDs, link-local addresses and key fingerprints: none in the plain files; the two extracts hold 3 UUIDs
+each, the speed probe's random per-request prompt tags ("Run <uuid4>."), not device identifiers, kept so that the
+extracts stay the recipe's exact output.
