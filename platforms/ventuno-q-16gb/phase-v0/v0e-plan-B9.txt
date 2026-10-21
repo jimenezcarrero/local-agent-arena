@@ -1,0 +1,86 @@
+Plan for configuration B9 (Ternary-Bonsai-2-9B Q2_0 on two NPU sessions, F16 KV, the htp_main_thread retry build of
+ff5a2337): V0d admission (set B9), then V0e at window 32768. Declared 2026-10-21, PROPOSED for review. Nothing runs
+until the owner approves this plan after review. Not a GO: V0d admits, V0e qualifies, GO is the owner's.
+Owner (2026-10-21): asked why a V0e for the 9B; on the build, "So if the patch is clear pick why do you ask me?"; the
+patched build was then made (npu-dev/b1-bonsai/b1f-retry, PASS, merged e057eaa).
+
+1. Why, and what B9 is
+  B1d-9B (npu-dev/b1-bonsai/b1d-9b/RESULT.txt, PASS under its SPEC revision 2, a post-hoc deviation recorded there):
+  two sessions -ts 18,15 with the input embedding on the CPU; parity against the board's CPU reference mean KLD
+  0.000187, top-1 99.335 % (1,024 tokens of context); T5 20/20 with thinking on and off; time to first token 164.5 s
+  at 27,307 tokens, decode 5.49 tok/s, with debug logging; mapped peaks 1,873.8 / 1,899.7 MiB at -c 32768. B1f: the same
+  parity, identical figures, with the retry build. Not measured: agent quality, long-context parity, sustained use, the
+  stack under pi. V0e is the campaign's qualification for those, unchanged in method; B9 enters it as B4 did
+  (v0e-plan-B4.txt): its own admission with the frozen 16K gate, then S1 and S2.
+  Same architecture as B4 and A32 (qwen35 hybrid, 32 blocks, 8 attention layers, a reasoning chat template), so the
+  D171-D175 methods for hybrid cache reuse and reasoning replies apply as they are. One session is not used: unmeasured,
+  excluded on budget and risk (b1d-9b/SPEC.txt).
+
+2. Exact identities
+  Model ~/npu-dev/b1/models/Ternary-Bonsai-2-9B-Q2_0.gguf, 2,556,640,128 bytes, sha256
+    1f884aa56aacd2bbbb2e4b7abaead2b1102b74a9c75a23fc33dab916813a384d (b1-bonsai/README.txt), checked at launch and
+    before every step and session.
+  Host runtime: PB, B4's (ff5a2337 package, tools/pkg-identity-ff5a2337.txt checked at every call, as D178).
+  DSP library: the retry build of ff5a2337, ~/npu-dev/htp-retry-ff5a2337/libggml-htp-v75.so, sha256
+    65e50e678cc3426f1160748d0e4d1b2c5319fa3004cdf754af109ecd278ad4f5 (b1f-retry/RESULT.txt), read-only, after the
+    npu-dev .farf directory and before PB/lib on ADSP_LIBRARY_PATH (which file loads rests on that order and the hash,
+    D132). DSP error logging: ~/npu-dev/farf/llama-server.farf (0x1f, sha256 7acc31cd...).
+  Identity check: tools/b9_identity_check.sh, b4_identity_check.sh's checks with B9's model and the retry library's
+    sha256 added; used where B4's is used.
+  Baseline probe: A32-5's, unchanged (campaign package 836d57176, NeoHorse, the campaign's patched library, -ngl 99,
+    depth 512) with its identity checks, at the same points as B4. It probes the NPU's health, not B9.
+  Measurement commit 7badb21; pi 0.80.10, provider bench, model local32k (contextWindow 32768, maxTokens 8192).
+
+3. Server commands (PB as above, MB=~/npu-dev/b1/models, R=~/npu-dev/htp-retry-ff5a2337)
+  V0e (B9):
+    env LD_LIBRARY_PATH=$PB/lib "ADSP_LIBRARY_PATH=$HOME/npu-dev/farf;$R;$PB/lib" GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1
+      GGML_HEXAGON_NHMX=1 $PB/bin/llama-server -m $MB/Ternary-Bonsai-2-9B-Q2_0.gguf -c 32768 --cache-ram 5120 -lv 4
+      --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ts 18,15 -ot 'token_embd\.weight=CPU' -ngl 999 -np 1
+      -fa on --jinja --ctx-checkpoints 0
+    As B1d-9B's server except: -lv 4 without GGML_SCHED_DEBUG or GGML_HEXAGON_VERBOSE, the retry library, a prompt
+    cache of 5,120 MiB (B4's and A32's cap; memfloor --admit 5120 decides), --ctx-checkpoints 0, and no --slot-save-path
+    (B1d's payload used one; nothing here saves slots). -np 1 explicit (D178). Default batch sizes (-b 2048 -ub 512) and
+    F16 KV, as B1d-9B.
+  Admission: the same command (-c 32768, section 4).
+
+4. Stage 1: V0d admission, set B9. As B4's under D2(a) (D179): -c 32768, warm-up (discarded) and r1-r3 with speed_probe
+  --nctx 32768 --depths 512,8192,16384,28672; baseline and recovery probes keep --nctx 40960 --depths 512; the tool
+  gates (probe_toolcalls 10/10, agentic 3/3); memfloor --admit 5120 on every PASS step; identity checks at entry, before
+  every step's probe and load, and after the set. Fault budget D89 unchanged. 16K gate unchanged (frozen RUNBOOK,
+  tools/admit_gate.py): median prefill >= 145 and decode >= 4.4 tok/s at 16384 (prompt within +-20 %). B1d-9B measured
+  175.5 and 5.91 at 17,172 tokens with debug logging. "GATE B9: PASS" -> provisionally eligible.
+  Window chosen, not asked (the owner's D2(a) for B4, same reasons): the frozen -c 40960 would add 128 MiB of KV per
+  session, about 2,028 MiB mapped on HTP0:1 (estimated from B1d-9B's 1,899.7, never loaded), about 117 MiB under R2's
+  refused map; V0e runs 32768. The deviation from the frozen admission depths is B4's, approved for this plan with it:
+  the gate at 16384 is unchanged and no 32768-token prompt is measured or claimed.
+
+5. Stage 2: V0e at 32768. "v0e_A_retry.sh B9" (phase v0e-B9), A32-5's driver and policy as B4 ran it (attempt-5
+  behaviour, the D171-D175 items, the D174 sizing, identity before every baseline load and every session and after every
+  session), with set B9's command and identity checks. S1 (budget 7200 s) and S2 (9000 s) exactly as A32-5's, pause
+  180 s. Starts only if the latest B9 admission attempt is complete and passing and the gate re-applied passes.
+  DSP retry events (the retry library's "dspqueue_peek failed ... (N in a row), retrying") are counted per session and
+  not faults, as A32's (D136); more than 1 in a row is flagged to the owner; any other DSP fault line is a fault.
+
+6. Sampling: as B4 and A32 (llama-server defaults; pi's effective parameters recorded from -lv 4). Thinking: the
+  template's default (on).
+
+7. Stop and recovery policy: A32's (v0e-plan-A32.txt section 7), unchanged. QUALIFIED only if GATE B9 passed, S1 and S2
+  PASS, memory ADMIT in both, the sustained summary VALID and no fault. A qualification covers this exact configuration
+  at window 32768 only.
+
+8. Monitoring and preconditions: as B4 (launch-checks.txt in runs/v0d-admit-B9 and runs/v0e-B9): no llama-server;
+  watchdog and health sampler running; health check pass without package drift (baseline b295c458...; a reset as
+  D164/D177 if unattended upgrades changed packages, recorded); measured checkout clean; the ~/v0 copies identical to
+  the reviewed revision's tools/; both packages' identity checks, the retry libraries (campaign's and B9's), the .farf
+  files; disk >= 10 GB free. Today's disk is about 6.6 GB free, so before the launch the owner chooses what to free
+  (candidates: B1d-9B's CPU reference cpu-ref-9b.kld 2.5 GB, rebuildable by b1d-9b/step0.sh; B1e's nh-cpu-ref.kld 1.0
+  GB; the two B1d-9B server logs, 0.18 GB gzipped; M2 8.8 GB). Nothing else runs on the board during a session.
+
+9. Implementation (after this plan's review, before any run; offline tests, mocked as B4's)
+  tools/b9_identity_check.sh; v0d_admit.sh and v0e_A_retry.sh: set B9 (its command, cap 5120, the D2(a) window and
+  depths, B9's identity checks where B4's are, and the retry-event counting already in the driver). Tests:
+  test_admit_entry.sh and test_v0e_A_retry.sh with SET=B9 (B4's cases against B9: its command with -np 1, -ts 18,15,
+  -ot and the retry library's directory in order on ADSP_LIBRARY_PATH; a stop when only a B4 admission exists; a PB
+  manifest, model hash or retry-library hash mismatch at entry and mid-run; the D2 arguments; the real 16K gate on mocked
+  B9 evidence). Then a deployment check (the ~/v0 copies byte-compared) and the owner's go.
+  Estimated NPU time if everything passes: about 4-5.5 h (as B4).
