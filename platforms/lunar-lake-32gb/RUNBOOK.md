@@ -313,6 +313,7 @@ quantizations; the screen decides what survives.
 | Ornith-1.5 35B-A3B | IQ4_XS (18.7) | check card | — |
 | K2 Horizon MoVA 36B-A4B | IQ3_M (16.5) | check card | IFM fork if upstream lacks the arch |
 | LFM2.5 24B-A2B | `LiquidAI/LFM2.5-24B-A2B-GGUF` QAD-Q4_0 (13.6, quantization-aware distilled), Q4_K_M (14.5), Q5_K_M (17.0), Q6_K (19.7) | — | — |
+| Recursive Flint 40B-A2.5B | chosen on the test day (see the note below) | — | upstream llama.cpp once Flint support is merged |
 
 **Dense (the "is it usable or does it time out?" question)**
 
@@ -333,6 +334,32 @@ than the 20.8 GiB heap budget), so it is not listed. The Q4_K_M and Q8_0 files
 measured there are byte-identical to the publisher's (sha256 d3334405...,
 f09bf094...). Its sampling is the card's (temperature 0.1, top-k 50, repeat
 penalty 1.05, also in the GGUF metadata). S1 still starts with the fit check.
+
+Recursive Flint (`RecursiveSI/flint`, Apache-2.0, released 2026-10-21) was added
+as a future candidate on that day, with no quantization fixed: by the test day
+better files may exist, so pick them then, and record why. It is a coding-agent
+MoE: 39.8B total, about 2.5B active per token; 49 layers, 14 of them full
+attention (the KV cache is about 28 KiB per token at F16, roughly 0.9 GB at 32K)
+and 35 sliding-window layers of 513 tokens; up to 262,144 tokens of context.
+Publisher's figures, not checked here: SWE-bench Verified 74.2 %,
+Terminal-Bench 2.1 54.9 %. What existed on 2026-10-21, for reference only:
+`RecursiveSI/flint-int4-gguf` Q4_1 (26.0GB, the publisher's GGUF, aimed at
+48GB Macs), `RecursiveSI/flint-nvfp4-gguf` (22.9, aimed at NVIDIA), and
+`unsloth/flint-GGUF` UD-IQ1_M to Q6_K_XL (11.4–36.3) named "flint-preview" and
+uploaded the day before the release (check that they are the released weights).
+Before the test:
+- upstream llama.cpp support: on 2026-10-21 it was an open, approved PR
+  (ggml-org/llama.cpp#30928, which also needs a chat-template PR for
+  hexadecimal escapes, and reports a 10–30 % slowdown to be fixed later). The
+  suite's build moves to a commit with it in a separate PR to `main`;
+- fit: planning context only, not a cutoff. The LFM2.5 side measurement
+  logged a 20.80 GiB Vulkan budget (about 22.3 GB), and one 23.74 GiB file
+  (its Q8_0) failed with the tested `-ngl 99` flags; it measured no largest
+  fitting file and no partial offload. A Flint file's fit depends on its
+  backend buffers, KV type and window, sliding-window cache and workspace, and
+  the budget at launch, so S1's fit check decides full or partial placement;
+- sampling from the card: temperature 1.0, top-p 0.95, top-k 20; keep
+  `reasoning_content` in the history, `--jinja`.
 
 The three Qwen3.8-27B IQ3 files are also a publisher comparison at equal
 bits: same base model, standard llama.cpp formats, different quantizer
