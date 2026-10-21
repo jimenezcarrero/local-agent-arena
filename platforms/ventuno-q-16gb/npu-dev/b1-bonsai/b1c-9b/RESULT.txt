@@ -1,0 +1,45 @@
+B1c (9B) load: Ternary-Bonsai-2-9B Q2_0 on two NPU sessions (b1-bonsai/README.txt stage B1c, as revised in
+6d5b964/3a1e98d/0a9e2d7). Run 2026-10-21 11:13:55-11:15:16 on the owner's approval ("You have my approval for diagnostic
+and the 9B load", 2026-10-21), after V0e B4 had finished (no other NPU use). Exactly the README's command
+(load1-s2, -c 16384 -np 1 -fa on -ngl 999 --device HTP0:0,HTP0:1 -ts 18,15 -ot 'token_embd\.weight=CPU' --cache-ram 0
+-lv 5, GGML_HEXAGON_VERBOSE=1 GGML_SCHED_DEBUG=2, ~/npu-dev/farf first on ADSP_LIBRARY_PATH), tools from main (npu-dev
+identical to origin/main 643e894). Before the window: the model sha256 1f884aa5... checked, the ff5a2337 package against
+its manifest (PASS), the three .farf files 0x1f; campaign identity before and after (9b-load1-identity-*.txt: package
+PASS, retry library and .farf as declared, measure 7badb21 clean, dpkg baseline b295c458... (D179's reset), 0 lines
+of drift).
+
+Result: NOT PASS. Check d fails under the frozen rule ("any one missing or failed stops B1 before B1d"); a, c and e
+pass and b is recorded.
+  a. Wrapper verdict PASS: command exit 0, DSP journal with the library and CDSP0 lines, no DSP fault, kernel audit,
+     no floor, stall, orphan or watchdog event. Ready after 11 s.
+  b. Generation (recorded, no parity claim): 32 tokens at 7.43 t/s, prompt "The capital of France is":
+     " Paris.\nThe capital of France is Paris." repeated, then "The capital of Paris is". B1b's CPU arm (greedy,
+     48 tokens) gave " Paris." then the sentence repeated. Coherent text, not garbage.
+  c. r2_mapped_peak.py 1650,1650 --sessions HTP0:0,HTP0:1: WITHIN (peak own+clones 1,585.8 / 1,611.7 MiB; pinned
+     10.4 each).
+  d. r2_placement.py (the README's arguments, --empty-cpu-ok): MISPLACED, 10 differences. Every one of the 10 graphs
+     of the last load phase splits CPU, HTP0:1, HTP0:0, HTP0:1, against the declared CPU, HTP0:0, HTP0:1 (9 extra CPU
+     splits of zero-element declined nodes were dropped in 1 graph, as allowed). The extra HTP0:1 split before HTP0:0
+     holds the input embedding's Hadamard restore: MUL_MAT with prism.hadamard.4096 (on HTP0:1), its MUL by the signs
+     (model.input_embed), the same for inp_mixed, and a DUP/SET_ROWS into inp_mixed_embd. The first CPU split holds
+     only the two GET_ROWS of token_embd.weight (kept on the CPU by -ot). The README assumed the restore would run on
+     the CPU split or on HTP0:0; the scheduler places it with its matrix. This is the same split order as B1d-4B's S2
+     (two sessions, wrong outputs there, cause not isolated); here the text is coherent.
+     The by-hand d2 audit was not done: d already fails on the automated split order.
+  e. Logged buffers (last load phase, by hand): model HTP0:0 1,060.33 / HTP0:1 1,094.53 MiB (the table's exactly), CPU
+     272.81 (token_embd); KV 256.00 / 256.00; RS 29.31 / 20.94; compute 112.02 / 128.00 (RS + compute 141.33 / 148.94,
+     <= 250): pass. Noted: the CPU compute buffer 64.08 MiB against the scheduler's expectation of 48.02.
+
+What it shows: the 9B fits two sessions at -c 16384 with the declared margins, loads and generates coherent text with
+no DSP fault. Not shown: that its NPU output is correct (no parity here), anything at longer context, or the cause of
+B1d-4B's S2. The coherent 9B text with the same restore placement suggests the restore on the second session is not by
+itself enough to break a model; suspected, not isolated (the 4B differs: tied output, embedding on the NPU).
+
+Decision for the owner: (a) revise d to admit the restore on the output session (a reviewed spec revision; this run
+then recorded as a deviation from the frozen rule) and write B1d-9B's spec (parity, T5, speed); or (b) stop B1 at B1c.
+
+Evidence: b1c-9b-load-evidence-20261021.tar.gz, sha256 8139bd6daba1abf6fe80d0c6104c8a10f3149d372e19cb3386e1e6a32677ba9f (2,458,685 bytes; wrapper directory with the server log gzipped, uncompressed sha256
+8b1a760c... in server.log.sha256, 27,172,038 bytes; checks; consoles; identity records; the launch and identity
+scripts). Redacted: none needed in the server log; the hostname in the journal export and the boot id in run.txt
+(<host>, <redacted>). Scanned for the machine-id, the boot id, the hostname, the SoC serial, MAC addresses, UUIDs,
+link-local addresses and USB serials: none. c and d rerun on the archived log reproduce the results above.
