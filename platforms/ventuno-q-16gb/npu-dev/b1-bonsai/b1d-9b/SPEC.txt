@@ -5,16 +5,18 @@ spec and its merge; nothing on the NPU runs before. With it: check d revision 2 
 which B1c-9B passes a-e (a deviation from the frozen rule, recorded there).
 
 Why (b1c-9b/RESULT.txt): the 9B fits two sessions at -c 16384 (peaks 1,585.8 / 1,611.7 MiB) and generates coherent
-text with no DSP fault. Its NPU output has not been checked. It does not fit one session: the NPU weights alone are
-2,154.9 MiB, above the 2,144.55 MiB map R2 saw refused (suspected limit, not isolated). So two sessions are the only
-configuration, and the question B1d-4B's S2 leaves open (wrong outputs on two sessions, cause not isolated,
-b1e-s2diag/RESULT.txt) is the first one this stage answers for the 9B.
+text with no DSP fault. Its NPU output has not been checked. One session is unmeasured and excluded here on budget and
+risk grounds (review of aff9f6d): its NPU weights alone are 2,154.9 MiB, above the 2,144.55 MiB map R2 saw refused, an
+observation whose scope and cause are not isolated, so it does not establish that the 9B cannot fit one session. This
+stage runs two sessions only, and the question B1d-4B's S2 leaves open (wrong outputs on two sessions, cause not
+isolated, b1e-s2diag/RESULT.txt) is the first one it answers for the 9B.
 
 Configuration (all three runs; the exact commands are tools/b1d9_arm.sh's, tests test_b1d9_arm.sh, 18 cases)
   B1c-9B's: package ff5a2337 (P), --device HTP0:0,HTP0:1 -ts 18,15 (blocks 0-17 on HTP0:0, blocks 18-31 and the
   untied output layer on HTP0:1), -ot 'token_embd\.weight=CPU', -fa on, F16 KV, -ngl 999 -lv 5,
   GGML_HEXAGON_VERBOSE=1 GGML_SCHED_DEBUG=2, ~/npu-dev/farf first on ADSP_LIBRARY_PATH. The server at -c 32768 -np 1
-  --cache-ram 0 --jinja -b 2048 -ub 512 (B1d-4B's server arm). No one-session control exists (it does not fit).
+  --cache-ram 0 --jinja -b 2048 -ub 512 (B1d-4B's server arm). No measured one-session control: a parity failure here
+  cannot be attributed to two sessions as such (attribution limit, kept in the result).
 
 Declared figures (estimates, not a ledger; the load is the fit test). Weights from table-bonsai2-9b-q2_0.tsv (HTP0:0
 1,060.33, HTP0:1 1,094.53 MiB; B1c-9B logged exactly these). KV: 32 KiB per token over the 8 attention layers, 4 of
@@ -42,9 +44,11 @@ Inputs (each checked before use; any mismatch stops)
   the stage stops and the owner decides what to free (candidates, none deleted without the owner's word: B1e's
   nh-cpu-ref.kld 1.0 GB, M2 8.8 GB).
 
-Step 0 (CPU only, no NPU): the reference, b1d-9b/step0.sh from the merged checkout (about 50 minutes: B1b's CPU prefill
+Step 0 (CPU only, no NPU): the reference, b1d-9b/step0.sh from the merged checkout (tests: b1d-9b/test_step0.sh, 8 cases,
+  mocked binaries) (about 50 minutes: B1b's CPU prefill
   was 3.43 t/s and the base reads 10,240 tokens). REF = ~/npu-dev/b1/b1d-9b/step0/cpu-ref-9b.kld, never rewritten.
-  0a llama-tokenize -m M -f wiki.test.raw --ids --no-parse-special --log-disable (B1e's independent tokenization).
+  0a llama-tokenize -m M -f wiki.test.raw --ids --no-parse-special --log-disable (B1e's independent tokenization):
+     exit 0, the output a list of integers, at least 10,240 ids; otherwise 0b does not start.
   0b llama-perplexity -m M -f wiki.test.raw -c 1024 -b 1024 -ub 512 --chunks 10 -t 8 -fa on --kl-divergence-base REF
      (B1c-4B Step 0c's command with the 9B): exit 0, chunk 10 shown, a finite final estimate (the CPU perplexity,
      recorded).
