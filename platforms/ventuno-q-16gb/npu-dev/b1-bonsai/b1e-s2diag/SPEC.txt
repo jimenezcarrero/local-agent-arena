@@ -1,6 +1,8 @@
 B1e: why B1d-4B's two-session option (S2) gave wrong outputs. A diagnostic stage on the VENTUNO Q NPU. Written
-2026-10-21, PROPOSED for review (revision 2, review of 67dab16: the callback's own FARF file, checksum-level
-reading with every class suspected, a fail-closed comparison, nh2 as a paired KLD/top-1 check). The owner approved the stage ("You have my approval for diagnostic and the 9B load",
+2026-10-21, PROPOSED for review (revision 3; revision 2, review of 67dab16: the callback's own FARF file,
+checksum-level reading with every class suspected, a fail-closed comparison, nh2 as a paired KLD/top-1 check;
+revision 3, review of f827e4c: each tensor's full printed sample validated from its shape, GROSS before SAME, the CPU
+base validated and nh2's 16 chunks and 2,032 scored positions required). The owner approved the stage ("You have my approval for diagnostic and the 9B load",
 2026-10-21, after B1d-4B's result named it); nothing runs before this spec's review and merge.
 
 1. The question and what is known (b1d-4b/RESULT.txt; b1c-9b/RESULT.txt)
@@ -42,29 +44,44 @@ reading with every class suspected, a fail-closed comparison, nh2 as a paired KL
        the CPU arm's base, given to the launcher by its sha256. Declared peaks 1450,1900 MiB: per session the campaign's logged model buffers (A32-5/B4 baseline probe:
        1,019.84 / 1,239.46), RS 109 / 92, compute 244 each at -ub 512 (an upper bound here), KV < 10 at -c 256, and on
        HTP0:1 up to 243 MiB of logits (256 x 248,320 x 4 bytes), rounded up; board 4500. Timeout 1800 s.
-  CPU arm (no NPU, before nh2): ~/npu-dev/b1/llama.cpp/build-cpu/bin/llama-perplexity -m <NeoHorse> -f wiki.test.raw
-       (B1c-4B's text, sha256 173c87a5...) --kl-divergence-base ~/npu-dev/b1/b1e/nh-cpu-ref.kld -c 256 -b 256 -ub 256
-       --chunks 16 -t 8 -fa on: the base (its sha256 recorded; never rewritten) and the CPU perplexity. Disk: about
-       1 GB (4,096 tokens x 248,320 logits). Also, for context only: the CPU build's
+  CPU arm (no NPU, before nh2), in ~/npu-dev/b1/llama.cpp/build-cpu (ff5a2337, CPU only):
+       0a llama-tokenize -m <NeoHorse> -f wiki.test.raw --ids --no-parse-special --log-disable > nh-ids.txt: an
+          independent tokenization (perplexity tokenizes with add_special true and parse_special false; llama-tokenize
+          adds the model's BOS as perplexity does and --no-parse-special matches the second).
+       0b llama-perplexity -m <NeoHorse> -f wiki.test.raw (B1c-4B's text, sha256 173c87a5...) --kl-divergence-base
+          ~/npu-dev/b1/b1e/nh-cpu-ref.kld -c 256 -b 256 -ub 256 --chunks 16 -t 8 -fa on (never rewritten: refused if it
+          exists). Its log must show 16 chunks and a finite final estimate (the CPU perplexity, recorded).
+       0c tools/b1e_kld_base_check.py nh-cpu-ref.kld nh-ids.txt --n-ctx 256 --n-vocab 248320 --n-chunk 16 (tests:
+          test_b1e_kld_base_check.sh, 12 cases): the magic, the header (256, 248,320, 16), the exact size 1,009,205,140
+          bytes, the stored tokens equal to 0a's first 4,096 ids, every row's scale and floor finite: RESULT VALID; it
+          prints the stored tokens' sha256 (recorded as the token pin).
+       0d tools/r1_t7_compare (built from the committed source) nh-cpu-ref.kld nh-cpu-ref.kld <0c's token sha256>: the
+          self-check (valid inputs, top-1 100 %, KLD 0), as B1c-4B Step 0d.
+       The base's sha256 is recorded after 0c and 0d pass and given to the launcher for nh2. Any of 0a-0d failing
+       stops nh2 (s1, s1r and s2 do not depend on it). Disk: about 1 GB.
+       Also, for context only: the CPU build's
        llama-eval-callback with s1's arguments (no -ngl/--device), the 4B's CPU dump (built 2026-10-21 in that
        CPU-only tree; no parity is claimed from it: the CPU and NPU kernels differ).
   Order: CPU arm and CPU dump; s1; s1r; s2; nh2. One window at a time; the next run only after the previous run's
   verdict and checks are recorded and nothing heavy runs during a window. Campaign identity (identity.sh) before the
   first and after the last run, as B1c-9B. Estimated NPU time about 10 minutes.
 
-3. Reading (fixed before the runs; tools/b1e_tensor_diff.py, tested by test_b1e_tensor_diff.sh, 25 cases)
+3. Reading (fixed before the runs; tools/b1e_tensor_diff.py, tested by test_b1e_tensor_diff.sh, 32 cases)
   What a dump holds (common/debug.cpp at ff5a2337): per evaluated non-quantized tensor its name, op, shape, the names
   of src0 and src1 only, a sample of up to 3 values at each end of each dimension printed to 4 decimals, and the float
   sum of all its elements. Not the full tensor, and not every input of a multi-input op. Equal checksums can hide
   different tensors (a permutation, or errors that cancel), so a difference can first show downstream of where it
   arises. Everything this stage locates is therefore a checksum-level location, and every class below is suspected.
-  b1e_tensor_diff.py <A dump> <B dump> keys tensors by name and occurrence, compares shapes, sums and printed samples
-  (relative tolerance --rel, default 1e-3), and fails closed (RESULT INCOMPLETE, exit 3) on: options not finite and
-  positive; a non-quantized tensor without a sum; a non-finite sum or sample on either side; a key of A missing from
+  b1e_tensor_diff.py <A dump> <B dump> keys tensors by name and occurrence, reads each tensor through to the next
+  header (debug.cpp prints a sample block and the total sum once per ne3 slice), compares shapes, sums and every
+  printed sample value (relative tolerance --rel, default 1e-3), and fails closed (RESULT INCOMPLETE, exit 3) on:
+  options not finite and positive; a non-quantized tensor without exactly ne3 equal sums or without exactly
+  ne3 x c(ne2) x c(ne1) x c(ne0) sample values (c(x) = x up to 6, else 6; checked against a real CPU dump of the 4B,
+  2,549 tensors); a non-finite sum or sample on either side; a key of A missing from
   B; a key only in B that is not a session copy ("<backend>#<name>", listed); result_output missing from either dump;
   nothing compared. It prints MAXREL (the largest relative difference over all compared keys, full precision), the
   first differing key in A's order (FIRST, with its src0/src1 names) and the first beyond --gross 0.1 (GROSS, found
-  independently of --rel).
+  independently of --rel and printed with a SAME result too).
   a. Every window's verdict PASS and peaks within (r2_mapped_peak.py with the declared vector); otherwise that run is
      recorded as failed and the stage stops. An INCOMPLETE comparison is recorded with its reason and stops the
      reading of that pair (no class is assigned).
@@ -85,14 +102,19 @@ reading with every class suspected, a fail-closed comparison, nh2 as a paired KL
           callback synchronizes after every node (a fault needing overlap between sessions or splits would not
           appear), or differences that the checksums do not show. It does not mean S2's failure is absent.
      A finer location (full tensors or every input of FIRST) would be a separate, reviewed stage.
-  d. nh2 against the CPU arm (paired, token level; llama-perplexity's KLD statistics over the same 4,096 tokens):
+  d. nh2 against the CPU arm (paired, token level). At ff5a2337, kl_divergence() takes n_ctx and n_chunk from the
+     base's header (not from --chunks), so the base's validation (0c, 0d) fixes the sample: 16 chunks of 256 tokens,
+     of which the second half of each chunk is scored, 16 x (256 - 1 - 128) = 2,032 positions. Read only if nh2's log
+     shows all 16 chunks and its KL divergence statistics (mean KLD, same top-1) are present and finite; otherwise d3.
+     The denominator 2,032 is reported with the figures.
        d1 top-1 agreement >= 98 % and mean KLD <= 0.01: NeoHorse on two sessions with ff5a2337 agrees with the CPU on
           this text at the token level (for scale, B1c-4B/B1d one session: 99.39-99.41 %, KLD 0.000168);
        d2 top-1 < 50 % or mean KLD > 1: NeoHorse on two sessions with ff5a2337 is grossly wrong, as B1d's S2 (0.53 %,
           10.17);
        d3 anything else, or a non-finite or missing statistic in either run: recorded, unclassified.
-     Not separated by nh2: NeoHorse does not fit one session (its weights, 2,259 MiB, exceed R2's refused map), so
-     there is no same-package one-session control; d2 is attributed to "NeoHorse on two sessions with ff5a2337", not
+     Not separated by nh2: a same-package one-session NeoHorse control is not run in this stage (its weights, 2,259
+     MiB, are above the map R2 saw refused in one session, a suspected and unisolated limit, and probing it is outside
+     this stage's budget), so there is no one-session control; d2 is attributed to "NeoHorse on two sessions with ff5a2337", not
      to the session count alone, and d1 says nothing about Bonsai's fault beyond that this configuration is not
      grossly wrong for NeoHorse on this text.
   Not claimed: a fix, the 9B's correctness on two sessions (its own parity stage), anything about the campaign's

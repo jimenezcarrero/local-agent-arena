@@ -5,20 +5,23 @@ llama-eval-callback dumps of the same prompt (A: the reference run, B: the run u
   b1e_tensor_diff.py <dump A> <dump B> [--rel 1e-3] [--gross 0.1] [--show 8] [--require result_output]
 
 A dump is the eval-callback's output (common/debug.cpp at ff5a2337): a header line per evaluated tensor,
-"common_debug_cb_eval: <name> = (<type>) <op>(<src0>{..}, <src1>{..}}) = {<ne0>, <ne1>, <ne2>, <ne3>}", then a sample
-of its values (up to 3 at each end of each dimension, printed %12.4f), then "sum = <float>". Quantized tensors print no
-values and are skipped. Lines from other loggers may be interleaved. A tensor is keyed by its name and occurrence
+"common_debug_cb_eval: <name> = (<type>) <op>(<src0>{..}, <src1>{..}}) = {<ne0>, <ne1>, <ne2>, <ne3>}", then, for each
+of the ne3 slices, a sample of its values (all of a dimension up to 6, else 3 at each end, printed %12.4f) and the
+tensor's total "sum = <float>" (the same total repeated per slice). Quantized tensors print no values and are skipped.
+Everything up to the next header belongs to the tensor; a non-quantized tensor must carry exactly ne3 sums, all equal,
+and exactly ne3 * c(ne2) * c(ne1) * c(ne0) sample values (c(x) = x if x <= 6 else 6), else the dump is INCOMPLETE. Lines from other loggers may be interleaved. A tensor is keyed by its name and occurrence
 number. This is checksum-level evidence: the sum and the printed sample, not the full tensor, and only src0/src1 of each
 node are named.
 
 Two keys differ when their shapes differ, when |sumA - sumB| > rel * max(1, |sumA|, |sumB|), or when any printed sample
 value differs by more than rel * max(1, the largest |sample| of either). Fails closed (RESULT INCOMPLETE, exit 3) when
-an options value is not finite and positive, when a non-quantized tensor has no sum or a sample of a different length,
+an options value is not finite and positive, when a non-quantized tensor's sums or sample are incomplete (above),
 when a sum or sample is not finite on either side, when a key of A is missing from B or B has an extra key that is not a
 session copy ("<backend>#<name>"), when a required tensor (--require, default result_output; repeatable) is missing
 from either dump, or when nothing is compared.
 Prints counts, MAXREL (the largest relative difference over every compared key, full precision), the first differing
-key in A's order (FIRST) with its sources, the first key over --gross (GROSS, found independently of --rel), the
+key in A's order (FIRST) with its sources, the first key over --gross (GROSS, found and printed independently of
+--rel, also before a SAME result), the
 --show keys from the first, then one RESULT line:
   RESULT SAME (n compared, maxrel x)           exit 0
   RESULT DIFFER first=<key> op=<op>            exit 1
@@ -52,18 +55,38 @@ def parse(path):
                 cur = (name, seen[name])
                 order.append(cur)
                 rec[cur] = {"type": typ, "op": op, "ne": ne, "src": re.sub(r"\{[^}]*\}", "", srcs).strip(" ,}"),
-                            "sum": None, "vals": []}
+                            "sum": None, "sums": [], "vals": []}
                 continue
-            if cur is None or rec[cur]["sum"] is not None:
+            if cur is None:
                 continue
             m = SUM.match(line)
             if m:
-                rec[cur]["sum"] = fnum(m.group(1))
+                rec[cur]["sums"].append(fnum(m.group(1)))
+                rec[cur]["sum"] = rec[cur]["sums"][0]
                 continue
             s = line.strip()
             if s.startswith("[") and s.endswith("],") and len(s) > 3:
                 rec[cur]["vals"] += [fnum(x) for x in NUM.findall(s[1:-2]) if x != "..."]
     return order, rec
+
+
+def coverage(r):
+    """None if the tensor's sums and sample are complete for its shape (common/debug.cpp, n = 3), else the reason"""
+    try:
+        ne = [int(x) for x in r["ne"].split(",")]
+    except ValueError:
+        return f"shape {{{r['ne']}}} unreadable"
+    if len(ne) != 4:
+        return f"shape {{{r['ne']}}} is not 4-d"
+    c = [x if x <= 6 else 6 for x in ne[:3]]
+    if len(r["sums"]) != ne[3]:
+        return f"{len(r['sums'])} sum line(s), expected {ne[3]} (ne3)"
+    if any(x != r["sums"][0] and not (math.isnan(x) and math.isnan(r["sums"][0])) for x in r["sums"]):
+        return "its repeated sums differ"
+    want = ne[3] * c[0] * c[1] * c[2]
+    if len(r["vals"]) != want:
+        return f"{len(r['vals'])} sample value(s), expected {want}"
+    return None
 
 
 def ks(k):
@@ -128,6 +151,10 @@ def main(argv):
             x = r[k]
             if x["type"] in PLAIN and x["sum"] is None:
                 return incomplete(f"{lab} {ks(k)} ({x['type']}) has no sum")
+            if x["sum"] is not None:
+                why = coverage(x)
+                if why:
+                    return incomplete(f"{lab} {ks(k)}: {why}")
             if x["sum"] is not None and not finite(x):
                 return incomplete(f"{lab} {ks(k)} has a non-finite sum or sample")
     only_a = [k for k in oa if k not in rb]
@@ -150,17 +177,17 @@ def main(argv):
     maxrel = max(d for _, d in rels)
     print(f"compared {n}; MAXREL {maxrel!r}")
     diffs = [(k, d) for k, d in rels if d > opt["--rel"]]
+    gross = next((x for x in rels if x[1] > opt["--gross"]), None)
+    print(f"GROSS {ks(gross[0]) + ' op=' + ra[gross[0]]['op'] if gross else 'none'} (rel > {opt['--gross']})")
     if not diffs:
         print(f"RESULT SAME ({n} compared, maxrel {maxrel!r})")
         return 0
-    gross = next((x for x in rels if x[1] > opt["--gross"]), None)
     print(f"differing: {len(diffs)} of {n} (rel > {opt['--rel']})")
     for k, d in diffs[: opt["--show"]]:
         print(f"  {ks(k)} op={ra[k]['op']} src=[{ra[k]['src']}] ne={{{ra[k]['ne']}}} sumA={ra[k]['sum']!r} "
               f"sumB={rb[k]['sum']!r} rel={d!r}")
     f = diffs[0][0]
     print(f"FIRST {ks(f)} op={ra[f]['op']} src=[{ra[f]['src']}]")
-    print(f"GROSS {ks(gross[0]) + ' op=' + ra[gross[0]]['op'] if gross else 'none'} (rel > {opt['--gross']})")
     print(f"RESULT DIFFER first={ks(f)} op={ra[f]['op']}")
     return 1
 
