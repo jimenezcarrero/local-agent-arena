@@ -12,14 +12,22 @@
 #     curl -fsSL https://raw.githubusercontent.com/jimenezcarrero/local-agent-arena/<commit>/platforms/ventuno-q-16gb/phase-v0/tools/build_htp_retry_x86.sh -o build_htp_retry_x86.sh
 #     bash build_htp_retry_x86.sh arduino@ventunoq.local
 #   Overridable for the mocked test only: REPO_URL, PATCH_URL.
+#   Another commit (NPU dev B1f, npu-dev/b1-bonsai/b1f-retry/SPEC.txt): HTP_COMMIT=<40-hex sha> HTP_RELEASE_SHA=<sha256 of
+#   that commit's measured libggml-htp-v75.so> bash build_htp_retry_x86.sh [user@board]; both are required together,
+#   and the manifest then compares the control build with that library instead of the campaign's. Image, SDK line,
+#   patch and checks are unchanged.
 set -euo pipefail
-COMMIT=836d57176dc699a726c55418e4f96b8ca628e1bf
+COMMIT=${HTP_COMMIT:-836d57176dc699a726c55418e4f96b8ca628e1bf}
 REPO_URL=${REPO_URL:-https://github.com/ggml-org/llama.cpp}
 IMAGE=ghcr.io/snapdragon-toolchain/arm64-linux:v0.7
 IMAGE_ID=sha256:41b710ee5f99d21f0fb9d83a1f815ecffb7708315b4218a11cd0baeb5ecf4c14
 PATCH_URL=${PATCH_URL:-https://raw.githubusercontent.com/jimenezcarrero/local-agent-arena/8002b63938901c480ac28d90c3125a06e20d862c/platforms/ventuno-q-16gb/phase-v0/upstream/htp-main-thread-retry.patch.txt}
 PATCH_SHA=4b9838df84f60e802bf1bd9564c78c72afc915e902a81b173d0d72a65045151c
-RELEASE_SHA=1fd898cc0709498defeed3439a52500ff8340efd7725b3f88902e0adb2d0aa37  # measured package's libggml-htp-v75.so
+RELEASE_SHA=${HTP_RELEASE_SHA:-1fd898cc0709498defeed3439a52500ff8340efd7725b3f88902e0adb2d0aa37}  # measured package's libggml-htp-v75.so
+[ -z "${HTP_COMMIT:-}" ] && [ -z "${HTP_RELEASE_SHA:-}" ] || { [ -n "${HTP_COMMIT:-}" ] && [ -n "${HTP_RELEASE_SHA:-}" ]; } \
+  || { echo "FAILED: HTP_COMMIT and HTP_RELEASE_SHA go together" >&2; exit 1; }
+[[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] && [[ "$RELEASE_SHA" =~ ^[0-9a-f]{64}$ ]] \
+  || { echo "FAILED: HTP_COMMIT must be 40 hex and HTP_RELEASE_SHA 64 hex" >&2; exit 1; }
 # The SDK and tools of the measured build (builds/hexagon-laptop/hexagon-build.txt): each build log must name them.
 SDK_LINE="-- hexagon: using /opt/hexagon/6.6.0.0 and /opt/hexagon/6.6.0.0/tools/HEXAGON_Tools/19.0.07 for building libggml-htp skels"
 STAMP=$(date +%Y%m%d-%H%M%S)
