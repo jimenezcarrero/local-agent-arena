@@ -352,8 +352,12 @@ Before the test:
   (ggml-org/llama.cpp#30928, which also needs a chat-template PR for
   hexadecimal escapes, and reports a 10–30 % slowdown to be fixed later). The
   suite's build moves to a commit with it in a separate PR to `main`;
-- fit: Vulkan full offload stops at the 20.8 GiB heap budget measured for
-  LFM2.5's Q8_0, so files above about 19GB need partial offload or CPU;
+- fit: planning context only, not a cutoff. The LFM2.5 side measurement
+  logged a 20.80 GiB Vulkan budget (about 22.3 GB), and one 23.74 GiB file
+  (its Q8_0) failed with the tested `-ngl 99` flags; it measured no largest
+  fitting file and no partial offload. A Flint file's fit depends on its
+  backend buffers, KV type and window, sliding-window cache and workspace, and
+  the budget at launch, so S1's fit check decides full or partial placement;
 - sampling from the card: temperature 1.0, top-p 0.95, top-k 20; keep
   `reasoning_content` in the history, `--jinja`.
 
