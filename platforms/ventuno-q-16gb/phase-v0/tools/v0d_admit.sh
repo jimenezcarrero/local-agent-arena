@@ -14,8 +14,11 @@
 #       "v0d_admit.sh B4 a|b", the owner's decision D2: a = -c 32768 with the measured steps at depths
 #       512,8192,16384,28672 (--nctx 32768), b = -c 40960 with the frozen depths; --cache-ram 5120. b4_identity_check.sh
 #       (package manifest, model hash, npu-dev .farf) at entry, before every step's probe and load, and after the set;
-#       the frozen 16K gate as AR/A32. The baseline and recovery probes are the campaign's, unchanged.
-# Overridable for tests (tools/test_admit_entry.sh): BR, CHECK_PROC, HELPER_CHECK, PRE_CMD, HTPR_CHECK, B4_CHECK, GATE, plus the
+#       the frozen 16K gate as AR/A32. Its baseline and recovery probes are A32-5's (review of 4d278e0): the campaign
+#       package with the patched DSP library (~/v0/farf;~/v0/htp-retry first), and at entry and immediately before
+#       EVERY baseline load (PRE_BASE: first try, retries, recovery) htp_retry_check.sh and the campaign package's D176
+#       manifest check; a mismatch stops. Other sets keep their release-library baseline and no PRE_BASE.
+# Overridable for tests (tools/test_admit_entry.sh): BR, CHECK_PROC, HELPER_CHECK, PRE_CMD, HTPR_CHECK, B4_CHECK, CAMP_PKG_CHECK, GATE, plus the
 # runner's RUN_ROUTE etc.
 set -uo pipefail
 source ~/v0/v0d_lib.sh
@@ -25,6 +28,7 @@ HELPER_CHECK=${HELPER_CHECK:-sudo -n -l /usr/local/sbin/v0-cdsp-restart}; PRE_CM
 HTPR_CHECK=${HTPR_CHECK:-/bin/bash $HOME/v0/htp_retry_check.sh}; GATE=${GATE:-python3 $HOME/v0/admit_gate.py}
 B4_CHECK=${B4_CHECK:-/bin/bash $HOME/v0/b4_identity_check.sh}
 PH=v0d-admit-$S; ST=$BR/v0/v0d/$PH-status.txt; P=~/v0/hexpkg/pkg-linux; M=~/v0/models/q40; DR=~/v0/models/drafts; O=$BR/v0/$PH
+CAMP_PKG_CHECK=${CAMP_PKG_CHECK:-python3 $HOME/v0/pkg_identity.py check $HOME/v0/pkg-identity-836d57176.txt $P}
 mkdir -p $O $BR/v0/v0d; say() { echo "$(date -Is) $*" | tee -a $ST; sync; }
 killall_srv() { for pid in $(ps -eo pid,args | awk '$2 ~ /\/llama-server$/ {print $1}'); do kill -KILL $pid; done; sleep 5; }
 E="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$P/lib"
@@ -41,8 +45,16 @@ PB=~/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337; MB=~/npu-dev/b1/mode
 unset ADMIT_NCTX ADMIT_DEPTHS
 if [ $S = B4 ]; then
   case $D2 in a) B4C=32768; export ADMIT_NCTX=32768 ADMIT_DEPTHS=512,8192,16384,28672;; b) B4C=40960;; esac
+  # the baseline as A32-5's V0e (LV>=2): only ADSP_LIBRARY_PATH changed from the release-library baseline
+  BASE="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$HOME/v0/farf;$HOME/v0/htp-retry;$P/lib ${BASE#* ADSP_LIBRARY_PATH=$P/lib }"
   B4="env LD_LIBRARY_PATH=$PB/lib ADSP_LIBRARY_PATH=$HOME/npu-dev/farf;$PB/lib GGML_HEXAGON_DEVICES=HTP0:0 GGML_HEXAGON_NHMX=1 $PB/bin/llama-server -m $MB/Ternary-Bonsai-2-4B-Q2_0.gguf -c $B4C --cache-ram 5120 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0 -ngl 999 -np 1 -fa on -ctk q8_0 -ctv q8_0 --jinja --ctx-checkpoints 0"
 fi
+# campck <where>: B4's baseline identity (the patched library and .farf, the campaign package); prints its line, 1 on mismatch
+campck() { local c p; c=$($HTPR_CHECK 2>&1) || { echo "$1: $c"; return 1; }
+  p=$($CAMP_PKG_CHECK 2>&1) || { echo "$1: campaign package: $(echo "$p" | grep -m1 -v '^RESULT') ($(echo "$p" | tail -1))"; return 1; }
+  echo "$c; campaign package $(echo "$p" | tail -1)"; }
+b4base() { local c; c=$(campck "before baseline $1") || { say "STOP: $c"; exit 2; }; say "PRE-BASE $1: $c"; }
+[ $S = B4 ] && PRE_BASE=b4base
 H="$E GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1,HTP0:2 GGML_HEXAGON_MBUF=256 $P/bin/llama-server -m $M/Ornith-1.0-9B-q4_0-pure.gguf -c 40960 --cache-ram 5364 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1,HTP0:2 --ctx-checkpoints 0 -ngl 33 --no-op-offload -t 4 --no-host"
 # fail-closed preconditions: HANG detection needs the stall watchdog, kernel/health evidence needs the sampler
 $CHECK_PROC '^/bin/bash /home/arduino/v0/npu_stall_watchdog.sh' > /dev/null || { say "STOP: NPU stall watchdog not running"; exit 6; }
@@ -52,7 +64,8 @@ $CHECK_PROC '^/bin/bash /home/arduino/v0/monitor/health_sampler.sh' > /dev/null 
 # a restart; recovery probes (after a fault or load failure) do not restart.
 [ $S = H2 ] && { $HELPER_CHECK > /dev/null 2>&1 || { say "STOP: cDSP restart helper not installed (D92)"; exit 6; }; }
 case $S in AR|A32) c=$($HTPR_CHECK 2>&1) || { say "STOP: $c"; exit 6; }; say "$S library: $c";;
-  B4) c=$($B4_CHECK 2>&1) || { say "STOP: $c"; exit 6; }; say "B4 identity: $c"; say "B4 D2 branch $D2: -c $B4C, measured depths ${ADMIT_DEPTHS:-512,8192,16384,32768}, --nctx ${ADMIT_NCTX:-40960}";; esac
+  B4) c=$($B4_CHECK 2>&1) || { say "STOP: $c"; exit 6; }; say "B4 identity: $c"
+      c=$(campck "baseline at entry") || { say "STOP: $c"; exit 6; }; say "B4 baseline identity: $c"; say "B4 D2 branch $D2: -c $B4C, measured depths ${ADMIT_DEPTHS:-512,8192,16384,32768}, --nctx ${ADMIT_NCTX:-40960}";; esac
 say "admission $S start (pid $$)"; [ $S = H2 ] || ready now
 case $S in
   A)  admit_set A 7942 none $A;;

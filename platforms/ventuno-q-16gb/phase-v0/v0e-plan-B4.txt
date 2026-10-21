@@ -29,9 +29,11 @@ Owner: "Ok continue" (2026-10-20, after B1d-4B's result was merged, #89, with th
   DSP library: PB's own libggml-htp-v75.so (unpatched; the campaign's retry patch exists only for 836d57176). DSP
     error logging: ~/npu-dev/farf/llama-server.farf (0x1f, sha256 7acc31cd..., the campaign's file) first on
     ADSP_LIBRARY_PATH. See decision D1.
-  Baseline probe before every step and session: unchanged from A32-5 (campaign package 836d57176, NeoHorse, patched
-    library, -ngl 99, depth 512), with its identity checks (patched library, .farf, D176 package check). It probes the
-    NPU's health, not B4; keeping it unchanged keeps the recovery rule's meaning.
+  Baseline probe: A32-5's (campaign package 836d57176, NeoHorse, patched library, -ngl 99, depth 512), with its
+    identity checks (patched library, .farf, D176 package check) at entry and immediately before every baseline load,
+    first tries, retries and recovery probes alike, in admission and in V0e (review of 4d278e0). When it runs is the
+    driver's, unchanged: in admission (A32's, "none") the initial probe and the recovery probes, not one per step; in
+    V0e as A32-5's. It probes the NPU's health, not B4; keeping it unchanged keeps the recovery rule's meaning.
   Measurement commit 7badb21; pi 0.80.10, provider bench, model local32k (contextWindow 32768, maxTokens 8192).
 
 3. Server commands (PB as above, MB=~/npu-dev/b1/models)
