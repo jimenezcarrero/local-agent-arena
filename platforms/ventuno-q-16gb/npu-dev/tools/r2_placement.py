@@ -27,6 +27,13 @@ logged for that graph (the queries between the previous graph's print and this o
 across graphs, so a decision is matched only within its own graph's block) and the same block has no non-empty query
 under that op and name; adjacent splits of one backend are then merged and every check above runs on the result. Any
 other extra CPU split is still a difference. The dropped splits are counted.
+--lead-split SESSION --lead-allow RULES (B1c-9B result, b1-bonsai/README.txt check d revision 2): the scheduler puts the
+input embedding's Hadamard restore with its matrix, on the session that holds it, in a split of its own between the
+first CPU split and the sessions (B1c-9B and B1d-4B S2: CPU, HTP0:1, HTP0:0, HTP0:1). With these options that split is
+declared: the sequence becomes CPU, SESSION, the sessions in order (then CPU for NPU-R'), required in every graph, and
+every node in it must match RULES. A rule is OP, OP@PREFIX (src0 starts with PREFIX) or OP~TEXT (some source's printed
+name, cut to 20 characters, contains TEXT). The allowed splits' node inventories are printed for the first graph and
+summed over all graphs.
 
 The production logger (common_init: common/common.cpp :394-397, common/log.cpp) puts "M.SS.mmm.uuu X " before every log
 call, and the scheduler prints a node line in several calls (ggml-backend.cpp :1166-1180), so prefixes also appear inside
@@ -70,12 +77,17 @@ def main():
     ap.add_argument("--cpu-first", default="GET_ROWS"); ap.add_argument("--cpu-last", default="MUL_MAT")
     ap.add_argument("--session-src0", default="")
     ap.add_argument("--empty-cpu-ok", action="store_true")
+    ap.add_argument("--lead-split", default=""); ap.add_argument("--lead-allow", default="")
     a = ap.parse_args()
     weight_re = re.compile(r"^blk\.(\d+)\.(" + a.roles + r")\.weight$")
     types = set(x for x in a.types.split(",") if x)
     sessions = a.sessions.split(","); split = [int(x) for x in a.split.split(",")]
     if len(split) != len(sessions):
         bad("--split and --sessions differ in length")
+    if a.lead_split and (a.lead_split not in sessions or not a.lead_allow):
+        bad("--lead-split must name one of --sessions and needs --lead-allow")
+    if a.lead_allow and not a.lead_split:
+        bad("--lead-allow needs --lead-split")
     n_layer = sum(split) - 1; owner = []
     for s, k in zip(sessions, split): owner += [s] * k
     try:
@@ -135,12 +147,16 @@ def main():
                 cur[-1][1].append((m.group(2), m.group(3).strip(), srcs))
     if not graphs:
         bad("no scheduler graph (was GGML_SCHED_DEBUG=2 set?)")
-    want_seq = ["CPU"] + sessions + (["CPU"] if a.variant == "NPU-R'" else [])
+    want_seq = ["CPU"] + ([a.lead_split] if a.lead_split else []) + sessions + (["CPU"] if a.variant == "NPU-R'" else [])
     want_out = "CPU" if a.variant == "NPU-R'" else sessions[-1]
-    allow = lambda spec: [x.split("@", 1) if "@" in x else [x, ""] for x in spec.split(",") if x]
+    rule = lambda x: [*x.split("@", 1), "@"] if "@" in x else ([*x.split("~", 1), "~"] if "~" in x else [x, "", "@"])
+    allow = lambda spec: [rule(x) for x in spec.split(",") if x]
     allowed = {0: allow(a.cpu_first)}
+    if a.lead_split: allowed[1] = allow(a.lead_allow)
     if a.variant == "NPU-R'": allowed[len(want_seq) - 1] = allow(a.cpu_last)
-    ok_node = lambda rules, op, srcs: any(op == o and (not pre or (srcs and srcs[0].startswith(pre))) for o, pre in rules)
+    match = lambda t, k, srcs: not t or (srcs and srcs[0].startswith(t) if k == "@" else any(t in x for x in srcs))
+    ok_node = lambda rules, op, srcs: any(op == o and match(t, k, srcs) for o, t, k in rules)
+    totals = {si: {} for si in allowed}; n_judged = 0
     n_dropped = 0
     if a.empty_cpu_ok:
         for gi, g in enumerate(graphs):
@@ -158,14 +174,15 @@ def main():
         seq = [b for b, _ in g]
         if seq != want_seq:
             diffs.append(f"graph {gi}: splits {seq}, declared {want_seq}"); continue
+        n_judged += 1
         for si, rules in allowed.items():
-            inv = {}
+            inv = {}; label = "CPU split" if g[si][0] == "CPU" else f"lead split ({g[si][0]})"
             for op, name, srcs in g[si][1]:
                 key = f"{op}" + (f"@{srcs[0]}" if srcs else "")
-                inv[key] = inv.get(key, 0) + 1
+                inv[key] = inv.get(key, 0) + 1; totals[si][key] = totals[si].get(key, 0) + 1
                 if not ok_node(rules, op, srcs):
-                    diffs.append(f"graph {gi}: CPU split #{si} holds {op} {name} (src0 {srcs[0] if srcs else '-'}), not allowed")
-            if gi == 1: print(f"CPU split #{si} nodes (graph 1): " + (", ".join(f"{k} x{v}" for k, v in sorted(inv.items())) or "none"))
+                    diffs.append(f"graph {gi}: {label} #{si} holds {op} {name} (src0 {srcs[0] if srcs else '-'}), not allowed")
+            if gi == 1: print(f"{label} #{si} nodes (graph 1): " + (", ".join(f"{k} x{v}" for k, v in sorted(inv.items())) or "none"))
         if a.session_src0:
             for si, (b, nodes) in enumerate(g):
                 if b in sessions and not any(op == "MUL_MAT" and srcs and srcs[0].startswith(a.session_src0) for op, _, srcs in nodes):
@@ -190,6 +207,9 @@ def main():
             w, b, si = outputs[0]
             if w != a.output_weight[:20] or b != want_out or (a.variant == "NPU-R'" and si != len(g) - 1):
                 diffs.append(f"graph {gi}: result_output takes {w} on {b}, declared {a.output_weight} on {want_out}")
+    for si, inv in totals.items():
+        print(f"split #{si} ({want_seq[si]}) nodes, all {n_judged} graph(s) with the declared splits: "
+              + (", ".join(f"{k} x{v}" for k, v in sorted(inv.items())) or "none"))
     print(f"loader: {len(seen)} layer lines; scheduler: {len(graphs)} graphs, splits {want_seq}; "
           f"{len(expected)} block matmul weights expected per graph")
     for d in diffs[:40]: print("DIFF", d)

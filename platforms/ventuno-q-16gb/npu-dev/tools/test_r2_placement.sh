@@ -45,13 +45,16 @@ open(f"{W}/q.tsv", "w").write("name\tshape\ttype\n" + "".join(f"{n}\t1x1\t{ty}\n
 own = ["HTP0:0", "HTP0:0", "HTP0:1", "HTP0:1"]
 def node(k, op, name, src):
     f = lambda s: f"{s[:20]:<20} (     ) [      x       ]"
-    return f"node #{k:3d} ({op:>9}): {f(name)} use=1,c=0:{f(src)}"
-def graph(L, move=None, cpu_mid=False, out="output.weight", cpu0=(), hd=(), supp=(), cpu_empty=None):
+    return f"node #{k:3d} ({op:>9}): {f(name)} use=1,c=0:" + " ".join(f(x) for x in src.split("+"))
+def graph(L, move=None, cpu_mid=False, out="output.weight", cpu0=(), hd=(), supp=(), cpu_empty=None, lead=None):
     for op, name, shape, verdict in supp:
         L.append(f"ggml-hex: HTP0:0 supports-op {op}|a x b -> {name}|{shape} x {shape} -> {shape}|f32 x f32 -> f32|4:4 x 4:4 -> 4:4|NONE x NONE -> NONE|{verdict}")
     k = 0; L.append("## SPLIT #0: CPU # 0 inputs"); L.append(node(k, "GET_ROWS", "inp_embd", "token_embd.weight")); k += 1
     for op, src in cpu0: L.append(node(k, op, f"cpu0-{op}", src)); k += 1
     si = 1
+    if lead:   # (session, [(op, src), ...]): the restore's own split before the sessions (B1c-9B)
+        L.append(f"## SPLIT #{si}: {lead[0]} # 1 inputs"); si += 1
+        for op, src in lead[1]: L.append(node(k, op, f"lead-{op}", src)); k += 1
     for s in ("HTP0:0", "HTP0:1"):
         L.append(f"## SPLIT #{si}: {s} # 1 inputs"); si += 1
         if s in hd: L.append(node(k, "MUL_MAT", f"hdm-{s}", "prism.hadamard.128")); k += 1
@@ -88,6 +91,16 @@ write("q-empty-nz.log", hd=H, cpu0=RESTORE, supp=[("ADD", "l_out-1", "2560:1", "
 write("q-empty-other.log", hd=H, cpu0=RESTORE, supp=Z, kw2=dict(hd=H, cpu0=RESTORE, cpu_empty=("ADD", "l_out-1")))
 write("q-empty-mixed.log", hd=H, cpu0=RESTORE, supp=Z + [("ADD", "l_out-1", "2560:1", "yes")], cpu_empty=("ADD", "l_out-1"))
 write("q-empty-mm.log", hd=H, cpu0=RESTORE, supp=[("MUL_MAT", "ffn_up-0", "2560:0", "no")], cpu_empty=("MUL_MAT", "blk.0.ffn_up.weight"))
+# the restore in its own HTP0:1 split (B1c-9B: MUL_MAT with the Hadamard matrix, MUL by the signs, DUP and SET_ROWS
+# into inp_mixed_embd), as the 9B's log prints it
+LEAD = [("MUL_MAT", "prism.hadamard.128+HTP0:1#node_0 (resha"), ("MUL", "(reshaped)+prism.hadamard.signs"),
+        ("DUP", "HTP0:1#inp_mixed_emb"), ("SET_ROWS", "lead-MUL+HTP0:1#inp_mixed_slo+lead-DUP")]
+write("q-lead.log", hd=H, lead=("HTP0:1", LEAD))
+write("q-lead-empty.log", hd=H, lead=("HTP0:1", LEAD), supp=Z, cpu_empty=("ADD", "l_out-1"))
+write("q-lead-blk.log", hd=H, lead=("HTP0:1", LEAD + [("MUL_MAT", "blk.3.ffn_up.weight")]))
+write("q-lead-mul.log", hd=H, lead=("HTP0:1", LEAD + [("MUL", "(reshaped)+blk.3.ffn_up.weight")]))
+write("q-lead-rms.log", hd=H, lead=("HTP0:1", LEAD + [("RMS_NORM", "lead-MUL")]))
+write("q-lead-other.log", hd=H, lead=("HTP0:1", LEAD), kw2=dict(hd=H))            # the second graph without the lead split
 PY
 QR='attn_q|attn_k|attn_v|attn_output|attn_qkv|attn_gate|ssm_out|ssm_alpha|ssm_beta|ffn_gate|ffn_up|ffn_down'
 qexpect() { local name=$1 want=$2 log=$3; shift 3; n=$((n + 1)); out=$(python3 -I "$D/r2_placement.py" "$W/$log" --tensors "$W/q.tsv" --split 2,3 --sessions HTP0:0,HTP0:1 --variant NPU-R --roles "$QR" "$@" 2>&1); rc=$?
@@ -112,4 +125,19 @@ qexpect "--empty-cpu-ok, the declined ADD has a non-empty shape: MISPLACED" 1 q-
 qexpect "--empty-cpu-ok, the zero-element decline belongs to another graph: MISPLACED" 1 q-empty-other.log "${B1[@]}" --empty-cpu-ok
 qexpect "--empty-cpu-ok, the same name also queried non-empty in that graph's block: MISPLACED" 1 q-empty-mixed.log "${B1[@]}" --empty-cpu-ok
 qexpect "--empty-cpu-ok, a CPU split node not matching its declined name: MISPLACED" 1 q-empty-mm.log "${B1[@]}" --empty-cpu-ok
+L9=(--types Q2_0 --output-weight output.weight --cpu-first 'GET_ROWS@token_embd.weight' --session-src0 prism.hadamard
+  --lead-split HTP0:1 --lead-allow 'MUL_MAT@prism.hadamard,MUL~prism.hadamard.signs,DUP~inp_mixed_emb,SET_ROWS~inp_mixed_slo')
+qexpect "lead split: the restore on HTP0:1 before the sessions, declared: PLACED" 0 q-lead.log "${L9[@]}"
+qexpect "lead split: the same log without --lead-split: MISPLACED" 1 q-lead.log --types Q2_0 --output-weight output.weight --session-src0 prism.hadamard
+qexpect "lead split: declared but absent from the log: MISPLACED" 1 q-hd.log "${L9[@]}"
+qexpect "lead split: absent from one of two graphs: MISPLACED" 1 q-lead-other.log "${L9[@]}"
+qexpect "lead split declared on HTP0:0, the log's on HTP0:1: MISPLACED" 1 q-lead.log "${L9[@]}" --lead-split HTP0:0
+qexpect "lead split holding a block weight's MUL_MAT: MISPLACED" 1 q-lead-blk.log "${L9[@]}"
+qexpect "lead split holding a MUL that does not read the signs: MISPLACED" 1 q-lead-mul.log "${L9[@]}"
+qexpect "lead split holding an RMS_NORM: MISPLACED" 1 q-lead-rms.log "${L9[@]}"
+qexpect "lead split with a zero-element CPU split, --empty-cpu-ok: PLACED" 0 q-lead-empty.log "${L9[@]}" --empty-cpu-ok
+qexpect "lead split with a zero-element CPU split, without --empty-cpu-ok: MISPLACED" 1 q-lead-empty.log "${L9[@]}"
+qexpect "--lead-split naming no session: invalid" 3 q-lead.log "${L9[@]}" --lead-split HTP0:2
+qexpect "--lead-allow without --lead-split: invalid" 3 q-lead.log --types Q2_0 --output-weight output.weight --lead-allow MUL
+qexpect "--lead-split without --lead-allow: invalid" 3 q-lead.log --types Q2_0 --output-weight output.weight --lead-split HTP0:1
 echo "failures: $fails of $n"; exit $fails
