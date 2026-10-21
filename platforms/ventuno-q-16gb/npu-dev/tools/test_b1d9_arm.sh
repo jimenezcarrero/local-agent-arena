@@ -16,7 +16,7 @@ case1 parity-composes 0 "llama-perplexity -m .*Ternary-Bonsai-2-9B-Q2_0.gguf --k
 case1 parity-peaks 0 "declared peaks 1350,1950" parity $RS
 case1 parity-wrapper 0 "--run 9b-parity --timeout 5400 .*--declared-peak-mib 1350,1950 --declared-board-mib 5500 " parity $RS
 case1 think-composes 0 "b1_t5_payload.sh --speed 1024,8192,16384,28672 --min-pass 18 $T/out/9b-think/payload 18090 900 bonsai9b-think 900 -- .*llama-server -m .*-c 32768 -np 1 --cache-ram 0 --slot-save-path $T/out/9b-think-slots --jinja -b 2048 -ub 512 -ngl 999 $DV -lv 5 --no-webui\$" think
-case1 think-wrapper 0 "--run 9b-think --timeout 7200 .*--declared-peak-mib 1850,1900 --declared-board-mib 5000 " think
+case1 think-wrapper 0 "--run 9b-think --timeout 7200 .*--declared-peak-mib 1900,1950 --declared-board-mib 5100 " think
 case1 nothink-composes 0 "b1_t5_payload.sh $T/out/9b-nothink/payload 18090 900 bonsai9b-nothink 900 -- .*--jinja --chat-template-kwargs {\"enable_thinking\":false} -b 2048" nothink
 case1 nothink-timeout 0 "--run 9b-nothink --timeout 3600 " nothink
 case1 farf-on-path 0 "ADSP_LIBRARY_PATH=$T/farf;/home" think
