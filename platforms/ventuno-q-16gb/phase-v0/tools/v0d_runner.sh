@@ -3,7 +3,9 @@
 # defining: PH (phase), O (~/bench-runs/v0/$PH), BASE (baseline probe command), say(), killall_srv().
 # Every outcome goes through classify() + decide(); EVIDENCE always stops. Faults (HANG, DEVFAULT) from any step, probes
 # included, are appended to $O/faults.txt (the fault history reported with the results).
-# PRE_LOAD (optional, D92): command run before every admission step's probe and load. Overridable for tests: RUN_ROUTE, RUN_V0C, PROBE_WAIT (s between probes), SET_PAUSE (s between admission steps).
+# PRE_LOAD (optional, D92): command run before every admission step's probe and load.
+# ADMIT_NCTX, ADMIT_DEPTHS (optional, D178): the measured admission steps' speed_probe --nctx and depths (default 40960
+# and 512,8192,16384,32768, every set before B4); the baseline and recovery probes always keep --nctx 40960 --depths 512. Overridable for tests: RUN_ROUTE, RUN_V0C, PROBE_WAIT (s between probes), SET_PAUSE (s between admission steps).
 RUN_ROUTE=${RUN_ROUTE:-$HOME/v0/run_route.sh}; RUN_V0C=${RUN_V0C:-$HOME/v0/run_v0c.sh}
 MEMFLOOR=${MEMFLOOR:-$HOME/v0/memfloor.py}; PROBE_WAIT=${PROBE_WAIT:-900}; SET_PAUSE=${SET_PAUSE:-180}; FAULT_CAP=${FAULT_CAP:-3}
 nfaults() { local n; n=$(grep -c . "$O/faults.txt" 2>/dev/null); echo "${n:-0}"; }
@@ -28,7 +30,7 @@ ready() { local i lab wd0 rc c a
   done; say "STOP: NPU not ready after 13 probes"; [ -n "${PROBE_STOP:-}" ] && $PROBE_STOP "NPU not ready after 13 probes"; exit 1; }
 # step_once <label> <speed|tools> <depths> <timeout> <cmd...>: one measured run; prints the class
 step_once() { local lab=$1 kind=$2 dep=$3 to=$4; shift 4; local wd0=$(wdcount) rc
-  if [ $kind = speed ]; then timeout -k 60 $to $RUN_ROUTE $lab $PH --depths $dep --nctx 40960 -- "$@" > /dev/null 2>&1; rc=$?
+  if [ $kind = speed ]; then timeout -k 60 $to $RUN_ROUTE $lab $PH --depths $dep --nctx ${ADMIT_NCTX:-40960} -- "$@" > /dev/null 2>&1; rc=$?
   else PHASE=$PH timeout -k 60 $to $RUN_V0C $lab llama 0 -- "$@" > /dev/null 2>&1; rc=$?; fi
   killall_srv; classify $O/$lab $rc $wd0; }
 # explore <label> <probe|none> <cmd...>: exploratory single run (512/8K/16K); returns 0 unless the sequence must stop
@@ -59,7 +61,7 @@ admit_set() { local name=$1 cap=$2 pre=$3; shift 3; local set step lab c a attem
         [ $pre = probe ] && ready now
         [ "$(setfaults)" -gt "$f0" ] && break
         lab=$name-s$set-$step; [ $attempt = 2 ] && lab=$lab-retry
-        if [ $step = tools ]; then kind=tools; dep=-; to=9000; else kind=speed; dep=512,8192,16384,32768; to=5400; fi
+        if [ $step = tools ]; then kind=tools; dep=-; to=9000; else kind=speed; dep=${ADMIT_DEPTHS:-512,8192,16384,32768}; to=5400; fi
         say "START $lab"; c=$(step_once $lab $kind $dep $to "$@"); a=$(decide $c $attempt admit)
         say "END $lab: $c -> $a | $(summary $O/$lab)"
         case $a in
