@@ -76,7 +76,10 @@ Stages (each ends with a written result in this folder)
         b. the probe's generation: 1..32 tokens, finite timings; its text recorded next to the CPU arm's greedy output
            for the same prompt (no parity claim);
         c. tools/r2_mapped_peak.py $O/probe/server.log 1650,1650 --sessions HTP0:0,HTP0:1: WITHIN;
-        d. placement: tools/r2_placement.py $O/probe/server.log --tensors b1-bonsai/table-bonsai2-9b-q2_0.tsv
+        d. placement (revision 2, 2026-10-21, after B1c-9B's result: b1c-9b/RESULT-d-rev2.txt declares the
+           restore's own HTP0:1 split, --lead-split/--lead-allow, and tightens the first CPU split to GET_ROWS; it
+           supersedes the invocation below for the 9B; B1c-9B's NOT PASS under this frozen text is kept as recorded):
+           tools/r2_placement.py $O/probe/server.log --tensors b1-bonsai/table-bonsai2-9b-q2_0.tsv
            --split 18,15 --sessions HTP0:0,HTP0:1 --variant NPU-R --types Q2_0 --output-weight output.weight
            --roles 'attn_q|attn_k|attn_v|attn_output|attn_qkv|attn_gate|ssm_out|ssm_alpha|ssm_beta|ffn_gate|ffn_up|ffn_down'
            --cpu-first 'GET_ROWS,MUL_MAT@prism.hadamard,MUL' --session-src0 prism.hadamard --empty-cpu-ok
@@ -104,7 +107,8 @@ Stages (each ends with a written result in this folder)
         e. logged buffers, the last load phase only (the sizing pass logs them once before; k5-r2 result): per session
            model = the table's weights +/- 0.01 MiB, KV <= 256.01 MiB, RS + compute <= 250 MiB; all recorded. Read by
            hand from the log (r2_logged_buffers.py needs an R1 ledger, which this model does not have).
-  B1d (NPU, owner's approval, only after B1c PASS) A sketch until its own frozen spec is reviewed: before it runs, that
+  B1d (NPU, owner's approval, only after B1c PASS) For the 9B: b1d-9b/SPEC.txt (parity, T5 both arms, speed; the
+      probe replaces llama-bench). The sketch it follows: before it runs, that
       spec fixes the request pairing (the same 20 T5 requests as B1b, fresh slot per trial), the thinking profiles
       (both of B1b's arms), the numeric T5 rule (with B1b's CPU count as the reference) and the llama-bench commands
       and repeats. Backend parity (T3a-style) and the campaign's own qualification (V0e) remain separate and needed

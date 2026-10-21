@@ -1,0 +1,45 @@
+B1c (9B) check d, revision 2 (b1-bonsai/README.txt, written 2026-10-21 on the owner's choice of option (a) in
+b1c-9b/RESULT.txt: "For the 9B follow your recommendation"). PROPOSED with b1d-9b/SPEC.txt, for review.
+
+Deviation, recorded: B1c-9B ran under the frozen check d, which it failed (MISPLACED: the input embedding's Hadamard
+restore in a split of its own on HTP0:1 before HTP0:0, the order CPU, HTP0:1, HTP0:0, HTP0:1). The rule is revised
+after that result was seen, so B1c-9B passes d only under a rule written with its log in view; this record keeps the
+original NOT PASS beside it, and b1c-9b/RESULT.txt is not changed.
+
+What changes: d declares that split instead of forbidding it. tools/r2_placement.py gains --lead-split SESSION and
+--lead-allow RULES (tests: test_r2_placement.sh, 46 cases, 13 of them new): the declared sequence becomes CPU, HTP0:1,
+HTP0:0, HTP0:1 in every graph of the last load phase, and every node of the HTP0:1 lead split must be one of the
+restore's chain: MUL_MAT with a prism.hadamard.* src0, MUL reading prism.hadamard.signs, DUP of inp_mixed_embd and
+SET_ROWS into inp_mixed_slots. The first CPU split is tightened to GET_ROWS on token_embd.weight only (the restore is
+no longer allowed there). Every other part of d stays: the loader's layers, the 200 block weights under their block's
+session, result_output on output.weight under HTP0:1, a prism.hadamard MUL_MAT under every session split, the
+zero-extent rule for extra CPU splits. The tool now prints the allowed splits' inventories summed over all graphs,
+which replaces the by-hand CPU-split count of d (the lead split's rules are checked per node in every graph).
+What it does not claim: that this placement is correct, only that it is the declared one. B1d-4B's S2 had the same
+order and wrong outputs (cause not isolated, b1e-s2diag/RESULT.txt); B1d-9B's parity is the test for the 9B.
+
+Revised d on the archived B1c-9B log (b1c-9b-load-evidence-20261021.tar.gz, server.log.gz; uncompressed sha256
+8b1a760c..., equal to server.log.sha256), from this branch's tools/r2_placement.py, exit 0:
+  r2_placement.py server.log --tensors b1-bonsai/table-bonsai2-9b-q2_0.tsv --split 18,15 --sessions HTP0:0,HTP0:1
+    --variant NPU-R --types Q2_0 --output-weight output.weight
+    --roles 'attn_q|attn_k|attn_v|attn_output|attn_qkv|attn_gate|ssm_out|ssm_alpha|ssm_beta|ffn_gate|ffn_up|ffn_down'
+    --cpu-first 'GET_ROWS@token_embd.weight' --lead-split HTP0:1
+    --lead-allow 'MUL_MAT@prism.hadamard,MUL~prism.hadamard.signs,DUP~inp_mixed_emb,SET_ROWS~inp_mixed_slo'
+    --session-src0 prism.hadamard --empty-cpu-ok
+  | phases: 2; judged: the last, from line 32608; earlier phases ignored
+  | --empty-cpu-ok: 9 extra CPU split(s) of zero-element declined nodes dropped, in 1 graph(s) with zero-element declines
+  | CPU split #0 nodes (graph 1): GET_ROWS@token_embd.weight x2
+  | lead split (HTP0:1) #1 nodes (graph 1): DUP@HTP0:1#inp_mixed_emb x1, MUL@(reshaped) x2, MUL_MAT@prism.hadamard.4096 x2, SET_ROWS@node_9 x1
+  | split #0 (CPU) nodes, all 10 graph(s) with the declared splits: GET_ROWS@token_embd.weight x20
+  | split #1 (HTP0:1) nodes, all 10 graph(s) with the declared splits: DUP@HTP0:1#inp_mixed_emb x10, MUL@(reshaped) x20, MUL_MAT@prism.hadamard.4096 x20, SET_ROWS@node_9 x10
+  | loader: 33 layer lines; scheduler: 10 graphs, splits ['CPU', 'HTP0:1', 'HTP0:0', 'HTP0:1']; 200 block matmul weights expected per graph
+  | RESULT PLACED
+
+d2 by hand (the dropped splits): graph 8 of the last load phase has the 9 extra CPU splits (#4, 6, 7, 8, 10, 11, 13,
+15, 16; split 16 holds two nodes): ADD attn_residual-31, MUL attn_post_norm-31, MUL node_2529, MUL_MAT node_2531, MUL
+node_2536, MUL_MAT node_2538, ADD l_out-31, MUL result_norm, MUL node_2544, MUL_MAT node_2546. Every supports-op query
+for each of them in graph 8's block has a zero-element result (4096:0, or 12288:0 for node_2536) and ends "no"; none
+is accepted or non-empty. The last layer cropped to zero output rows, as B1c-4B Step 1 and B1d-4B.
+
+Under revision 2, B1c-9B's checks read: a PASS, b recorded, c WITHIN, d PLACED (with d2 above), e pass. B1d-9B
+(b1d-9b/SPEC.txt) may then run after its review, merge and the owner's approval.
