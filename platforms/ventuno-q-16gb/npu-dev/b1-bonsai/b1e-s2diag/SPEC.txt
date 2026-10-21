@@ -1,0 +1,80 @@
+B1e: why B1d-4B's two-session option (S2) gave wrong outputs. A diagnostic stage on the VENTUNO Q NPU. Written
+2026-10-21, PROPOSED for review. The owner approved the stage ("You have my approval for diagnostic and the 9B load",
+2026-10-21, after B1d-4B's result named it); nothing runs before this spec's review and merge.
+
+1. The question and what is known (b1d-4b/RESULT.txt; b1c-9b/RESULT.txt)
+  B1d-4B's S2 (Ternary-Bonsai-2-4B Q2_0, package ff5a2337, --device HTP0:0,HTP0:1 -ts 16,17) had mean KLD 10.17 and
+  top-1 0.53 % against the CPU reference, wrong from the first chunk, with a clean run (wrapper PASS, no DSP fault,
+  buffers as expected, the split as asked). One session with the same package, model and settings is correct (B1c-4B
+  Step 2, B1d CK and Q8: top-1 above 99.3 %). The campaign's NeoHorse-1-4B ran correctly on two sessions, but with
+  another package (836d57176). Two sessions change, in the 4B's scheduler log: (1) the input embedding's Hadamard
+  restore runs on HTP0:1 (with its matrix) and its result is copied to HTP0:0, giving the split order CPU, HTP0:1,
+  HTP0:0, HTP0:1; (2) the hidden state is copied to HTP0:1 at block 16; (3) the recurrent state is split, 25.12 MiB per
+  session. Suspected causes, none isolated: the copies between two NPU sessions in ff5a2337; the embedding result on the
+  wrong session; something specific to this hybrid model when split.
+  New since then (b1c-9b/RESULT.txt, 2026-10-21): Ternary-Bonsai-2-9B on two sessions with this package has the same
+  split order (the restore on HTP0:1) and generates coherent text ("Paris." as the CPU arm), without a parity
+  measurement. That suggests the restore's placement is not by itself enough to break a model (suspected; the 4B
+  differs: its token embedding is on the NPU and tied to the output).
+  This stage locates the first wrong tensor and tests whether two sessions work for a model that is not Bonsai. It
+  claims a cause only if a run isolates it (otherwise "suspected"); it changes no configuration and fixes nothing.
+
+2. Runs (each one npu_dev_run.sh window, launched by tools/b1e_diag_arm.sh, which fixes every argument)
+  Package PB = ~/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337 (checked against phase-v0/tools/pkg-identity-ff5a2337.txt
+  before the first run), ~/npu-dev/farf first on ADSP_LIBRARY_PATH, GGML_HEXAGON_NHMX=1,
+  GGML_HEXAGON_VERBOSE=1, GGML_SCHED_DEBUG=2, -lv 5 (the split evidence, as B1d). Models: Ternary-Bonsai-2-4B-Q2_0
+  (sha256 64a5183b...), NeoHorse-1-4B-q4_0-pure (f822fa26..., the campaign's file); the launcher checks both hashes and
+  the three .farf files.
+  s1   llama-eval-callback -m <4B> -p "The capital of France is" -c 256 -b 256 -ub 256 -t 8 -fa on -lv 5 -ngl 999
+       --device HTP0:0. It prints every evaluated tensor's name, op, shape, a 3x3 sample and the sum of its elements
+       (common/debug.cpp at ff5a2337) for one decode of the prompt's tokens. Declared peak 1700 MiB, board 2800, timeout 900 s.
+  s1r  s1 again (run-to-run noise on the NPU at this tolerance).
+  s2   s1 with --device HTP0:0,HTP0:1 -ts 16,17 (S2's split). Declared peaks 1350,1500 (B1d S2's server figures at
+       -c 32768; this run is smaller), board 4000.
+  nh2  llama-perplexity -m <NeoHorse> -f wiki.test.raw (B1c-4B's text, sha256 173c87a5...) -c 256 -b 256 -ub 256
+       --chunks 16 -t 8 -fa on -lv 5 -ngl 99 --device HTP0:0,HTP0:1 (the campaign's split: -ngl 99, the default even
+       split). Declared peaks 1450,1900 MiB: per session the campaign's logged model buffers (A32-5/B4 baseline probe:
+       1,019.84 / 1,239.46), RS 109 / 92, compute 244 each at -ub 512 (an upper bound here), KV < 10 at -c 256, and on
+       HTP0:1 up to 243 MiB of logits (256 x 248,320 x 4 bytes), rounded up; board 4500. Timeout 1800 s.
+  CPU arm (no NPU, before nh2): ~/npu-dev/b1/llama.cpp/build-cpu/bin/llama-perplexity, the same model, text and
+       arguments with -ngl 0 and no --device; the reference perplexity. Also, for context only: the CPU build's
+       llama-eval-callback with s1's arguments (no -ngl/--device), the 4B's CPU dump (built 2026-10-21 in that
+       CPU-only tree; no parity is claimed from it: the CPU and NPU kernels differ).
+  Order: CPU arm and CPU dump; s1; s1r; s2; nh2. One window at a time; the next run only after the previous run's
+  verdict and checks are recorded and nothing heavy runs during a window. Campaign identity (identity.sh) before the
+  first and after the last run, as B1c-9B. Estimated NPU time about 10 minutes.
+
+3. Reading (fixed before the runs; tools/b1e_tensor_diff.py, tested by test_b1e_tensor_diff.sh)
+  b1e_tensor_diff.py <A dump> <B dump> keys tensors by name and occurrence, compares their sums (relative tolerance
+  --rel, default 1e-3), lists tensors present in only one dump (a second session's copies) and prints the first
+  differing tensor in A's order (FIRST) and the first beyond --gross 0.1 (GROSS).
+  a. Every window's verdict PASS, peaks within (r2_mapped_peak.py with the declared vector), else that run is recorded
+     as failed and the stage stops.
+  b. Noise: s1 vs s1r. SAME at 1e-3: the tolerance stands. DIFFER: the tolerance for c becomes 10 x the largest
+     relative difference seen between s1 and s1r (recorded), and c is read with it.
+  c. Location: s1 vs s2 (A = s1). The FIRST and GROSS tensors, with their op and the session and split that computed
+     them (from s2's scheduler log), classified as:
+       c1 the embedding restore chain (the nodes of s2's HTP0:1 split before HTP0:0: the prism.hadamard MUL_MAT, its
+          MUL, model.input_embed) differs: suspected the restore on the second session;
+       c2 the restore equal, the first HTP0:0 node reading the copied input (norm-0) differs: suspected the copy from
+          HTP0:1 to HTP0:0;
+       c3 equal through block 15, the first node of block 16 on HTP0:1 differs: suspected the hidden-state copy back;
+       c4 the first difference at a node reading the recurrent state (cache_r_l*/cache_s_l*, SSM_CONV, the gated
+          delta) on either session, with its inputs equal: suspected the split recurrent state;
+       c5 another node: recorded as found, unclassified;
+       c6 SAME everywhere, result_output included: not located. The callback asks for every tensor, so the scheduler
+          synchronizes after each node; a fault that needs overlap between sessions or splits would not appear (a
+          known limit of this method, stated with the result). B1d's S2 is then not reproduced under the callback.
+     A class is "isolated" only where FIRST is a single node whose inputs are equal in both dumps (its output alone
+     differs); otherwise the class is "suspected".
+  d. Generality: nh2's final perplexity against the CPU arm's. Ratio NPU/CPU within [0.95, 1.05]: two sessions
+     compute correctly for NeoHorse with ff5a2337 (the fault is then specific to Bonsai or its configuration); above
+     2: two sessions are wrong for NeoHorse too (inter-session handling in ff5a2337, suspected); in between: recorded,
+     unclassified. B1d's S2 had a ratio of about 12,700.
+  Not claimed: a fix, the 9B's correctness on two sessions (its own parity stage), anything about the campaign's
+  package 836d57176, or a cause beyond what c and d state.
+
+4. Evidence (as B1d-4B): each wrapper directory with the dump or perplexity log; the diff outputs; the CPU arm's log
+  and dump; launch and identity records; a RESULT.txt here. Logs above about 100 MB stay on the board gzipped with
+  their uncompressed sha256, with extracts by a committed recipe (make_extract.sh) holding every line the checks read.
+  Redacted (the hostname, boot ids) and scanned for identifiers before committing.
