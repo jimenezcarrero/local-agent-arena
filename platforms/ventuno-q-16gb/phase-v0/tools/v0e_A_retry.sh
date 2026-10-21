@@ -46,8 +46,13 @@
 # the change is in the turns item's sizing (v0e_window.py).
 # Overridable for tests: BR, CHECK_PROC, RUN_V0E, SESS_PAUSE + the runner's variables (RUN_ROUTE, MEMFLOOR, PROBE_WAIT...).
 set -uo pipefail
-S=${1:-AR}; case $S in AR) NAME=A-retry; CAP=7942; NGL=99;; A32) NAME=A32; CAP=5120; NGL=32;; *) echo "unknown set $S" >&2; exit 9;; esac
+# D178 (v0e-plan-B4.txt): set B4 = Ternary-Bonsai-2-4B Q2_0 on one NPU session with a q8_0 KV cache, package ff5a2337,
+# "v0e_A_retry.sh B4" (phase v0e-B4) with A32-5's behaviour (LV 5: patched baseline, identity before every baseline load,
+# D176's package check, no S0); its sessions also pass b4_identity_check.sh (PB's manifest, the model hash, the npu-dev
+# .farf) wherever the campaign identity is checked. LV is the behaviour level the attempt-numbered rules below test.
+S=${1:-AR}; case $S in AR) NAME=A-retry; CAP=7942; NGL=99;; A32) NAME=A32; CAP=5120; NGL=32;; B4) NAME=B4; CAP=5120; NGL=999;; *) echo "unknown set $S" >&2; exit 9;; esac
 ATT=${2:-1}; case $S/$ATT in */1) ;; A32/2) NAME=A32-2;; A32/3) NAME=A32-3;; A32/4) NAME=A32-4;; A32/5) NAME=A32-5;; *) echo "unknown attempt $ATT for set $S" >&2; exit 9;; esac
+LV=$ATT; [ $S = B4 ] && LV=5
 source ~/v0/v0d_lib.sh
 BR=${BR:-$HOME/bench-runs}; CHECK_PROC=${CHECK_PROC:-pgrep -f}
 RUN_V0E=${RUN_V0E:-$HOME/v0/run_v0e.sh}; SREQ=${SREQ:-python3 $HOME/v0/server_requests.py}
@@ -56,7 +61,7 @@ PH=v0e-$NAME; ST=$BR/v0/v0d/$PH-status.txt; P=~/v0/hexpkg/pkg-linux; M=~/v0/mode
 mkdir -p $O $BR/v0/v0d; say() { echo "$(date -Is) $*" | tee -a $ST; sync; }
 killall_srv() { for pid in $(ps -eo pid,args | awk '$2 ~ /\/llama-server$/ {print $1}'); do kill -KILL $pid; done; sleep 5; }
 HTPR=${HTPR:-$HOME/v0/htp-retry}; FARF=${FARF:-$HOME/v0/farf}
-E="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$P/lib"; [ $ATT -ge 2 ] && E="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$FARF;$HTPR;$P/lib"
+E="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$P/lib"; [ $LV -ge 2 ] && E="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$FARF;$HTPR;$P/lib"
 BASE="$E GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 40960 --cache-ram 8192 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl 99 --ctx-checkpoints 0"
 source ~/v0/v0d_runner.sh
 # AW = the D90-admitted A command with -c 32768 (D118), with the patched DSP library first on ADSP_LIBRARY_PATH (D136);
@@ -69,10 +74,16 @@ rsha() { [ "$(sha256sum "$HTPR/libggml-htp-v75.so" 2>/dev/null | cut -d' ' -f1)"
 # the committed manifest; never regenerated at launch). ident sets WHY to the failing check's message.
 PKGID=${PKGID:-python3 $HOME/v0/pkg_identity.py}; PKGMAN=${PKGMAN:-$HOME/v0/pkg-identity-836d57176.txt}; PKGDIR=${PKGDIR:-$P}
 pkgid() { $PKGID check "$PKGMAN" "$PKGDIR" > $O/pkg-identity-last.txt 2>&1; }
+B4_CHECK=${B4_CHECK:-/bin/bash $HOME/v0/b4_identity_check.sh}
 ident() { WHY=; WHAT=; rsha || { WHAT=lib; WHY="$HTPR/libggml-htp-v75.so is not sha256 $RETRY_SHA (or the .farf file is not 0x1f)"; return 1; }
-  [ $ATT -ge 5 ] || return 0
-  pkgid || { WHAT=pkg; WHY="the release package $PKGDIR differs from $PKGMAN: $(grep -m1 '^FAIL' $O/pkg-identity-last.txt) ($(tail -1 $O/pkg-identity-last.txt))"; return 1; }; }
+  [ $LV -ge 5 ] || return 0
+  pkgid || { WHAT=pkg; WHY="the release package $PKGDIR differs from $PKGMAN: $(grep -m1 '^FAIL' $O/pkg-identity-last.txt) ($(tail -1 $O/pkg-identity-last.txt))"; return 1; }
+  [ $S = B4 ] || return 0
+  $B4_CHECK > $O/b4-identity-last.txt 2>&1 || { WHAT=pkg; WHY="B4's runtime: $(tail -1 $O/b4-identity-last.txt)"; return 1; }; }
 AW="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$FARF;$HTPR;$P/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 32768 --cache-ram $CAP -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl $NGL --ctx-checkpoints 0"
+# B4 (D178): PB's own (unpatched) library after the npu-dev .farf directory, one session, q8_0 KV, -np 1 pinned
+PB=~/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337; MB=~/npu-dev/b1/models
+[ $S = B4 ] && AW="env LD_LIBRARY_PATH=$PB/lib ADSP_LIBRARY_PATH=$HOME/npu-dev/farf;$PB/lib GGML_HEXAGON_DEVICES=HTP0:0 GGML_HEXAGON_NHMX=1 $PB/bin/llama-server -m $MB/Ternary-Bonsai-2-4B-Q2_0.gguf -c 32768 --cache-ram $CAP -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0 -ngl 999 -np 1 -fa on -ctk q8_0 -ctv q8_0 --jinja --ctx-checkpoints 0"
 $CHECK_PROC '^/bin/bash /home/arduino/v0/npu_stall_watchdog.sh' > /dev/null || { say "STOP: NPU stall watchdog not running"; exit 6; }
 $CHECK_PROC '^/bin/bash /home/arduino/v0/monitor/health_sampler.sh' > /dev/null || { say "STOP: health sampler not running"; exit 6; }
 # D137/D138 (Codex reviews of 6f203ab and 12be36a): eligibility first. The LATEST admission attempt of the patched
@@ -155,15 +166,15 @@ prebase() { ident && return 0
   say "STOP: before baseline $1: $WHY"
   [ "$(nfaults)" -gt 0 ] && { say "V0e $NAME: NOT QUALIFIED (faults recorded: $(nfaults), kept in faults.txt; library identity lost before $1)"; exit 3; }
   exit 2; }
-[ $ATT -ge 2 ] && PRE_BASE=prebase
+[ $LV -ge 2 ] && PRE_BASE=prebase
 # probestop <reason> (D167): a probe that stops the driver after a recorded fault keeps the outcome NOT QUALIFIED
 probestop() { [ "$(nfaults)" -gt 0 ] && { say "V0e $NAME: NOT QUALIFIED (faults recorded: $(nfaults), kept in faults.txt; recovery ended: $1)"; exit 3; }; return 0; }
 PROBE_STOP=probestop
 memcheck() { if python3 $MEMFLOOR --admit $CAP $O/$1 > $O/$1/memfloor-admit.txt 2>&1; then say "MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"
   else say "STOP: MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"; say "V0e $NAME: NOT QUALIFIED (memory)"; exit 3; fi; }
 onfault() { fault $1 $2; ready wait; say "V0e $NAME: NOT QUALIFIED (fault $2 in $1)"; exit 3; }
-say "V0e $NAME start (pid $$), set $S, attempt $ATT, window 32768, -ngl $NGL, --cache-ram $CAP, patched DSP library, baseline library $([ $ATT -ge 2 ] && echo patched || echo release)$([ $ATT = 3 ] && echo ", stage S0 (cache wording)"), no root"
-if [ $ATT = 3 ]; then
+say "V0e $NAME start (pid $$), set $S, attempt $ATT, window 32768, -ngl $NGL, --cache-ram $CAP, $([ $S = B4 ] && echo "B4 runtime ff5a2337 with its own (unpatched) DSP library, one session, q8_0 KV" || echo "patched DSP library"), baseline library $([ $LV -ge 2 ] && echo patched || echo release)$([ $LV = 3 ] && echo ", stage S0 (cache wording)"), no root"
+if [ $LV = 3 ]; then
   session $PH-S0 $HOME/v0/v0e_wording.sh 14400
   case $C in PASS) memcheck $LAB;; HANG|DEVFAULT) onfault $LAB $C;; *) say "STOP: $LAB $C"; exit 2;; esac
   wl=$(grep -E '^WORDING: current [0-9]+/8, neutral [0-9]+/8$' $O/$LAB/workload.txt 2>/dev/null | tail -1)

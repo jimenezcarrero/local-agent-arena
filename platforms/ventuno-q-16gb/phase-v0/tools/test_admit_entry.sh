@@ -14,9 +14,11 @@ case1() { local name=$1 set=$2 want_rc=$3 want_first=$4; shift 4
   # AR (D137): fake library check (ok, fail, or fail from its Nth call: lib-fail-at) and fake 16K gate (exit from gate-rc)
   printf '#!/bin/bash\nn=$(( $(cat $T/hc 2>/dev/null || echo 0) + 1 )); echo $n > $T/hc\nif [ -n "${LIBFAIL_AT:-}" ] && [ $n -ge $LIBFAIL_AT ]; then echo "FAILED htp-retry sha256"; exit 1; fi\necho "OK htp-retry sha256"\n' > $T/hcheck.sh
   printf '#!/bin/bash\necho "$*" > $T/gate-args; case ${GATE_RC:-0} in 0) echo "GATE $2: PASS median 16K prefill 317.4";; 3) echo "GATE $2: FAIL median 16K prefill 120.0";; *) echo "GATE $2: MISSING";; esac; exit ${GATE_RC:-0}\n' > $T/gate.sh
-  chmod +x $T/hcheck.sh $T/gate.sh
+  # D178: fake B4 identity check (ok, or fail from its Nth call: B4FAIL_AT), counted in $T/b4c
+  printf '#!/bin/bash\nn=$(( $(cat $T/b4c 2>/dev/null || echo 0) + 1 )); echo $n > $T/b4c\nif [ -n "${B4FAIL_AT:-}" ] && [ $n -ge $B4FAIL_AT ]; then echo "FAILED B4 identity: model sha256"; exit 1; fi\necho "OK B4 package PASS"\n' > $T/b4check.sh
+  chmod +x $T/hcheck.sh $T/gate.sh $T/b4check.sh
   env RUN_ROUTE=$T/run.sh RUN_V0C=$T/run.sh MEMFLOOR=$T/mem.py KAUDIT=$T/ka.sh PROBE_WAIT=0 SET_PAUSE=0 CHECK_PROC=true \
-      PRE_CMD=$T/pre.sh HTPR_CHECK=$T/hcheck.sh GATE=$T/gate.sh "$@" bash ~/v0/v0d_admit.sh $set > /dev/null 2>&1; local rc=$?
+      PRE_CMD=$T/pre.sh HTPR_CHECK=$T/hcheck.sh B4_CHECK=$T/b4check.sh GATE=$T/gate.sh "$@" bash ~/v0/v0d_admit.sh $set > /dev/null 2>&1; local rc=$?
   local first=$(head -1 $T/calls 2>/dev/null); first=${first%%-*}
   if [ $rc = $want_rc ] && [ "${first:-none}" = "$want_first" ]; then echo "ok   $name (rc $rc, first action: ${first:-none})"
   else echo "FAIL $name (rc $rc want $want_rc; first ${first:-none} want $want_first)"; sed 's/^/     /' $T/calls 2>/dev/null; fails=$((fails+1)); fi
@@ -29,7 +31,19 @@ case1() { local name=$1 set=$2 want_rc=$3 want_first=$4; shift 4
       grep -q "GATE A32: PASS" $s && [ "$(cat $T/gate-args)" = "$BR/v0/v0d-admit-A32 A32 1" ] && [ "$(cat $T/hc)" = 7 ] \
       && [[ "$c" == *"ADSP_LIBRARY_PATH=$HOME/v0/farf;$HOME/v0/htp-retry;"*" -c 40960 --cache-ram 5120 "*" --device HTP0:0,HTP0:1 -ngl 32 --ctx-checkpoints 0"* ]] \
       && [[ "$c" != *"-ngl 99"* ]] && [ "$(sort -u $T/caps)" = 5120 ] && [ "$(wc -l < $T/caps)" = 5 ] \
-      || { echo "FAIL a32-pass: gate line/arguments, 7 library checks, the A32 command or memfloor at 5120"; echo "     $c"; fails=$((fails+1)); };; esac
+      && [[ "$c" == "A32-s1-r1 A32-s1-r1 v0d-admit-A32 --depths 512,8192,16384,32768 --nctx 40960 -- "* ]] \
+      || { echo "FAIL a32-pass: gate line/arguments, 7 library checks, the A32 command, its frozen depths/nctx or memfloor at 5120"; echo "     $c"; fails=$((fails+1)); };; esac
+  # D178: B4's command, its D2 branch's depths and nctx on warm-up and r1-r3 only, the campaign's probes unchanged
+  case $name in b4-pass-a|b4-pass-b) s=$BR/v0/v0d/v0d-admit-B4-status.txt
+      if [ $name = b4-pass-a ]; then win=32768; dep="512,8192,16384,28672"; nc=32768; else win=40960; dep="512,8192,16384,32768"; nc=40960; fi
+      ok=1; for st in warmup r1 r2 r3; do c=$(grep "^B4-s1-$st " $T/cmds)
+        [[ "$c" == "B4-s1-$st B4-s1-$st v0d-admit-B4 --depths $dep --nctx $nc -- env LD_LIBRARY_PATH=$HOME/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337/lib ADSP_LIBRARY_PATH=$HOME/npu-dev/farf;$HOME/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337/lib GGML_HEXAGON_DEVICES=HTP0:0 GGML_HEXAGON_NHMX=1 "*"/llama-server -m $HOME/npu-dev/b1/models/Ternary-Bonsai-2-4B-Q2_0.gguf -c $win --cache-ram 5120 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0 -ngl 999 -np 1 -fa on -ctk q8_0 -ctv q8_0 --jinja --ctx-checkpoints 0" ]] || { ok=0; echo "     $st: $c"; }
+      done
+      c=$(grep "^B4-s1-tools " $T/cmds); [[ "$c" == *" -c $win "*"-np 1 "* ]] || { ok=0; echo "     tools: $c"; }
+      pr=$(grep '^probe-' $T/cmds | grep -vc -- '--depths 512 --nctx 40960 -- env LD_LIBRARY_PATH=[^ ]*/v0/hexpkg/pkg-linux/lib ADSP_LIBRARY_PATH=[^ ]*/v0/hexpkg/pkg-linux/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 .*NeoHorse-1-4B-q4_0-pure.gguf -c 40960 --cache-ram 8192 .* -ngl 99 --ctx-checkpoints 0$')
+      grep -q "GATE B4: PASS" $s && [ "$(cat $T/gate-args)" = "$BR/v0/v0d-admit-B4 B4 1" ] && [ "$(cat $T/b4c)" = 7 ] && [ ! -e $T/hc ] \
+        && [ "$(sort -u $T/caps)" = 5120 ] && [ "$(wc -l < $T/caps)" = 5 ] && [ $ok = 1 ] && [ "$pr" = 0 ] && [ "$(grep -c '^probe-' $T/cmds)" -ge 1 ] \
+        || { echo "FAIL $name: gate, 7 B4 identity checks and no retry-library check, memfloor 5120, B4 commands/depths ($ok) or probes ($pr not campaign 40960/512)"; fails=$((fails+1)); };; esac
   rm -rf $T; }
 case1 h2-helper-missing H2 6 none HELPER_CHECK=false
 case1 h2-restart-first H2 0 PRELOAD HELPER_CHECK=true
@@ -49,4 +63,13 @@ case1 a32-library-wrong A32 6 none LIBFAIL_AT=1
 case1 a32-library-changes-mid-set A32 2 probe LIBFAIL_AT=3
 case1 a32-gate-fail A32 3 probe GATE_RC=3
 case1 a32-load-retry-real-gate A32 0 probe LOADFAIL_LAB=A32-s1-r3 GATE="python3 $HOME/v0/admit_gate.py"
+# D178: B4 (Bonsai-2-4B, q8_0 KV, package ff5a2337), both D2 branches; its identity check at entry, per step and after
+case1 b4-pass-a "B4 a" 0 probe
+case1 b4-pass-b "B4 b" 0 probe
+case1 b4-no-d2-branch B4 9 none
+case1 b4-identity-wrong "B4 a" 6 none B4FAIL_AT=1
+case1 b4-identity-changes-mid-set "B4 a" 2 probe B4FAIL_AT=3
+case1 b4-identity-changes-after-set "B4 a" 2 probe B4FAIL_AT=7
+case1 b4-gate-fail "B4 a" 3 probe GATE_RC=3
+case1 b4-load-retry-real-gate "B4 a" 0 probe LOADFAIL_LAB=B4-s1-r2 GATE="python3 $HOME/v0/admit_gate.py"
 echo "failures: $fails"; exit $fails
