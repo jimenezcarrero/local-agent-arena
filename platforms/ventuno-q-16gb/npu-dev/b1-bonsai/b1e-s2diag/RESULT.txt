@@ -1,0 +1,54 @@
+B1e result: the S2 diagnostic (SPEC.txt revision 3, merged as 6118c10). Run 2026-10-21 11:42-11:57 on the owner's
+approval, tools from main 6118c10, package ff5a2337 (manifest PASS before), campaign identity before and after clean
+(package PASS, retry library and .farf as declared, measure 7badb21 clean, dpkg baseline b295c458..., 0 lines of drift).
+Every window's verdict PASS and peaks within the declared vectors.
+
+CPU arm (ff5a2337 CPU-only build, no NPU)
+  0a llama-tokenize: 297,193 ids for wiki.test.raw (NeoHorse).
+  0b llama-perplexity --kl-divergence-base: 16 chunks, final PPL 14.4519 +/- 0.96352; base sha256
+     b753f86ce23ca0b952a3b15b8f016dbb0f96b6ec3036148e2a132bffc9910ab0 (kept on the board, 1,009,205,140 bytes).
+  0c b1e_kld_base_check.py: RESULT VALID (header 256 / 248,320 / 16, exact size, stored tokens equal to 0a's first 4,096
+     ids, rows finite); tokens sha256 db9e5bae1bc5292a62ef6b4f8c5b39d5e73b97f27d14b8f278ef91a161b7e08d.
+  0d r1_t7_compare self-check: RESULT VALID, 2,032 positions, top-1 100 %, KLD 0.
+  The 4B's CPU dump (context only): 2,549 tensors.
+
+NPU runs (each one npu_dev_run.sh window, tools/b1e_diag_arm.sh)
+  s1   one session: PASS, peak 1,456.5 MiB (limit 1,700); 2,549 tensors dumped.
+  s1r  repeat: PASS, within; b1e_tensor_diff.py s1 s1r: RESULT SAME (2,549 compared, MAXREL 0.0). The NPU is
+       bit-for-bit repeatable for this dump; the tolerance stays 1e-3 (rule b).
+  s2   two sessions, -ts 16,17: PASS, peaks 864.3 / 1,034.8 MiB (limits 1,350 / 1,500); model buffers 487.45 / 657.97
+       MiB on HTP0:0 / HTP0:1. Its scheduler log has 7 graphs split CPU, HTP0:1, HTP0:0, HTP0:1, the same placement
+       as B1d-4B's S2 (the embedding restore on HTP0:1, its result copied to HTP0:0), and 6 three-split reservation
+       graphs. b1e_tensor_diff.py s1 s2: RESULT SAME (2,549 compared, result_output included, MAXREL 0.0; no GROSS).
+  nh2  NeoHorse on two sessions against the CPU base: PASS, peaks 1,116.2 / 1,587.2 MiB (limits 1,450 / 1,900); all 16
+       chunks, over 2,032 scored positions: mean KLD 0.000909 +/- 0.000067, same top-1 98.573 +/- 0.263 %, PPL(Q)
+       14.4222 against PPL(base) 14.4431 (ratio 0.99855).
+
+Reading (section 3, fixed before the runs)
+  c: class c6, not detected by this checksum diagnostic. Under llama-eval-callback, which makes the scheduler
+     synchronize after every node, the two-session 4B with S2's placement computed every dumped tensor exactly as one
+     session did, the final logits included. It does not mean S2's failure is absent. What differs from B1d's S2, not
+     separated here: the per-node synchronization; the workload (a 6-token prompt with one output row at -c 256 -b 256,
+     against perplexity's 1,024-token chunks, -b 1024 -ub 512 and every row output); -c 1024.
+     Not a difference: the alternating CPU/HTP0 split tail of B1d S2's ten all-output graphs, which B1d's one-session
+     Q8 parity log also has (the zero-extent CPU splits B1d accepted).
+     Suspected, not isolated: the fault needs work to overlap between sessions or splits, or a workload this dump does
+     not exercise (many tokens or output rows per batch).
+  d: class d1. NeoHorse on two sessions with ff5a2337 agrees with the CPU on this text at the token level (98.57 %,
+     KLD 0.0009). Attribution limit as written: no one-session control was run; d1 says that this configuration is not
+     grossly wrong for NeoHorse, not that Bonsai's fault is Bonsai-specific.
+  Together (suspected): two sessions in ff5a2337 are not generally wrong (nh2), and the 4B's two-session graph gives
+  exact results when each node is synchronized (s2). The candidates narrow to the overlap or the larger workload.
+
+Not claimed: a cause, a fix, the 9B's correctness on two sessions, anything about 836d57176.
+
+A finer stage, if the owner wants one (not proposed as a spec here): the 4B's perplexity with --kl-divergence on two
+sessions without the callback at s2's small size and at B1d's size, against a regenerated CPU base (B1d's was deleted
+2026-10-21 for disk), to separate workload from synchronization.
+
+Evidence: b1e-s2diag-evidence-20261021.tar.gz, sha256 05c0b9664789deb7fc598bf815748a516bea09fd15b95065159a0a1ad22cf4f7
+(7,672,607 bytes): the four wrapper directories (dumps, logs), consoles, peak checks, both diffs, identity records, and
+the CPU arm (logs, checks, ids, CPU dump, base sha256, tool and identity scripts). The CPU base stays on the board.
+Redacted: the boot id and the hostname where present (<redacted>, <host>); then scanned for the machine-id, the boot
+id, the hostname, the SoC serial, MAC addresses, UUIDs, link-local addresses and USB serials: none. Both diffs rerun on
+the archived dumps reproduce RESULT SAME.
