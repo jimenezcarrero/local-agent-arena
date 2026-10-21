@@ -1,74 +1,106 @@
 #!/usr/bin/env python3
-"""b1e_tensor_diff.py (NPU dev plan B1e, b1-bonsai/b1e-s2diag/SPEC.txt): first diverging tensor between two
+"""b1e_tensor_diff.py (NPU dev plan B1e, b1-bonsai/b1e-s2diag/SPEC.txt): first differing tensor checksum between two
 llama-eval-callback dumps of the same prompt (A: the reference run, B: the run under test).
 
-  b1e_tensor_diff.py <dump A> <dump B> [--rel 1e-3] [--gross 0.1] [--show 8]
+  b1e_tensor_diff.py <dump A> <dump B> [--rel 1e-3] [--gross 0.1] [--show 8] [--require result_output]
 
 A dump is the eval-callback's output (common/debug.cpp at ff5a2337): a header line per evaluated tensor,
-"common_debug_cb_eval: <name> = (<type>) <op>(<src0>{..}, <src1>}) = {<ne0>, <ne1>, <ne2>, <ne3>}", then its sampled
-values, then "sum = <float>" (quantized tensors print no sum and are skipped). Lines from other loggers may be
-interleaved; only header and sum lines are read. A tensor is keyed by its name and its occurrence number (the same
-name can be computed more than once per graph); keys present in only one dump (the copies a second session adds,
-e.g. "HTP0:1#node_0") are listed, not compared.
+"common_debug_cb_eval: <name> = (<type>) <op>(<src0>{..}, <src1>{..}}) = {<ne0>, <ne1>, <ne2>, <ne3>}", then a sample
+of its values (up to 3 at each end of each dimension, printed %12.4f), then "sum = <float>". Quantized tensors print no
+values and are skipped. Lines from other loggers may be interleaved. A tensor is keyed by its name and occurrence
+number. This is checksum-level evidence: the sum and the printed sample, not the full tensor, and only src0/src1 of each
+node are named.
 
-Walking A's order, a key differs when |sumA - sumB| > rel * max(1, |sumA|, |sumB|), or the shapes differ, or exactly
-one sum is not finite. Prints the counts, the first differing key ("FIRST"), the first beyond --gross ("GROSS") and the
+Two keys differ when their shapes differ, when |sumA - sumB| > rel * max(1, |sumA|, |sumB|), or when any printed sample
+value differs by more than rel * max(1, the largest |sample| of either). Fails closed (RESULT INCOMPLETE, exit 3) when
+an options value is not finite and positive, when a non-quantized tensor has no sum or a sample of a different length,
+when a sum or sample is not finite on either side, when a key of A is missing from B or B has an extra key that is not a
+session copy ("<backend>#<name>"), when a required tensor (--require, default result_output; repeatable) is missing
+from either dump, or when nothing is compared.
+Prints counts, MAXREL (the largest relative difference over every compared key, full precision), the first differing
+key in A's order (FIRST) with its sources, the first key over --gross (GROSS, found independently of --rel), the
 --show keys from the first, then one RESULT line:
-  RESULT SAME (n compared)              no compared key differs
-  RESULT DIFFER first=<key> op=<op>     the first differing key in A's order
-Exit 0 SAME, 1 DIFFER, 2 usage or a dump with no tensors.
+  RESULT SAME (n compared, maxrel x)           exit 0
+  RESULT DIFFER first=<key> op=<op>            exit 1
+  RESULT INCOMPLETE <reason>                   exit 3
+Exit 2 on a usage error.
 """
 import math, re, sys
 
-HEAD = re.compile(r"common_debug_cb_eval:\s+(.+?) = \((\w+)\)\s+(\S+)\(.*\) = \{([^}]*)\}\s*$")
+HEAD = re.compile(r"common_debug_cb_eval:\s+(.+?) = \((\w+)\)\s+(\S+)\((.*)\) = \{([^}]*)\}\s*$")
 SUM = re.compile(r"^\s*sum = (\S+)\s*$")
+NUM = re.compile(r"-?(?:\d+\.\d+|\d+)(?:e[-+]?\d+)?|-?nan|-?inf", re.I)
+PLAIN = {"f32", "f16", "bf16", "i64", "i32", "i16", "i8"}
+COPY = re.compile(r"^[A-Za-z]+\d*(?::\d+)?#")
+
+
+def fnum(s):
+    try:
+        return float(s)
+    except ValueError:
+        return float("nan")
 
 
 def parse(path):
-    order, rec, seen = [], {}, {}
-    cur = None
+    order, rec, seen, cur = [], {}, {}, None
     with open(path, errors="replace") as f:
         for line in f:
             m = HEAD.search(line)
             if m:
-                name, typ, op, ne = m.group(1).strip(), m.group(2), m.group(3), m.group(4).replace(" ", "")
+                name, typ, op, srcs, ne = m.group(1).strip(), m.group(2), m.group(3), m.group(4), m.group(5).replace(" ", "")
                 seen[name] = seen.get(name, 0) + 1
                 cur = (name, seen[name])
                 order.append(cur)
-                rec[cur] = {"type": typ, "op": op, "ne": ne, "sum": None}
+                rec[cur] = {"type": typ, "op": op, "ne": ne, "src": re.sub(r"\{[^}]*\}", "", srcs).strip(" ,}"),
+                            "sum": None, "vals": []}
+                continue
+            if cur is None or rec[cur]["sum"] is not None:
                 continue
             m = SUM.match(line)
-            if m and cur is not None and rec[cur]["sum"] is None:
-                try:
-                    rec[cur]["sum"] = float(m.group(1))
-                except ValueError:
-                    rec[cur]["sum"] = float("nan")
+            if m:
+                rec[cur]["sum"] = fnum(m.group(1))
+                continue
+            s = line.strip()
+            if s.startswith("[") and s.endswith("],") and len(s) > 3:
+                rec[cur]["vals"] += [fnum(x) for x in NUM.findall(s[1:-2]) if x != "..."]
     return order, rec
 
 
-def key_str(k):
+def ks(k):
     return f"{k[0]}#{k[1]}"
 
 
-def differs(a, b, rel):
-    if a["ne"] != b["ne"]:
-        return True, math.inf
-    sa, sb = a["sum"], b["sum"]
-    fa, fb = math.isfinite(sa), math.isfinite(sb)
-    if not fa or not fb:
-        return fa != fb, (math.inf if fa != fb else 0.0)
-    d = abs(sa - sb) / max(1.0, abs(sa), abs(sb))
-    return d > rel, d
+def rel_of(a, b):
+    """relative difference of two keys (inf for a shape or sample-length mismatch)"""
+    if a["ne"] != b["ne"] or len(a["vals"]) != len(b["vals"]):
+        return math.inf
+    d = abs(a["sum"] - b["sum"]) / max(1.0, abs(a["sum"]), abs(b["sum"]))
+    if a["vals"]:
+        scale = max(1.0, max(abs(x) for x in a["vals"] + b["vals"]))
+        d = max(d, max(abs(x - y) for x, y in zip(a["vals"], b["vals"])) / scale)
+    return d
+
+
+def finite(r):
+    return r["sum"] is not None and math.isfinite(r["sum"]) and all(math.isfinite(v) for v in r["vals"])
 
 
 def main(argv):
-    args, opt = [], {"--rel": 1e-3, "--gross": 0.1, "--show": 8}
+    args, req, opt = [], [], {"--rel": 1e-3, "--gross": 0.1, "--show": 8}
     it = iter(argv[1:])
     for a in it:
-        if a in opt:
+        if a in opt or a == "--require":
             try:
-                opt[a] = type(opt[a])(next(it))
-            except (StopIteration, ValueError):
+                v = next(it)
+            except StopIteration:
+                print(f"usage: {a} needs a value", file=sys.stderr)
+                return 2
+            if a == "--require":
+                req.append(v)
+                continue
+            try:
+                opt[a] = type(opt[a])(v)
+            except ValueError:
                 print(f"usage: bad value for {a}", file=sys.stderr)
                 return 2
         else:
@@ -76,36 +108,60 @@ def main(argv):
     if len(args) != 2:
         print(__doc__.split("\n\n")[1], file=sys.stderr)
         return 2
+    req = req or ["result_output"]
+
+    def incomplete(why):
+        print(f"RESULT INCOMPLETE {why}")
+        return 3
+
+    for o in ("--rel", "--gross"):
+        if not (math.isfinite(opt[o]) and opt[o] > 0):
+            return incomplete(f"{o} {opt[o]} is not finite and positive")
     oa, ra = parse(args[0])
     ob, rb = parse(args[1])
-    if not oa or not ob:
-        print(f"no tensors in {'A' if not oa else 'B'}", file=sys.stderr)
-        return 2
+    print(f"A {len(oa)} tensors, B {len(ob)}")
+    for lab, o, r in (("A", oa, ra), ("B", ob, rb)):
+        for n in req:
+            if not any(k[0] == n for k in o):
+                return incomplete(f"required tensor {n} missing from {lab}")
+        for k in o:
+            x = r[k]
+            if x["type"] in PLAIN and x["sum"] is None:
+                return incomplete(f"{lab} {ks(k)} ({x['type']}) has no sum")
+            if x["sum"] is not None and not finite(x):
+                return incomplete(f"{lab} {ks(k)} has a non-finite sum or sample")
     only_a = [k for k in oa if k not in rb]
-    only_b = [k for k in ob if k not in ra]
-    diffs, n = [], 0
+    extra_b = [k for k in ob if k not in ra]
+    copies = [k for k in extra_b if COPY.match(k[0])]
+    other_b = [k for k in extra_b if not COPY.match(k[0])]
+    print(f"only in B, session copies: {len(copies)}" + (": " + ", ".join(ks(k) for k in copies[:12]) if copies else ""))
+    if only_a:
+        return incomplete(f"{len(only_a)} key(s) of A missing from B, first {ks(only_a[0])}")
+    if other_b:
+        return incomplete(f"{len(other_b)} key(s) only in B that are not session copies, first {ks(other_b[0])}")
+    rels, n = [], 0
     for k in oa:
-        if k not in rb or ra[k]["sum"] is None or rb[k]["sum"] is None:
+        if ra[k]["sum"] is None or rb[k]["sum"] is None:
             continue
         n += 1
-        bad, d = differs(ra[k], rb[k], opt["--rel"])
-        if bad:
-            diffs.append((k, d))
-    print(f"A {len(oa)} tensors, B {len(ob)}; compared {n}; only in A {len(only_a)}, only in B {len(only_b)}")
-    for lab, ks in (("only in A", only_a), ("only in B", only_b)):
-        if ks:
-            print(f"{lab}: " + ", ".join(key_str(k) for k in ks[:12]) + (" ..." if len(ks) > 12 else ""))
+        rels.append((k, rel_of(ra[k], rb[k])))
+    if n == 0:
+        return incomplete("no tensor compared")
+    maxrel = max(d for _, d in rels)
+    print(f"compared {n}; MAXREL {maxrel!r}")
+    diffs = [(k, d) for k, d in rels if d > opt["--rel"]]
     if not diffs:
-        print(f"RESULT SAME ({n} compared)")
+        print(f"RESULT SAME ({n} compared, maxrel {maxrel!r})")
         return 0
-    gross = next((x for x in diffs if x[1] > opt["--gross"]), None)
+    gross = next((x for x in rels if x[1] > opt["--gross"]), None)
     print(f"differing: {len(diffs)} of {n} (rel > {opt['--rel']})")
     for k, d in diffs[: opt["--show"]]:
-        print(f"  {key_str(k)} op={ra[k]['op']} ne={{{ra[k]['ne']}}} sumA={ra[k]['sum']} sumB={rb[k]['sum']} rel={d:.3g}")
+        print(f"  {ks(k)} op={ra[k]['op']} src=[{ra[k]['src']}] ne={{{ra[k]['ne']}}} sumA={ra[k]['sum']!r} "
+              f"sumB={rb[k]['sum']!r} rel={d!r}")
     f = diffs[0][0]
-    print(f"FIRST {key_str(f)} op={ra[f]['op']}")
-    print(f"GROSS {key_str(gross[0]) + ' op=' + ra[gross[0]]['op'] if gross else 'none'} (rel > {opt['--gross']})")
-    print(f"RESULT DIFFER first={key_str(f)} op={ra[f]['op']}")
+    print(f"FIRST {ks(f)} op={ra[f]['op']} src=[{ra[f]['src']}]")
+    print(f"GROSS {ks(gross[0]) + ' op=' + ra[gross[0]]['op'] if gross else 'none'} (rel > {opt['--gross']})")
+    print(f"RESULT DIFFER first={ks(f)} op={ra[f]['op']}")
     return 1
 
 
