@@ -1,0 +1,127 @@
+B1e: why B1d-4B's two-session option (S2) gave wrong outputs. A diagnostic stage on the VENTUNO Q NPU. Written
+2026-10-21, PROPOSED for review (revision 3; revision 2, review of 67dab16: the callback's own FARF file,
+checksum-level reading with every class suspected, a fail-closed comparison, nh2 as a paired KLD/top-1 check;
+revision 3, review of f827e4c: each tensor's full printed sample validated from its shape, GROSS before SAME, the CPU
+base validated and nh2's 16 chunks and 2,032 scored positions required). The owner approved the stage ("You have my approval for diagnostic and the 9B load",
+2026-10-21, after B1d-4B's result named it); nothing runs before this spec's review and merge.
+
+1. The question and what is known (b1d-4b/RESULT.txt; b1c-9b/RESULT.txt)
+  B1d-4B's S2 (Ternary-Bonsai-2-4B Q2_0, package ff5a2337, --device HTP0:0,HTP0:1 -ts 16,17) had mean KLD 10.17 and
+  top-1 0.53 % against the CPU reference, wrong from the first chunk, with a clean run (wrapper PASS, no DSP fault,
+  buffers as expected, the split as asked). One session with the same package, model and settings is correct (B1c-4B
+  Step 2, B1d CK and Q8: top-1 above 99.3 %). The campaign's NeoHorse-1-4B ran correctly on two sessions, but with
+  another package (836d57176). Two sessions change, in the 4B's scheduler log: (1) the input embedding's Hadamard
+  restore runs on HTP0:1 (with its matrix) and its result is copied to HTP0:0, giving the split order CPU, HTP0:1,
+  HTP0:0, HTP0:1; (2) the hidden state is copied to HTP0:1 at block 16; (3) the recurrent state is split, 25.12 MiB per
+  session. Suspected causes, none isolated: the copies between two NPU sessions in ff5a2337; the embedding result on the
+  wrong session; something specific to this hybrid model when split.
+  New since then (b1c-9b/RESULT.txt, 2026-10-21): Ternary-Bonsai-2-9B on two sessions with this package has the same
+  split order (the restore on HTP0:1) and generates coherent text ("Paris." as the CPU arm), without a parity
+  measurement. That suggests the restore's placement is not by itself enough to break a model (suspected; the 4B
+  differs: its token embedding is on the NPU and tied to the output).
+  This stage locates the first tensor whose checksum differs between one and two sessions, and measures whether a
+  model that is not Bonsai agrees with the CPU at the token level on two sessions with this package. Every cause it
+  names is suspected: the dumps hold checksums and samples, not full tensors (section 3). It changes no configuration
+  and fixes nothing.
+
+2. Runs (each one npu_dev_run.sh window, launched by tools/b1e_diag_arm.sh, which fixes every argument)
+  Package PB = ~/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337 (checked against phase-v0/tools/pkg-identity-ff5a2337.txt
+  before the first run), ~/npu-dev/farf first on ADSP_LIBRARY_PATH, GGML_HEXAGON_NHMX=1,
+  GGML_HEXAGON_VERBOSE=1, GGML_SCHED_DEBUG=2, -lv 5 (the split evidence, as B1d). Models: Ternary-Bonsai-2-4B-Q2_0
+  (sha256 64a5183b...), NeoHorse-1-4B-q4_0-pure (f822fa26..., the campaign's file). DSP logging: FastRPC reads the
+  running executable's own <basename>.farf, so ~/npu-dev/farf/llama-eval-callback.farf was added (2026-10-21, a copy
+  of the campaign's 0x1f file, sha256 7acc31cd... as the other three). The launcher checks the running executable's
+  .farf and the other three, the model's hash, and for nh2 the text's and REF's; tools/test_b1e_diag_arm.sh covers its
+  commands and refusals (a missing or wrong callback .farf among them; 15 cases).
+  s1   llama-eval-callback -m <4B> -p "The capital of France is" -c 256 -b 256 -ub 256 -t 8 -fa on -lv 5 -ngl 999
+       --device HTP0:0. It prints every evaluated tensor's name, op, shape, a 3x3 sample and the sum of its elements
+       (common/debug.cpp at ff5a2337) for one decode of the prompt's tokens. Declared peak 1700 MiB, board 2800, timeout 900 s.
+  s1r  s1 again (run-to-run noise on the NPU at this tolerance).
+  s2   s1 with --device HTP0:0,HTP0:1 -ts 16,17 (S2's split). Declared peaks 1350,1500 (B1d S2's server figures at
+       -c 32768; this run is smaller), board 4000.
+  nh2  llama-perplexity -m <NeoHorse> --kl-divergence-base REF --kl-divergence -c 256 -b 256 -ub 256 --chunks 16
+       -t 8 -fa on -lv 5 -ngl 99 --device HTP0:0,HTP0:1 (the campaign's split: -ngl 99, the default even split), REF
+       the CPU arm's base, given to the launcher by its sha256. Declared peaks 1450,1900 MiB: per session the campaign's logged model buffers (A32-5/B4 baseline probe:
+       1,019.84 / 1,239.46), RS 109 / 92, compute 244 each at -ub 512 (an upper bound here), KV < 10 at -c 256, and on
+       HTP0:1 up to 243 MiB of logits (256 x 248,320 x 4 bytes), rounded up; board 4500. Timeout 1800 s.
+  CPU arm (no NPU, before nh2), in ~/npu-dev/b1/llama.cpp/build-cpu (ff5a2337, CPU only):
+       0a llama-tokenize -m <NeoHorse> -f wiki.test.raw --ids --no-parse-special --log-disable > nh-ids.txt: an
+          independent tokenization (perplexity tokenizes with add_special true and parse_special false; llama-tokenize
+          adds the model's BOS as perplexity does and --no-parse-special matches the second).
+       0b llama-perplexity -m <NeoHorse> -f wiki.test.raw (B1c-4B's text, sha256 173c87a5...) --kl-divergence-base
+          ~/npu-dev/b1/b1e/nh-cpu-ref.kld -c 256 -b 256 -ub 256 --chunks 16 -t 8 -fa on (never rewritten: refused if it
+          exists). Its log must show 16 chunks and a finite final estimate (the CPU perplexity, recorded).
+       0c tools/b1e_kld_base_check.py nh-cpu-ref.kld nh-ids.txt --n-ctx 256 --n-vocab 248320 --n-chunk 16 (tests:
+          test_b1e_kld_base_check.sh, 12 cases): the magic, the header (256, 248,320, 16), the exact size 1,009,205,140
+          bytes, the stored tokens equal to 0a's first 4,096 ids, every row's scale and floor finite: RESULT VALID; it
+          prints the stored tokens' sha256 (recorded as the token pin).
+       0d tools/r1_t7_compare (built from the committed source) nh-cpu-ref.kld nh-cpu-ref.kld <0c's token sha256>: the
+          self-check (valid inputs, top-1 100 %, KLD 0), as B1c-4B Step 0d.
+       The base's sha256 is recorded after 0c and 0d pass and given to the launcher for nh2. Any of 0a-0d failing
+       stops nh2 (s1, s1r and s2 do not depend on it). Disk: about 1 GB.
+       Also, for context only: the CPU build's
+       llama-eval-callback with s1's arguments (no -ngl/--device), the 4B's CPU dump (built 2026-10-21 in that
+       CPU-only tree; no parity is claimed from it: the CPU and NPU kernels differ).
+  Order: CPU arm and CPU dump; s1; s1r; s2; nh2. One window at a time; the next run only after the previous run's
+  verdict and checks are recorded and nothing heavy runs during a window. Campaign identity (identity.sh) before the
+  first and after the last run, as B1c-9B. Estimated NPU time about 10 minutes.
+
+3. Reading (fixed before the runs; tools/b1e_tensor_diff.py, tested by test_b1e_tensor_diff.sh, 32 cases)
+  What a dump holds (common/debug.cpp at ff5a2337): per evaluated non-quantized tensor its name, op, shape, the names
+  of src0 and src1 only, a sample of up to 3 values at each end of each dimension printed to 4 decimals, and the float
+  sum of all its elements. Not the full tensor, and not every input of a multi-input op. Equal checksums can hide
+  different tensors (a permutation, or errors that cancel), so a difference can first show downstream of where it
+  arises. Everything this stage locates is therefore a checksum-level location, and every class below is suspected.
+  b1e_tensor_diff.py <A dump> <B dump> keys tensors by name and occurrence, reads each tensor through to the next
+  header (debug.cpp prints a sample block and the total sum once per ne3 slice), compares shapes, sums and every
+  printed sample value (relative tolerance --rel, default 1e-3), and fails closed (RESULT INCOMPLETE, exit 3) on:
+  options not finite and positive; a non-quantized tensor without exactly ne3 equal sums or without exactly
+  ne3 x c(ne2) x c(ne1) x c(ne0) sample values (c(x) = x up to 6, else 6; checked against a real CPU dump of the 4B,
+  2,549 tensors); a non-finite sum or sample on either side; a key of A missing from
+  B; a key only in B that is not a session copy ("<backend>#<name>", listed); result_output missing from either dump;
+  nothing compared. It prints MAXREL (the largest relative difference over all compared keys, full precision), the
+  first differing key in A's order (FIRST, with its src0/src1 names) and the first beyond --gross 0.1 (GROSS, found
+  independently of --rel and printed with a SAME result too).
+  a. Every window's verdict PASS and peaks within (r2_mapped_peak.py with the declared vector); otherwise that run is
+     recorded as failed and the stage stops. An INCOMPLETE comparison is recorded with its reason and stops the
+     reading of that pair (no class is assigned).
+  b. Noise: s1 vs s1r. SAME at 1e-3: the tolerance stands. DIFFER: the tolerance for c becomes 10 x s1/s1r's MAXREL
+     (recorded); if that exceeds --gross 0.1, the NPU is too noisy for this method at this tolerance: recorded, c is
+     not read.
+  c. Location: s1 vs s2 (A = s1). The FIRST and GROSS keys with their op and sources, and the session and split that
+     computed them (from s2's scheduler log), classified (all suspected):
+       c1 FIRST in the embedding restore chain (the nodes of s2's HTP0:1 split before HTP0:0: the prism.hadamard
+          MUL_MAT, its MUL, model.input_embed): the restore on the second session;
+       c2 the restore's checksums equal, FIRST at the first HTP0:0 node reading the copied input (norm-0): the copy
+          from HTP0:1 to HTP0:0;
+       c3 equal through block 15, FIRST at the first node of block 16 on HTP0:1: the hidden-state copy back;
+       c4 FIRST at a node reading the recurrent state (cache_r_l*/cache_s_l*, SSM_CONV, the gated delta): the split
+          recurrent state;
+       c5 FIRST elsewhere: recorded, unclassified;
+       c6 SAME, result_output included: not detected by this checksum diagnostic. Possible reasons, not separated: the
+          callback synchronizes after every node (a fault needing overlap between sessions or splits would not
+          appear), or differences that the checksums do not show. It does not mean S2's failure is absent.
+     A finer location (full tensors or every input of FIRST) would be a separate, reviewed stage.
+  d. nh2 against the CPU arm (paired, token level). At ff5a2337, kl_divergence() takes n_ctx and n_chunk from the
+     base's header (not from --chunks), so the base's validation (0c, 0d) fixes the sample: 16 chunks of 256 tokens,
+     of which the second half of each chunk is scored, 16 x (256 - 1 - 128) = 2,032 positions. Read only if nh2's log
+     shows all 16 chunks and its KL divergence statistics (mean KLD, same top-1) are present and finite; otherwise d3.
+     The denominator 2,032 is reported with the figures.
+       d1 top-1 agreement >= 98 % and mean KLD <= 0.01: NeoHorse on two sessions with ff5a2337 agrees with the CPU on
+          this text at the token level (for scale, B1c-4B/B1d one session: 99.39-99.41 %, KLD 0.000168);
+       d2 top-1 < 50 % or mean KLD > 1: NeoHorse on two sessions with ff5a2337 is grossly wrong, as B1d's S2 (0.53 %,
+          10.17);
+       d3 anything else, or a non-finite or missing statistic in either run: recorded, unclassified.
+     Not separated by nh2: a same-package one-session NeoHorse control is not run in this stage (its weights, 2,259
+     MiB, are above the map R2 saw refused in one session, a suspected and unisolated limit, and probing it is outside
+     this stage's budget), so there is no one-session control; d2 is attributed to "NeoHorse on two sessions with ff5a2337", not
+     to the session count alone, and d1 says nothing about Bonsai's fault beyond that this configuration is not
+     grossly wrong for NeoHorse on this text.
+  Not claimed: a fix, the 9B's correctness on two sessions (its own parity stage), anything about the campaign's
+  package 836d57176, numerical equality of whole tensors, or any cause as isolated.
+
+4. Evidence (as B1d-4B): each wrapper directory with the dump or perplexity log; the diff outputs; the CPU arm's log,
+  dump and base hash (the base itself, about 1 GB, stays on the board); launch and identity records; a RESULT.txt here.
+  Logs above about 100 MB stay on the board gzipped with their uncompressed sha256, with extracts by a committed recipe
+  (make_extract.sh) holding every line the checks read. Redacted (the hostname, boot ids) and scanned for identifiers
+  before committing.
