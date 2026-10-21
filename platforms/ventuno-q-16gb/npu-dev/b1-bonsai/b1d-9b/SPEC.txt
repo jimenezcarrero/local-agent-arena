@@ -3,6 +3,8 @@ PROPOSED for review, written 2026-10-21 on the owner's choice of option (a) in b
 your recommendation": revise check d and write B1d-9B's spec). Approval to run: the owner's, after Codex READY on this
 spec and its merge; nothing on the NPU runs before. With it: check d revision 2 (b1c-9b/RESULT-d-rev2.txt), under
 which B1c-9B passes a-e (a deviation from the frozen rule, recorded there).
+Revision 2 (2026-10-21, after 9b-think, on the owner's choice "(a)"): the server's declared peaks raised from
+1,850,1,900 to 1,900,1,950 MiB and the board from 5,000 to 5,100 (section "Revision 2" below); a deviation, recorded.
 
 Why (b1c-9b/RESULT.txt): the 9B fits two sessions at -c 16384 (peaks 1,585.8 / 1,611.7 MiB) and generates coherent
 text with no DSP fault. Its NPU output has not been checked. One session is unmeasured and excluded here on budget and
@@ -22,9 +24,10 @@ Declared figures (estimates, not a ledger; the load is the fit test). Weights fr
 1,060.33, HTP0:1 1,094.53 MiB; B1c-9B logged exactly these). KV: 32 KiB per token over the 8 attention layers, 4 of
 them on each session (blocks 3, 7, 11, 15 and 19, 23, 27, 31): 512 MiB per session at 32768 (B1c-9B logged 256 each at
 16384), 16 MiB at 1,024. RS + compute: 250 per session as B1c-9B (it logged 141.33 / 148.94 at 16384).
-  server  HTP0:0 1,060.3 + 512 + 250 = 1,822.3 -> 1,850; HTP0:1 1,094.5 + 512 + 250 = 1,856.5 -> 1,900 (about 245 MiB
-          under R2's refused map). Board: 3,750 + CPU input embedding 272.8 + 300 CPU compute (B1c-9B logged 64.08) +
+  server  revision 1 (frozen for 9b-think): HTP0:0 1,060.3 + 512 + 250 = 1,822.3 -> 1,850; HTP0:1 1,094.5 + 512 +
+          250 = 1,856.5 -> 1,900. Board: 3,750 + CPU input embedding 272.8 + 300 CPU compute (B1c-9B logged 64.08) +
           about 660 for the process = 4,982.8 -> 5,000.
+          revision 2 (9b-nothink): 1,900,1,950; board 3,850 + 272.8 + 300 + 660 = 5,082.8 -> 5,100 (below).
   parity  llama-perplexity reserves ubatch-sized outputs in the session holding the output layer: 512 x 248,320 x 4
           bytes = 485 MiB of logits on HTP0:1 (B1d-4B's S2 parity logged 649.09 MiB compute there). HTP0:0 1,060.3 +
           16 + 250 = 1,326.3 -> 1,350; HTP0:1 1,094.5 + 16 + 250 + 485 = 1,845.5 -> 1,950 (about 195 MiB under R2's
@@ -98,6 +101,24 @@ Acceptance (all needed; each run's own)
      own timing. The depth-1024 figures are reported beside B1b's CPU llama-bench (pp512 3.43, tg128 2.17 t/s) for
      context only (different tools). The README's sketch named llama-bench; it is not run here: the probe on the
      server is what B1d-4B used and what V0e's limit reads.
+
+Revision 2 (after 9b-think; a deviation from the frozen figures, made with that run's result in view)
+  What happened: 9b-think passed a, c, e (20/20) and f (time to first token 164.5 s at 27,307 tokens), with parity d
+  passed before it; b failed: r2_mapped_peak.py 1850,1900: HTP0:0 peak 1,873.8 MiB own+clones, OVER by 23.8; HTP0:1
+  1,899.7, within by 0.3. Under the frozen rule that is a rejection, and 9b-nothink was not started (Stopping).
+  Why the estimate was short: the mapped peak exceeds the sum of the logged buffers by a mapping overhead the
+  allowance did not price. Logged HTP0:0 buffers in 9b-think: model 1,060.33 + KV 512.00 + RS 29.31 + compute 128.02
+  = 1,729.66, peak 1,873.8 (+144.1); HTP0:1 1,094.53 + 512.00 + 20.94 + 144.00 = 1,771.47, peak 1,899.7 (+128.2).
+  B1c-9B had shown the same overhead (+128.1 / +112.2 MiB at 16384: peaks 1,585.8 / 1,611.7 against logged 1,457.66
+  / 1,499.47); the declared figures should have been built from it. An estimate error, not a run fault: no refused
+  map, the peak about 270 MiB under R2's refused 2,144.55 MiB map, board MemAvailable never below 9,516 MiB.
+  What changes: the server's declared peaks become 1,900,1,950 (9b-think's measured peaks plus about 26 / 50 MiB),
+  board 5,100; tools/b1d9_arm.sh carries them. Parity's figures are unchanged (it was WITHIN: 1,314.8 / 1,825.7).
+  9b-think is recorded twice: OVER under revision 1 (kept as measured, the frozen result) and WITHIN under revision 2
+  (r2_mapped_peak.py 1900,1950 on its check extract), the latter a post-hoc reading, not a pass under a rule fixed
+  before the run. 9b-nothink then runs once under revision 2, with its figures fixed before it; every other rule
+  (Stopping, acceptance a-f) is unchanged. The result reports the stage as passing only under revision 2, with this
+  deviation stated beside it.
 
 Result: PASS when a-f hold. That is a screening result: it allows a V0e plan for this model to be proposed to the
 owner, nothing more. If parity fails (d), the result reports it with B1d-4B's S2 and B1e beside it, cause not

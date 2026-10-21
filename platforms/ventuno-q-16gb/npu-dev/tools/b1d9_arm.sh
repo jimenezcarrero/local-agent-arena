@@ -25,7 +25,7 @@ case $KIND in
   #        peaks      board  executable
   parity)  PK=1350,1950; BD=5500; X=llama-perplexity
     [[ "$REFSHA" =~ ^[0-9a-f]{64}$ ]] || { echo "usage: parity needs REF's sha256" >&2; exit 2; };;
-  think|nothink) PK=1850,1900; BD=5000; X=llama-server
+  think|nothink) PK=1900,1950; BD=5100; X=llama-server   # revision 2 (SPEC.txt)
     [ -z "$REFSHA" ] || { echo "usage: $KIND takes no REF" >&2; exit 2; };;
   *) echo "usage: b1d9_arm.sh parity <REF sha256> | think | nothink" >&2; exit 2;;
 esac
