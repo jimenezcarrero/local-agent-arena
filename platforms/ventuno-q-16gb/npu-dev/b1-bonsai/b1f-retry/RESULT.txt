@@ -1,0 +1,46 @@
+B1f result: PASS. The htp_main_thread retry patch is built for ff5a2337 with a toolchain that reproduces the package's
+DSP library byte for byte, and the 9B on two sessions with the patched library passes parity with figures identical to
+B1d-9B's unpatched 9b-parity. The retry build is ff5a2337's DSP library for a V0e plan of the 9B (its own spec, next).
+SPEC.txt merged 674efea (Codex READY at 74ca536). Build by the owner on the laptop 2026-10-21 (manifest 22:13:11 +02:00);
+board steps and the NPU run on the owner's approval ("Ok do it", 2026-10-21).
+
+Build (SPEC 2; the owner's step, build_htp_retry_x86.sh from 674efea with HTP_COMMIT=ff5a2337, HTP_RELEASE_SHA=76603cb1...)
+  Source ff5a23376725e5a889fa0bfb987b7541dc304da0, fresh clone; image ghcr.io/snapdragon-toolchain/arm64-linux:v0.7
+  sha256:41b710ee...; SDK 6.6.0.0, Hexagon tools 19.0.07 (QuIC LLVM Hexagon Clang 19.0.07); the measured SDK line in both
+  build logs; patch sha256 4b9838df..., ggml/src/ggml-hexagon/htp/main.c only, 10 insertions, 2 deletions.
+  control libggml-htp-v75.so 76603cb189e70e3e0d418c1dcbad0a4fcd706544378df679337f3fe81b80d8df, 813,192 bytes:
+    equal to the ff5a2337 package's library (manifest "control == release bytes: yes"; cmp on the board: identical).
+  retry   libggml-htp-v75.so 65e50e678cc3426f1160748d0e4d1b2c5319fa3004cdf754af109ecd278ad4f5, 813,192 bytes; the
+    patch's message ("in a row), retrying") in the retry library only (checked again on the board).
+  Gate met. Delivery, recorded: the tarball (htp-retry-builds-20261021-220257.tar.gz, sha256 6564f721..., 982,193
+  bytes) arrived in ~/r1-incoming/ at 22:19:23, not in ~/v0/ where the script copies with a board target; the laptop's
+  own sha256 of it was not recorded, so the copy is checked by its contents (the manifest's library hashes) only.
+
+Board (SPEC 3, no NPU): unpacked to ~/npu-dev/b1f-unpack-20261021/; the two libraries installed read-only as
+  ~/npu-dev/htp-control-ff5a2337/libggml-htp-v75.so and ~/npu-dev/htp-retry-ff5a2337/libggml-htp-v75.so (hashes as
+  above). The package and ~/v0 unchanged (pkg-identity PASS before and after).
+
+NPU check (SPEC 4): 9b-rparity, tools/b1d9_arm.sh rparity e265e26e... 65e50e67... from 674efea
+  Window 22:32:29-22:33:41, verdict PASS; DSP evidence ok (384 lines), fault 0, benign_modtable 2, benign_retry 0
+  (no retry event; the longest run 0); board MemAvailable minimum 9,501 MiB. The retry library's sha256 checked by the
+  launcher before and unchanged after; it was first after the FARF directory on ADSP_LIBRARY_PATH (the identity of the
+  loaded file rests on that order and the hash, as D132).
+  a. pass. b. r2_mapped_peak.py 1350,1950: WITHIN (HTP0:0 1,314.8, HTP0:1 1,825.7 MiB, as 9b-parity). c. d revision 2:
+  PLACED (27 graphs), d2 OK (100 dropped nodes zero-extent). d. mean KLD 0.000187 +/- 0.000025, 99.0 % KLD 0.001253,
+  max 0.087212, same top p 99.335 +/- 0.114 %, PPL ratio 1.001121, 10 chunks: pass.
+  Beside 9b-parity (reported, not gated): every per-chunk row and summary line identical; the outputs differ only in the
+  elapsed time (0.95 against 0.97 minutes). Consistent with the patch touching only the error path of htp_main_thread,
+  which no error exercised here.
+  Campaign identity before and after: pkg-identity PASS, retry library (campaign's) and .farf as declared, measure
+  7badb21 clean, dpkg baseline b295c458..., 0 lines of drift.
+
+Not claimed: that the retry removes the cause (unknown, DSP-side), that a retried peek recovers on this build (no
+event occurred here; recovery was observed only on the 836d57176 build, D133), V0e qualification.
+
+Evidence: b1f-retry-evidence-20261021.tar.gz, sha256 99fb43057778a0d10b8f96107eed55a55911d3502163b24e7c9485d1eb4fa8cd
+(3,519,541 bytes): the build records (manifest, toolchain, patch, patch check, diffstat, applied diff, both build logs
+gzipped; no binaries) and the board's hash check; the 9b-rparity wrapper directory (its log in full, gzipped,
+uncompressed sha256 045aa7cb... in stderr.txt.sha256), console, checks (b, c, d2, the stdout comparison) and the two
+identity records. Redacted: the boot id in run.txt and the hostname in the journal export (<redacted>, <host>); then
+scanned, plain and decompressed, for the machine-id, the boot id, the hostname, MAC addresses, UUIDs and link-local
+addresses: none; the build logs hold no host paths (the container's /workspace only).
