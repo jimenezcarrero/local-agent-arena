@@ -1,0 +1,111 @@
+B1d-9B result: PASS under SPEC revision 2 (a post-hoc deviation, stated below). Ternary-Bonsai-2-9B Q2_0 on two NPU
+sessions (package ff5a2337, --device HTP0:0,HTP0:1 -ts 18,15, input embedding on the CPU) agrees with the CPU at
+1,024 tokens (mean KLD 0.000187, top-1 99.335 %), passes T5 20/20 with thinking on and off, and reaches its first token
+in 164.5 s at 27,307 prompt tokens (limit 300 s). Under the frozen revision 1 the stage stopped at 9b-think: its fit
+check b was OVER on HTP0:0 (1,873.8 MiB against a declared 1,850). A screening result: it allows a V0e plan for this
+model to be proposed to the owner, nothing more.
+Run 2026-10-21 18:38-21:24 +02:00 on the owner's approval ("Ok continue", after the spec's merge 48ece6d; the parity
+launch command given by the owner; "(a)" for revision 2, merged 79fcc81, Codex READY at d397ab8). Every NPU run launched
+by tools/b1d9_arm.sh from the merged checkout.
+
+Step 0 (CPU only, 18:38:59-19:33:31; b1d-9b/step0.sh from 48ece6d)
+  0a llama-tokenize: exit 0, 297,193 ids. 0b llama-perplexity --kl-divergence-base: exit 0, 10 chunks, final PPL
+  17.8020 +/- 0.81718. 0c b1e_kld_base_check.py: RESULT VALID (header 1024 / 248,320 / 10, size 2,537,912,260 bytes,
+  stored tokens equal to 0a's first 10,240 ids, rows finite), 5,110 scored positions; tokens sha256 f2259ac7..., equal
+  to the 4B's K (the same tokenization of the text). 0d r1_t7_compare self-check: RESULT VALID, top-1 100 %, KLD 0.
+  REF sha256 e265e26ea7e739e0fd19578f42c36a239035127c2fcd0b21d9e3c740e6e3a2cd (kept on the board), checked by the
+  launcher before parity.
+
+Launch checks and identity: the ff5a2337 package PASS against its manifest (133 files, 15 links, 1 external) and the
+lib/libcdsprpc.so link to the system library before the first window; identity records 0-5 (before Step 0, before
+parity, before think, after think, before nothink, after nothink): pkg-identity PASS, retry library and .farf as
+declared, measured checkout 7badb21 clean, dpkg baseline b295c458..., 0 lines of drift in every one.
+
+Runs (wrapper verdicts all PASS; DSP fault 0 in every run)
+  run          window (START-END)    verdict  DSP evidence                                        board MemAvailable min
+  9b-parity    20:41:14-20:42:35     PASS     ok, 383 lines; fault 0, benign_modtable 2, info 219  9,520 MiB
+  9b-think     20:43:41-20:59:26     PASS     ok, 646 lines; fault 0, benign_modtable 2, info 210  9,516
+  9b-nothink   21:18:48-21:23:23     PASS     ok, 373 lines; fault 0, benign_modtable 2, info 208  9,330
+  Between 9b-think and 9b-nothink: revision 2 written, reviewed and merged (the stage was stopped, nothing ran).
+
+Parity (llama-perplexity against REF, 10 chunks x 1,024, 5,110 scored positions, all finite; T3a's bars)
+  mean KLD 0.000187 +/- 0.000025 (<= 0.01), 99.0 % KLD 0.001253 (<= 0.10), max KLD 0.087212, same top p 99.335 +/-
+  0.114 % (>= 97 %), PPL(Q) 17.796535 against PPL(base) 17.776607, ratio 1.001121 +/- 0.000883. Pass.
+  For comparison (other model, same package): B1d-4B Q8 one session 0.000168 / 99.393 %; B1d-4B S2 two sessions
+  10.169542 / 0.528 % (wrong).
+
+Fit (r2_mapped_peak.py, own+clones; pinned 10.4 MiB per session) and logged buffers, last load phase
+  9b-parity   limits 1,350 / 1,950: HTP0:0 1,314.8, HTP0:1 1,825.7: WITHIN. Model 1,060.33 / 1,094.53, KV 16.00 each,
+              RS 29.31 / 20.94, compute 97.02 / 597.00; CPU compute 33.03.
+  9b-think    revision 1 limits 1,850 / 1,900: HTP0:0 1,873.8 OVER (by 23.8), HTP0:1 1,899.7 within (by 0.3): OVER,
+              the frozen result. Revision 2 limits 1,900 / 1,950 on the same extract: WITHIN (post-hoc reading).
+              Model 1,060.33 / 1,094.53, KV 512.00 each (F16, 32,768 cells), RS 29.31 / 20.94, compute 128.02 /
+              144.00; CPU compute 64.02.
+  9b-nothink  revision 2 limits 1,900 / 1,950 (fixed before the run): HTP0:0 1,873.8, HTP0:1 1,899.7: WITHIN. Buffers
+              as 9b-think.
+  The mapped peaks exceed the logged buffers by 144.1 / 128.2 MiB at 32768 (SPEC "Revision 2"; Codex's review of
+  d397ab8 found each session also mapping the other's compute buffer). HTP0:1's 1,899.7 is about 245 MiB under R2's
+  refused 2,144.55 MiB map (suspected limit, not isolated).
+
+Placement (d revision 2, b1c-9b/RESULT-d-rev2.txt's invocation): PLACED in every run: 27, 285 and 128 graphs, splits
+  exactly CPU, HTP0:1, HTP0:0, HTP0:1; the first CPU split GET_ROWS on token_embd.weight only (2 per graph); the lead
+  HTP0:1 split per graph 2 MUL_MAT on prism.hadamard.4096, 2 MUL by the signs, 1 DUP and 1 SET_ROWS (the restore);
+  200 block weights under their sessions; result_output on output.weight under HTP0:1. Dropped zero-extent CPU
+  splits: 90 (parity), 1,899 (think) and 720 (nothink); d2 (d2_dropped.py, in the evidence): every
+  dropped node declined with a zero-element result in its own graph's records, none accepted or non-empty: 100,
+  2,110 and 800 nodes, RESULT OK.
+
+T5 (the frozen screen, 20 trials; rule passes >= 18, valid 20/20)
+  think (template default)  passes 20/20, valid 20/20; generated tokens 58 / 87.5 / 180 (min / median / max),
+                            reasoning_content in 20 of 20; prompt 155-167 t/s, generation 6.97-7.30 t/s.
+  nothink                   passes 20/20, valid 20/20; generated tokens 27 / 39.5 / 63, reasoning_content in 0 of
+                            20; prompt 161-171 t/s, generation 6.91-7.33 t/s.
+  B1b's CPU arm: 20/20 and 20/20; generated tokens 58 / 89 / 180 and 27 / 39.5 / 63. The thinking-on median differs
+  (87.5 against 89); the minima and maxima, and the thinking-off distribution, are equal.
+
+Speed (think; the suite's speed_probe.py on the same server, fresh prompt, cache_prompt false, 128 generated; the
+depth's accepted attempt after one re-size where the first was outside +/- 20 %, logged as RETRY)
+  depth   prompt tokens   time to first token   prefill t/s   decode t/s
+   1024        1,057              6.6 s            161.4          7.00
+   8192        7,960             43.4 s            183.3          6.56
+  16384       17,172             97.9 s            175.5          5.91
+  28672       27,307            164.5 s            166.0          5.49     pass f (<= 300 s)
+  The server's own timings agree within 1 %. With -lv 5 and GGML_SCHED_DEBUG=2: not a clean hardware ratio, a
+  screening estimate, not V0e's timing. For context only (other tools): B1b's CPU llama-bench pp512 3.43, tg128 2.17
+  t/s; B1d-4B Q8 (one session) 143.3 s at 27,313 tokens, decode 3.34 t/s.
+
+Acceptance (SPEC a-f)
+  a pass (all three runs). b parity WITHIN; think OVER under revision 1, WITHIN under revision 2 (post-hoc); nothink
+  WITHIN under revision 2. c PLACED with d2 OK (all three). d pass. e think 20/20, nothink 20/20. f pass (164.5 s).
+  Under revision 2: PASS. Under the frozen revision 1: the stage stops at 9b-think on b (REJECTED), nothink not run.
+
+Deviations, recorded
+  1. SPEC revision 2 (the server's declared peaks raised after 9b-think's OVER), with 9b-think's fit read under it
+     after the fact; the frozen OVER is kept above. The declared figures missed the mapping overhead B1c-9B had shown;
+     an estimate error, not a run fault.
+  2. Check d revision 2 (b1c-9b/RESULT-d-rev2.txt), written after B1c-9B's result, is the placement rule here.
+  3. The parity launch was blocked by the agent's tool permissions; the owner gave the command, and the agent then ran
+     it (the same launcher, arguments and checkout).
+
+What it shows (suspected where marked): the 9B on two sessions of ff5a2337 computes correct outputs at 1,024 tokens of
+context, with the same split order (the embedding restore on HTP0:1) under which B1d-4B's two-session 4B was wrong.
+Suspected, not isolated: B1d-4B S2's fault depends on something the 4B has and the 9B does not (the tied output and
+the input embedding on the NPU); there is no one-session 9B control, and no run here separates it.
+
+Not claimed: agent quality, V0e qualification (its own plan and run), parity at long context (KV precision at 27K is
+not measured), the cause of B1d-4B's S2 outputs, anything about 836d57176.
+
+Evidence: b1d-9b-evidence-20261021.tar.gz, sha256 f0b2eac75dbdff18a7a6b311de2246974fe2c87174f552af7409c9da4c51b911
+(30,228,030 bytes): Step 0's directory (without the compiled comparator) and console, the three wrapper directories
+(parity's log in full, gzipped, uncompressed sha256 d159a7ae... in stderr.txt.sha256), consoles, the check outputs
+(b, c, d2, the buffer lines; 9b-think's under both revisions), d2_dropped.py, make_extract.sh, identity records 0-5,
+identity.sh, the package check. The two server logs are too large for the repository (1,418,340,766 and 477,601,825
+bytes): for each, checks-extract.log.gz made by make_extract.sh (B1c-4B's recipe) from the gzipped full log, on which
+r2_mapped_peak.py, r2_placement.py and d2_dropped.py reproduce the results above. The full logs stay on the board,
+gzipped (gz sha256 2ab49a69... think, a6dfddc3... nothink), with the sha256 of each uncompressed log taken before
+compression (server.log.sha256: think 5037d557..., nothink d200601f...). Redacted: the boot id in run.txt and the
+hostname in the journal exports (<redacted>, <host>); then scanned, plain files and the decompressed logs and
+extracts, for the machine-id, the boot id, the hostname, the SoC serial, MAC addresses, UUIDs, link-local addresses and
+USB serials: none, except 6 UUIDs in 9b-think's extract: 3 the speed probe's random per-request tags ("Run <uuid4>.")
+and 3 the repository's own canary GUID in the probe's corpus (the repository's Markdown files), not device
+identifiers, kept so that the extract stays the recipe's exact output.
