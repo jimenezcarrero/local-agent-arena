@@ -50,9 +50,11 @@ set -uo pipefail
 # "v0e_A_retry.sh B4" (phase v0e-B4) with A32-5's behaviour (LV 5: patched baseline, identity before every baseline load,
 # D176's package check, no S0); its sessions also pass b4_identity_check.sh (PB's manifest, the model hash, the npu-dev
 # .farf) wherever the campaign identity is checked. LV is the behaviour level the attempt-numbered rules below test.
-S=${1:-AR}; case $S in AR) NAME=A-retry; CAP=7942; NGL=99;; A32) NAME=A32; CAP=5120; NGL=32;; B4) NAME=B4; CAP=5120; NGL=999;; *) echo "unknown set $S" >&2; exit 9;; esac
+# D180 (v0e-plan-B9.txt): set B9 = Ternary-Bonsai-2-9B Q2_0 on two NPU sessions with ff5a2337's retry build, "v0e_A_retry.sh
+# B9" (phase v0e-B9), as B4 (LV 5) with b9_identity_check.sh (adds the retry library's sha256) where B4's is checked.
+S=${1:-AR}; case $S in AR) NAME=A-retry; CAP=7942; NGL=99;; A32) NAME=A32; CAP=5120; NGL=32;; B4) NAME=B4; CAP=5120; NGL=999;; B9) NAME=B9; CAP=5120; NGL=999;; *) echo "unknown set $S" >&2; exit 9;; esac
 ATT=${2:-1}; case $S/$ATT in */1) ;; A32/2) NAME=A32-2;; A32/3) NAME=A32-3;; A32/4) NAME=A32-4;; A32/5) NAME=A32-5;; *) echo "unknown attempt $ATT for set $S" >&2; exit 9;; esac
-LV=$ATT; [ $S = B4 ] && LV=5
+LV=$ATT; { [ $S = B4 ] || [ $S = B9 ]; } && LV=5
 source ~/v0/v0d_lib.sh
 BR=${BR:-$HOME/bench-runs}; CHECK_PROC=${CHECK_PROC:-pgrep -f}
 RUN_V0E=${RUN_V0E:-$HOME/v0/run_v0e.sh}; SREQ=${SREQ:-python3 $HOME/v0/server_requests.py}
@@ -74,16 +76,21 @@ rsha() { [ "$(sha256sum "$HTPR/libggml-htp-v75.so" 2>/dev/null | cut -d' ' -f1)"
 # the committed manifest; never regenerated at launch). ident sets WHY to the failing check's message.
 PKGID=${PKGID:-python3 $HOME/v0/pkg_identity.py}; PKGMAN=${PKGMAN:-$HOME/v0/pkg-identity-836d57176.txt}; PKGDIR=${PKGDIR:-$P}
 pkgid() { $PKGID check "$PKGMAN" "$PKGDIR" > $O/pkg-identity-last.txt 2>&1; }
-B4_CHECK=${B4_CHECK:-/bin/bash $HOME/v0/b4_identity_check.sh}
+B4_CHECK=${B4_CHECK:-/bin/bash $HOME/v0/b4_identity_check.sh}; B9_CHECK=${B9_CHECK:-/bin/bash $HOME/v0/b9_identity_check.sh}
 ident() { WHY=; WHAT=; rsha || { WHAT=lib; WHY="$HTPR/libggml-htp-v75.so is not sha256 $RETRY_SHA (or the .farf file is not 0x1f)"; return 1; }
   [ $LV -ge 5 ] || return 0
   pkgid || { WHAT=pkg; WHY="the release package $PKGDIR differs from $PKGMAN: $(grep -m1 '^FAIL' $O/pkg-identity-last.txt) ($(tail -1 $O/pkg-identity-last.txt))"; return 1; }
-  [ $S = B4 ] || return 0
-  $B4_CHECK > $O/b4-identity-last.txt 2>&1 || { WHAT=pkg; WHY="B4's runtime: $(tail -1 $O/b4-identity-last.txt)"; return 1; }; }
+  case $S in
+    B4) $B4_CHECK > $O/b4-identity-last.txt 2>&1 || { WHAT=pkg; WHY="B4's runtime: $(tail -1 $O/b4-identity-last.txt)"; return 1; };;
+    B9) $B9_CHECK > $O/b9-identity-last.txt 2>&1 || { WHAT=pkg; WHY="B9's runtime: $(tail -1 $O/b9-identity-last.txt)"; return 1; };;
+  esac; }
 AW="env LD_LIBRARY_PATH=$P/lib ADSP_LIBRARY_PATH=$FARF;$HTPR;$P/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 $P/bin/llama-server -m $M/NeoHorse-1-4B-q4_0-pure.gguf -c 32768 --cache-ram $CAP -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ngl $NGL --ctx-checkpoints 0"
 # B4 (D178): PB's own (unpatched) library after the npu-dev .farf directory, one session, q8_0 KV, -np 1 pinned
 PB=~/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337; MB=~/npu-dev/b1/models
 [ $S = B4 ] && AW="env LD_LIBRARY_PATH=$PB/lib ADSP_LIBRARY_PATH=$HOME/npu-dev/farf;$PB/lib GGML_HEXAGON_DEVICES=HTP0:0 GGML_HEXAGON_NHMX=1 $PB/bin/llama-server -m $MB/Ternary-Bonsai-2-4B-Q2_0.gguf -c 32768 --cache-ram $CAP -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0 -ngl 999 -np 1 -fa on -ctk q8_0 -ctv q8_0 --jinja --ctx-checkpoints 0"
+# B9 (D180): the retry build of ff5a2337 after the npu-dev .farf directory, two sessions -ts 18,15, the input embedding
+# on the CPU, F16 KV, -np 1 pinned
+[ $S = B9 ] && AW="env LD_LIBRARY_PATH=$PB/lib ADSP_LIBRARY_PATH=$HOME/npu-dev/farf;$HOME/npu-dev/htp-retry-ff5a2337;$PB/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 GGML_HEXAGON_NHMX=1 $PB/bin/llama-server -m $MB/Ternary-Bonsai-2-9B-Q2_0.gguf -c 32768 --cache-ram $CAP -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ts 18,15 -ot token_embd\.weight=CPU -ngl 999 -np 1 -fa on --jinja --ctx-checkpoints 0"
 $CHECK_PROC '^/bin/bash /home/arduino/v0/npu_stall_watchdog.sh' > /dev/null || { say "STOP: NPU stall watchdog not running"; exit 6; }
 $CHECK_PROC '^/bin/bash /home/arduino/v0/monitor/health_sampler.sh' > /dev/null || { say "STOP: health sampler not running"; exit 6; }
 # D137/D138 (Codex reviews of 6f203ab and 12be36a): eligibility first. The LATEST admission attempt of the patched
@@ -173,7 +180,7 @@ PROBE_STOP=probestop
 memcheck() { if python3 $MEMFLOOR --admit $CAP $O/$1 > $O/$1/memfloor-admit.txt 2>&1; then say "MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"
   else say "STOP: MEM $1: $(tail -1 $O/$1/memfloor-admit.txt)"; say "V0e $NAME: NOT QUALIFIED (memory)"; exit 3; fi; }
 onfault() { fault $1 $2; ready wait; say "V0e $NAME: NOT QUALIFIED (fault $2 in $1)"; exit 3; }
-say "V0e $NAME start (pid $$), set $S, attempt $ATT, window 32768, -ngl $NGL, --cache-ram $CAP, $([ $S = B4 ] && echo "B4 runtime ff5a2337 with its own (unpatched) DSP library, one session, q8_0 KV" || echo "patched DSP library"), baseline library $([ $LV -ge 2 ] && echo patched || echo release)$([ $LV = 3 ] && echo ", stage S0 (cache wording)"), no root"
+say "V0e $NAME start (pid $$), set $S, attempt $ATT, window 32768, -ngl $NGL, --cache-ram $CAP, $(case $S in B4) echo "B4 runtime ff5a2337 with its own (unpatched) DSP library, one session, q8_0 KV";; B9) echo "B9 runtime ff5a2337 with its retry build, two sessions -ts 18,15, F16 KV";; *) echo "patched DSP library";; esac), baseline library $([ $LV -ge 2 ] && echo patched || echo release)$([ $LV = 3 ] && echo ", stage S0 (cache wording)"), no root"
 if [ $LV = 3 ]; then
   session $PH-S0 $HOME/v0/v0e_wording.sh 14400
   case $C in PASS) memcheck $LAB;; HANG|DEVFAULT) onfault $LAB $C;; *) say "STOP: $LAB $C"; exit 2;; esac
