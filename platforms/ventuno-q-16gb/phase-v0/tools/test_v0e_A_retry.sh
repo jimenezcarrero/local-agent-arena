@@ -18,9 +18,12 @@ pgrep -x llama-server > /dev/null && { echo "a llama-server is running; not test
 # D178: SET=B4 runs them against "v0e_A_retry.sh B4" (phase v0e-B4, B4's admission), whose behaviour is attempt 5's
 # (LV 5 below), plus B4's command and cap, its identity check (fake B4_CHECK: B4FAIL_AT=<n> fails from the n-th call)
 # wherever the campaign identity is checked, and a stop when only an A32 admission exists.
-SET=${SET:-AR}; ATT=${ATT:-1}; case $SET/$ATT in AR/1) NAME=A-retry;; A32/1) NAME=A32;; A32/2) NAME=A32-2;; A32/3) NAME=A32-3;; A32/4) NAME=A32-4;; A32/5) NAME=A32-5;; B4/1) NAME=B4;; *) echo "SET/ATT must be AR/1, A32/1, A32/2, A32/3, A32/4, A32/5 or B4/1"; exit 9;; esac
+# D180: SET=B9 runs them against "v0e_A_retry.sh B9" (phase v0e-B9, LV 5), with B9's command (two sessions, -ts 18,15,
+# the input embedding on the CPU, the retry build after the npu-dev .farf) and cap, its identity check (fake B9_CHECK:
+# B9FAIL_AT=<n>), and a stop when only a B4 admission exists.
+SET=${SET:-AR}; ATT=${ATT:-1}; case $SET/$ATT in AR/1) NAME=A-retry;; A32/1) NAME=A32;; A32/2) NAME=A32-2;; A32/3) NAME=A32-3;; A32/4) NAME=A32-4;; A32/5) NAME=A32-5;; B4/1) NAME=B4;; B9/1) NAME=B9;; *) echo "SET/ATT must be AR/1, A32/1, A32/2, A32/3, A32/4, A32/5, B4/1 or B9/1"; exit 9;; esac
 ARGS="$SET"; [ $ATT -ge 2 ] && ARGS="$SET $ATT"
-LV=$ATT; [ $SET = B4 ] && LV=5
+LV=$ATT; { [ $SET = B4 ] || [ $SET = B9 ]; } && LV=5
 fails=0
 # fake run_route (baseline probes) and run_v0e (sessions); behaviour per label from $T/mode-<S1|S2|probe>:
 #   pass (S2 also writes a VALID sustained summary) | nosummary | fail (S1 items failed, clean, rc 1) | hang (watchdog
@@ -66,6 +69,7 @@ case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
   echo "$FAKE" > $T/run.sh; printf '#!/bin/bash\necho pass; exit 0\n' > $T/ka.sh; printf 'import os, sys\nT = os.environ["T"]; open(T + "/caps", "a").write(sys.argv[2] + "\\n")\nr = open(T + "/mem-reject").read().strip() if os.path.exists(T + "/mem-reject") else ""\nsys.exit(2 if r and r in os.path.basename(sys.argv[3]) else 0)\n' > $T/mem.py
   chmod +x $T/run.sh $T/ka.sh
   printf '#!/bin/bash\nn=$(( $(cat $T/b4c 2>/dev/null || echo 0) + 1 )); echo $n > $T/b4c\nif [ -n "${B4FAIL_AT:-}" ] && [ $n -ge $B4FAIL_AT ]; then echo "FAILED B4 identity: model sha256"; exit 1; fi\necho "OK B4 package PASS"\n' > $T/b4check.sh; chmod +x $T/b4check.sh
+  printf '#!/bin/bash\nn=$(( $(cat $T/b9c 2>/dev/null || echo 0) + 1 )); echo $n > $T/b9c\nif [ -n "${B9FAIL_AT:-}" ] && [ $n -ge $B9FAIL_AT ]; then echo "FAILED B9 identity: model sha256"; exit 1; fi\necho "OK B9 package PASS"\n' > $T/b9check.sh; chmod +x $T/b9check.sh
   # D176: a fake release package (a library, a symlink chain) and its manifest, made with the real pkg_identity.py
   mkdir -p $T/pkg/bin $T/pkg/lib; echo srv > $T/pkg/bin/llama-server; echo llama > $T/pkg/lib/libllama.so.0.5.0
   ln -s libllama.so.0.5.0 $T/pkg/lib/libllama.so.0; ln -s libllama.so.0 $T/pkg/lib/libllama.so
@@ -88,13 +92,14 @@ case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
     pkg=redirect) rm $T/pkg/lib/libllama.so.0; ln -s ../bin/llama-server $T/pkg/lib/libllama.so.0;; pkg=extra) echo e > $T/pkg/lib/libggml-extra.so;;
     other-set-admission) mv $BR/v0/v0d/v0d-admit-$SET-status.txt $BR/v0/v0d/v0d-admit-AR-status.txt;;
     a32-admission) sed "s/ $SET/ A32/g" $BR/v0/v0d/v0d-admit-$SET-status.txt > $BR/v0/v0d/v0d-admit-A32-status.txt; : > $BR/v0/v0d/v0d-admit-$SET-status.txt;;
-    B4FAIL_AT=*) export B4FAIL_AT=${kv#*=};; mem=reject) echo S1 > $T/mem-reject;; mem=reject-S0) echo S0 > $T/mem-reject;; wording=*) echo "${kv#wording=}" > $T/wording;; mode-*) echo "${kv#*=}" | tr , '\n' > $T/${kv%%=*};; esac; done
+    b4-admission) sed "s/ $SET/ B4/g" $BR/v0/v0d/v0d-admit-$SET-status.txt > $BR/v0/v0d/v0d-admit-B4-status.txt; : > $BR/v0/v0d/v0d-admit-$SET-status.txt;;
+    B4FAIL_AT=*) export B4FAIL_AT=${kv#*=};; B9FAIL_AT=*) export B9FAIL_AT=${kv#*=};; mem=reject) echo S1 > $T/mem-reject;; mem=reject-S0) echo S0 > $T/mem-reject;; wording=*) echo "${kv#wording=}" > $T/wording;; mode-*) echo "${kv#*=}" | tr , '\n' > $T/${kv%%=*};; esac; done
   printf '%s\n%s\n' "$JOK" "$jextra" > $T/journal-ok.txt; echo $jmode | sed 's/fail-first/fail,ok/' | tr , '\n' > $T/jmode
   # fake journalctl: records its arguments; one mode per call from the queue $T/jmode (the last one repeats; D167):
   # ok | fail (rc 1) | empty | nocdsp (no DSP lines); jmode=fail-first is "fail,ok"
   printf '#!/bin/bash\necho "$*" >> $T/jargs\nm=$(head -1 $T/jmode); [ $(wc -l < $T/jmode) -gt 1 ] && sed -i 1d $T/jmode\ncase $m in ok) cat $T/journal-ok.txt;; fail) echo "journal error" >&2; exit 1;; empty) :;; nocdsp) grep -v CDSP0 $T/journal-ok.txt;; esac\n' > $T/jc.sh; chmod +x $T/jc.sh
   env RUN_ROUTE=$T/run.sh RUN_V0E=$T/run.sh MEMFLOOR=$T/mem.py KAUDIT=$T/ka.sh PROBE_WAIT=0 SESS_PAUSE=0 CHECK_PROC=true \
-      HTPR=$T/htpr FARF=$T/farf RETRY_SHA=$rs JOURNAL=$T/jc.sh GATE=$T/gate.sh PKGMAN=$T/pkgman PKGDIR=$T/pkg B4_CHECK=$T/b4check.sh bash ~/v0/v0e_A_retry.sh $ARGS > $T/out.txt 2>&1; local rc=$?; unset B4FAIL_AT
+      HTPR=$T/htpr FARF=$T/farf RETRY_SHA=$rs JOURNAL=$T/jc.sh GATE=$T/gate.sh PKGMAN=$T/pkgman PKGDIR=$T/pkg B4_CHECK=$T/b4check.sh B9_CHECK=$T/b9check.sh bash ~/v0/v0e_A_retry.sh $ARGS > $T/out.txt 2>&1; local rc=$?; unset B4FAIL_AT B9FAIL_AT
   local seq=$(paste -sd' ' $T/calls 2>/dev/null) st=$BR/v0/v0d/v0e-$NAME-status.txt
   if [ $rc = $want_rc ] && [ "$seq" = "$want_seq" ]; then echo "ok   $name (rc $rc: $seq)"
   else echo "FAIL $name (rc $rc want $want_rc; seq '$seq' want '$want_seq')"; sed 's/^/     /' $T/out.txt | tail -8; fails=$((fails+1)); fi
@@ -110,9 +115,13 @@ case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
       ncap=2; [ $LV = 3 ] && ncap=3
       # D178: B4's session runs PB's own library after the npu-dev .farf, one session, q8_0 KV, -np 1
       [ $SET = B4 ] && { cap=5120; w="--cache-ram 5120 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0 -ngl 999 -np 1 -fa on -ctk q8_0 -ctv q8_0 --jinja --ctx-checkpoints 0"; }
+      # D180: B9's session runs the retry build after the npu-dev .farf, two sessions -ts 18,15, embedding on the CPU
+      [ $SET = B9 ] && { cap=5120; w="--cache-ram 5120 -lv 4 --host 127.0.0.1 --port 8080 --device HTP0:0,HTP0:1 -ts 18,15 -ot token_embd\\.weight=CPU -ngl 999 -np 1 -fa on --jinja --ctx-checkpoints 0"; }
       { { [ $SET = B4 ] && [[ "$c" == *"env LD_LIBRARY_PATH=$HOME/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337/lib ADSP_LIBRARY_PATH=$HOME/npu-dev/farf;$HOME/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337/lib GGML_HEXAGON_DEVICES=HTP0:0 GGML_HEXAGON_NHMX=1 $HOME/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337/bin/llama-server -m $HOME/npu-dev/b1/models/Ternary-Bonsai-2-4B-Q2_0.gguf -c 32768 $w" ]] \
             && [ "$(grep '^S2 ' $T/cmds | sed 's/^.* -- //')" = "$(echo "$c" | sed 's/^.* -- //')" ] && [ "$(cat $T/b4c)" = 6 ]; } \
-        || { [ $SET != B4 ] && [[ "$c" == *"ADSP_LIBRARY_PATH=$T/farf;$T/htpr;"*" -c 32768 $w"* ]]; }; } && [ "$(sort -u $T/caps)" = $cap ] && [ "$(wc -l < $T/caps)" = $ncap ] \
+        || { [ $SET = B9 ] && [[ "$c" == *"env LD_LIBRARY_PATH=$HOME/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337/lib ADSP_LIBRARY_PATH=$HOME/npu-dev/farf;$HOME/npu-dev/htp-retry-ff5a2337;$HOME/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337/lib GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 GGML_HEXAGON_NHMX=1 $HOME/npu-dev/pkg-unpatched-ff5a2337/pkg-unpatched-ff5a2337/bin/llama-server -m $HOME/npu-dev/b1/models/Ternary-Bonsai-2-9B-Q2_0.gguf -c 32768 $w" ]] \
+            && [ "$(grep '^S2 ' $T/cmds | sed 's/^.* -- //')" = "$(echo "$c" | sed 's/^.* -- //')" ] && [ "$(cat $T/b9c)" = 6 ] && [ ! -e $T/b4c ]; } \
+        || { [ $SET != B4 ] && [ $SET != B9 ] && [[ "$c" == *"ADSP_LIBRARY_PATH=$T/farf;$T/htpr;"*" -c 32768 $w"* ]]; }; } && [ "$(sort -u $T/caps)" = $cap ] && [ "$(wc -l < $T/caps)" = $ncap ] \
         || { echo "FAIL $name: $SET session command or memfloor cap ($(sort -u $T/caps | paste -sd,)): $c"; fails=$((fails+1)); }
       chk "V0e $NAME: QUALIFIED at window 32768" $st
       # D161: the baseline probe command: release library (attempt 1, AR), patched library (A32 attempt 2); otherwise
@@ -144,6 +153,9 @@ case1() { local name=$1 want_rc=$2 want_seq=$3; shift 3
     b4-identity-wrong-stops) chk "STOP: before baseline probe-.*: B4's runtime: FAILED B4 identity: model sha256" $st;;
     b4-identity-changed-during-s1-stops) chk "STOP: the release package changed during v0e-B4-S1: B4's runtime: FAILED B4 identity" $st;;
     b4-hang-and-identity-changed-keeps-fault) chk "FAULT HANG in v0e-B4-S1" $st; chk "NOT QUALIFIED (fault HANG in v0e-B4-S1; library identity lost)" $st;;
+    b9-identity-wrong-stops) chk "STOP: before baseline probe-.*: B9's runtime: FAILED B9 identity: model sha256" $st;;
+    b9-identity-changed-during-s1-stops) chk "STOP: the release package changed during v0e-B9-S1: B9's runtime: FAILED B9 identity" $st;;
+    b9-hang-and-identity-changed-keeps-fault) chk "FAULT HANG in v0e-B9-S1" $st; chk "NOT QUALIFIED (fault HANG in v0e-B9-S1; library identity lost)" $st;;
     hang-and-library-changed-keeps-fault) chk "STOP: the patched library or the .farf file changed during v0e-$NAME-S1" $st; chk "FAULT HANG in v0e-$NAME-S1" $st; chk "NOT QUALIFIED (fault HANG in v0e-$NAME-S1; library identity lost)" $st;;
   esac
   [ $name = all-pass ] && [ $LV -ge 5 ] && chk "RESULT pkg-identity: PASS (2 files, 2 links, 0 external" $BR/v0/v0e-$NAME/pkg-identity-last.txt
@@ -198,6 +210,13 @@ if [ $SET = B4 ]; then
   case1 b4-identity-wrong-stops 2 "" B4FAIL_AT=1
   case1 b4-identity-changed-during-s1-stops 2 "probe S1" B4FAIL_AT=3
   case1 b4-hang-and-identity-changed-keeps-fault 3 "probe S1" mode-S1=hang B4FAIL_AT=3
+fi
+# D180: B9 likewise (a B4 admission does not count)
+if [ $SET = B9 ]; then
+  case1 b9-with-only-a-b4-admission-stops 6 "" b4-admission
+  case1 b9-identity-wrong-stops 2 "" B9FAIL_AT=1
+  case1 b9-identity-changed-during-s1-stops 2 "probe S1" B9FAIL_AT=3
+  case1 b9-hang-and-identity-changed-keeps-fault 3 "probe S1" mode-S1=hang B9FAIL_AT=3
 fi
 # D161: the S1 item-failure line names the set
 case1 s1-fail-names-the-set 1 "probe S1 probe S2" mode-S1=fail
