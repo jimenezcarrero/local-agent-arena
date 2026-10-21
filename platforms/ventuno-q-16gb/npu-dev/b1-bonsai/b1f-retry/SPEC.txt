@@ -1,0 +1,56 @@
+B1f: the htp_main_thread retry patch (#30309) built for ff5a2337, and a 9B parity check on it. PROPOSED for review,
+written 2026-10-21 after B1d-9B's PASS (b1d-9b/RESULT.txt), as the first step towards a V0e plan for the 9B: the owner
+asked which build V0e should use; the patched one is chosen here, for the reasons below ("So if the patch is clear pick
+why do you ask me?"). Nothing runs on the NPU before this spec's review, merge and the owner's approval; the laptop
+build is the owner's step (the board has no Hexagon toolchain, D129).
+
+1. Why the patched build for a V0e of the 9B
+  The unpatched htp_main_thread (ggml-hexagon/htp/main.c) leaves its loop on any dspqueue_peek error other than
+  EWOULDBLOCK/EEXPIRED; that session's queue is then never read again and the process hangs (F1, D127; #30309).
+  ff5a2337 does not change that loop (b1-bonsai/README.txt "Known risk"; the patch applies with a 90-line offset only).
+  The retry patch logs the error (rate-limited), sleeps 1 ms and retries (upstream/htp-main-thread-retry.patch.txt,
+  sha256 4b9838df...). Observed on this board with the campaign's 836d57176 package: 8 single AEE_ENOMORE events in
+  90 minutes of six sessions with the patched library, each followed by continued service (D133); later V0e runs on
+  two sessions logged 0-3 retry events each. With the unpatched library each such event would, by the F1 mechanism, have
+  been a hang (an inference from one observed hang). Counter-evidence, stated: V0e B4 (Ternary-Bonsai-2-4B, one session,
+  ff5a2337 unpatched, D179) ran S1 and S2 with 0 faults, and B1's ff5a2337 runs (minutes each) had none. The 9B runs on
+  two sessions, the configuration in which the events were logged. The patch's cost is a build and a short check; its
+  benefit is that the known failure becomes a logged, counted retry (more than 1 in a row flagged to the owner, D136).
+  Correction recorded: in the agent's message of 2026-10-21 B4's unpatched V0e was left out ("the B1 runs on ff5a2337
+  were all unpatched with zero errors, but they lasted minutes").
+
+2. Build (laptop, the owner's step): phase-v0/tools/build_htp_retry_x86.sh from the commit that merges this spec, with
+  its new HTP_COMMIT/HTP_RELEASE_SHA option (mocked tests test_build_htp_retry.sh 10/10, 4 of them new):
+    curl -fsSL https://raw.githubusercontent.com/jimenezcarrero/local-agent-arena/<merge commit>/platforms/ventuno-q-16gb/phase-v0/tools/build_htp_retry_x86.sh -o build_htp_retry_x86.sh
+    HTP_COMMIT=ff5a23376725e5a889fa0bfb987b7541dc304da0 \
+    HTP_RELEASE_SHA=76603cb189e70e3e0d418c1dcbad0a4fcd706544378df679337f3fe81b80d8df \
+      bash build_htp_retry_x86.sh arduino@<board>
+  (with docker as the owner's Docker needs, as in D131). The script builds the control (unpatched) and the retry
+  library from a fresh clone at ff5a2337 with the B1a package's image (sha256:41b710ee...) and SDK line, checks the
+  patch (sha256, 1 file), the patch's string in the retry library only, writes the manifest and copies one tarball to
+  ~/v0/ on the board with a sha256 check. HTP_RELEASE_SHA is the ff5a2337 package's libggml-htp-v75.so (its manifest).
+  Gate: DONE; the manifest's "control == release bytes: yes" (the toolchain reproduces the measured DSP binary, as for
+  836d57176 in D131); if it is "no", the stage stops and the owner decides (the retry library's toolchain equivalence
+  would be unproven).
+
+3. Board (no NPU): the tarball's sha256 checked again; the two libraries unpacked read-only into
+  ~/npu-dev/htp-control-ff5a2337/ and ~/npu-dev/htp-retry-ff5a2337/ (nothing in the package or ~/v0 is changed); the
+  control's sha256 equal to the package's 76603cb1..., the retry's recorded (R) and different. The build records go to
+  b1f-retry/ (manifest, toolchain, patch check, diffstat, diff, both build logs).
+
+4. NPU check (owner's approval): one wrapper run, tools/b1d9_arm.sh rparity <REF sha256 e265e26e...> <R> (launcher
+  tests test_b1d9_arm.sh 25/25, 7 of them new): 9b-parity's exact command and figures (peaks 1,350,1,950, board 5,500,
+  timeout 5,400 s) with ~/npu-dev/htp-retry-ff5a2337 after the FARF directory and before the package on
+  ADSP_LIBRARY_PATH, its sha256 checked by the launcher and hashed by the wrapper, --dsp-retry-patched yes. Which
+  library loaded rests on that search order and the hash (the FastRPC journal names only the file, as in D132).
+  Campaign identity before and after; checks between windows only.
+  Acceptance (all needed): a. wrapper PASS with DSP evidence, DSP fault 0; retry events counted (any, and the longest
+  run, reported; more than 1 in a row is flagged); b. r2_mapped_peak.py 1350,1950: WITHIN; c. placement as d revision
+  2, PLACED, d2 OK; d. parity within T3a's bars (mean KLD <= 0.01, 99.0 % KLD <= 0.10, same top p >= 97 %, 10 chunks,
+  finite). Also reported, not gated: the figures beside 9b-parity's (equal or not; B1e found the NPU repeatable at the
+  dump's level, so a difference is an observation, not attributed).
+  A pass makes the retry build ff5a2337's DSP library for a V0e plan of the 9B; that plan is its own spec (two sessions
+  -ts 18,15, -c 32768, the B1d-9B revision 2 figures, S1 and S2 as V0e B4), proposed after this result.
+
+Not claimed: that the retry removes the cause (unknown, DSP-side), that a retried peek always recovers, V0e
+qualification, or anything about 836d57176's library.

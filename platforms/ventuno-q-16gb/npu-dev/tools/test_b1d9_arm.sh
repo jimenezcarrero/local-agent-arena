@@ -31,6 +31,16 @@ cp $FS_SRC $T/farf/llama-perplexity.farf; rm $T/farf/llama-server.farf
 case1 server-farf-missing 1 "farf llama-server missing" nothink
 cp $FS_SRC $T/farf/llama-server.farf
 B1D9_DISK_MIB=99999999 case1 low-disk 1 "below 99999999 MiB" think
+mkdir -p $T/htpr; echo retry > $T/htpr/libggml-htp-v75.so; HS=$(sha256sum $T/htpr/libggml-htp-v75.so | cut -d' ' -f1)
+export B1D9_HTPR=$T/htpr
+case1 rparity-composes 0 "--run 9b-rparity --timeout 5400 --expect-dsp yes --dsp-retry-patched yes --floor-mib 1536 .*--hash $T/htpr/libggml-htp-v75.so .*ADSP_LIBRARY_PATH=$T/farf;$T/htpr;/home.*llama-perplexity -m .*--kl-divergence-base $T/ref.kld --kl-divergence -c 1024 -b 1024 -ub 512 --chunks 10 -t 8 -lv 5 -ngl 999 $DV\$" rparity $RS $HS
+case1 parity-no-retry-flag 0 "--run 9b-parity --timeout 5400 --expect-dsp yes --floor-mib 1536 " parity $RS
+case1 parity-unpatched-path 0 "ADSP_LIBRARY_PATH=$T/farf;/home" parity $RS
+case1 rparity-needs-lib-sha 2 "rparity needs" rparity $RS
+case1 parity-takes-no-lib 2 "takes no retry library" parity $RS $HS
+case1 rparity-lib-mismatch 1 "retry library mismatch" rparity $RS $(echo y | sha256sum | cut -d' ' -f1)
+case1 rparity-ref-mismatch 1 "REF mismatch" rparity $(echo x | sha256sum | cut -d' ' -f1) $HS
+unset B1D9_HTPR
 mkdir $T/out/9b-think; case1 evidence-exists 1 "exists (every run is new)" think
 mkdir $T/out/9b-nothink-slots; case1 slots-exist 1 "slots exists" nothink
 rm -rf $T; echo "failures: $fails"; exit $fails

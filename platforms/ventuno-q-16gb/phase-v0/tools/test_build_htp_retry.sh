@@ -65,4 +65,16 @@ case1 normal ok
 case1 toolchain-missing fail tc=fail
 case1 toolchain-wrong-sdk fail tc=wrongsdk
 case1 build-log-without-sdk-line fail sdkline=no
+# another commit (B1f): HTP_COMMIT with HTP_RELEASE_SHA, from a source holding ff5a2337 (SRC2)
+SRC2=${SRC2:-$HOME/npu-dev/b1/llama.cpp}; FF=ff5a23376725e5a889fa0bfb987b7541dc304da0
+FFREL=76603cb189e70e3e0d418c1dcbad0a4fcd706544378df679337f3fe81b80d8df
+if git -C "$SRC2" cat-file -e $FF 2>/dev/null; then
+  SRC=$SRC2 HTP_COMMIT=$FF HTP_RELEASE_SHA=$FFREL case1 ff5a2337-normal ok
+  T=$(mktemp -d)
+  for c in "HTP_COMMIT=$FF" "HTP_RELEASE_SHA=$FFREL" "HTP_COMMIT=ff5a2337 HTP_RELEASE_SHA=$FFREL"; do
+    env $c HOME=$T bash "$SCRIPT" > $T/o 2>&1; rc=$?
+    [ $rc = 1 ] && grep -q "FAILED: HTP_" $T/o && [ ! -e $T/htp-retry-* ] 2>/dev/null && echo "ok   refuses: $c" \
+      || { echo "FAIL refuses: $c (rc $rc)"; tail -2 $T/o; fails=$((fails+1)); }
+  done; rm -rf $T
+else echo "skip ff5a2337 cases (no $SRC2 with $FF)"; fi
 echo "failures: $fails"; exit $fails
