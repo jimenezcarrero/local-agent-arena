@@ -2871,3 +2871,33 @@ D178 2026-10-20 V0e for B4 declared before running (owner, 2026-10-20: "Ok conti
    Two decisions for the owner: D1 the runtime library (unpatched recommended; the retry patch exists only for
    836d57176) and D2 the admission window (-c 32768 with depths up to 28672 recommended, against the frozen -c 40960,
    at which B4's fit is untested). Implementation and tests follow the plan's review; nothing runs before the go.
+D179 2026-10-21 B4 run: owner decisions and result. Owner (2026-10-21): "merge 91. D1 is better if we build the patch?
+   D2 is ok (a). Go for V0e as soon as you can." Asked about D1, the owner chose (a), PB's unpatched DSP library, now
+   ("let me know if D1 don't work and we have to build the patch"). PR #91 (implementation, reviewed: one P2 fixed, B4's
+   admission baseline made A32-5's with its checks before every baseline load) merged as 643e894.
+   Launch checks (runs/v0d-admit-B4/launch-checks.txt, runs/v0e-B4/launch-checks.txt): 8 files deployed, 102 ~/v0 and
+   ~/v0/monitor copies equal to 643e894; both packages, the model, the patched library and the .farf files as declared.
+   Package drift from unattended security updates (2026-10-21 06:39-06:41: ca-certificates, liblzma5, xz-utils,
+   libprotobuf32t64, python3-jwt); neither runtime loads any of them (ldd: libc6, libgcc-s1, libstdc++6,
+   qcom-libdmabufheap); dpkg baseline reset as in D164/D177, old one kept. Disk 9.3 GB < 10 GB (plan section 8): the
+   owner chose to delete B1c/B1d's CPU reference (cpu-ref.kld, sha256 7fd9868c..., rebuildable by step0.sh); 12 GB
+   free. A check-script error of the agent's (identity.sh given /dev/stdout) hung one check; stopped by PID, recorded.
+   Stage 1, admission (07:47-08:44, "v0d_admit.sh B4 a"): attempt 1, 0 faults; warm-up, r1-r3 and the tool gates PASS
+   (10/10, 3/3), memory ADMIT on every step (lowest L_min 11,934,854 kB). GATE B4: PASS, median 16K prefill 229.7
+   (>= 145), decode 5.12 (>= 4.4); r1-r3 18,028/18,035/18,034 tokens. At 28,672 tokens decode is about 3.7 tok/s.
+   Stage 2, V0e (08:44-11:06, "v0e_A_retry.sh B4"): QUALIFIED at window 32768.
+   - Baseline probes 08:44 and 09:29: PASS; identities checked before every baseline load and around every session.
+   - S1 (08:45-09:26, memory ADMIT L_min 11,491,606 kB): turns PASS 52/52 (largest request 30,317 tokens, time to
+     first token 161.1 s; reuse 0 of 170,637 continued prompt tokens, reported, D171); window PASS 4/4 (near-limit
+     prompt 31,551 of 32,768); compaction PASS (1 compaction, recall after it); streaming probe 10/10, agentic 3/3,
+     pi smoke 7/7. COST: 48 requests, 5.5 % from the cache, forced 41, largest prompt 31,627 (prefill 170.8 s);
+     prompt cache up to 3,658.5 MiB of 5,120. DSP retry events 0.
+   - S2 (09:30-11:06, memory ADMIT L_min 11,295,665 kB): 70 cycles, sustained summary VALID (prefill 277.0 -> 277.0
+     tok/s, decode 8.2 -> 8.0, NSP max 44.1 -> 43.0 C; no decline over 10 %), speed invalid 0. pi smoke 69/70 (counted
+     and reported, not gated in S2): in cycle c12 the model ran the requested "wc -w notes.txt > count.txt", then made
+     an unrequested write call that replaced count.txt with "3" (6/7 checks); a model slip, not a stack failure.
+     COST: 424 requests, 43.7 % from the cache, forced 71; prompt cache up to 4,992.3 MiB. DSP retry events 0.
+   - Recomputed from the committed monitor export (runs/v0e-B4/recompute-20261021.txt): the 10 kernel audits pass and
+     the memory floors and the gate equal the driver's.
+   D1 (a) held: no DSP fault, so no retry-patch port is needed for this configuration. Qualification covers this exact
+   configuration at window 32768 only; it is not a GO: GO is the owner's decision.
