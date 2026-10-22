@@ -11,7 +11,7 @@ health-<date>.jsonl -> monitor/health-<date>-runs.jsonl: every raw 10 s sample i
     window (run-windows.jsonl lines: {"label", "start_epoch", "end_epoch"}), tagged with its label,
     plus 120 s before and after each window.
 kernel-<date>.jsonl -> monitor/kernel-<date>.jsonl: every kernel line, with _MACHINE_ID and _HOSTNAME
-    removed and USB serial values replaced by <usb-serial>; _BOOT_ID and timestamps kept.
+    removed, USB serial values replaced by <usb-serial> and MAC addresses by <mac>; _BOOT_ID and timestamps kept.
 health-checks.txt, trip-points.txt, run-windows.jsonl: copied as they are.
 Raw files stay in ~/bench-runs/monitor and the daily backup.
 """
@@ -36,12 +36,17 @@ SCRUB = [(v, tag) for v, tag in ((_read("/etc/machine-id"), "<machine-id>"),
 # USB devices print their serial at enumeration ("usb 3-1: SerialNumber: <value>"; Codex review of 40eaf0f). The
 # descriptor index ("SerialNumber=3") is not an identifier and is kept.
 USB_SERIAL = re.compile(r"(SerialNumber: )[^\s\"\\]+")
+# MAC addresses (six hex pairs, one separator throughout): the Wi-Fi driver logs the access point's address, which
+# public Wi-Fi location services resolve to a place, and the board's own (D182). Punctuation may touch an address
+# ("peer:<mac>", "<mac>: connected"); a letter or digit may not. Time ranges such as "07:47:00-08:44:00" mix
+# separators and are kept; a longer run of pairs is redacted in part, which only over-redacts.
+MAC = re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{2}([:-])(?:[0-9A-Fa-f]{2}\1){4}[0-9A-Fa-f]{2}(?![0-9A-Za-z])")
 
 
 def scrub(text):
     for v, tag in SCRUB:
         text = text.replace(v, tag)
-    return USB_SERIAL.sub(r"\1<usb-serial>", text)
+    return MAC.sub("<mac>", USB_SERIAL.sub(r"\1<usb-serial>", text))
 PAD = 120
 src = os.environ.get("MONITOR_DIR", os.path.expanduser("~/bench-runs/monitor"))
 dst = os.path.join(sys.argv[1], "monitor")
