@@ -2962,7 +2962,7 @@ D182 2026-10-22 MAC addresses redacted from the monitor export. The kernel expor
    1. publish_monitor.py replaces every MAC address (six hex pairs, one separator throughout) with <mac>; time ranges
       such as 07:47:00-08:44:00 are kept. tools/scan_identifiers.py checks evidence before a commit (plain files, .gz
       and .tar/.tar.gz members): machine-id, SoC serial, unredacted USB serials, MAC addresses, and with --hostname
-      and --boot-id those two (for npu-dev evidence); counts only, never values. tools/test_scan_identifiers.sh 11/11.
+      and --boot-id those two (for npu-dev evidence); counts only, never values. tools/test_scan_identifiers.sh 20/20.
       The ~/v0/monitor copy of publish_monitor.py is deployed after merge (launch checks compare it).
    2. The 13 committed kernel exports redacted in place with the same expression (93 replacements, nothing else
       changed). No audited line holds a MAC: all 58 committed kernel_audit verdicts recomputed on the redacted export
@@ -2971,3 +2971,9 @@ D182 2026-10-22 MAC addresses redacted from the monitor export. The kernel expor
    3. History rewrite (removing the two addresses from every commit) is separate: it changes 364 of 527 commits on all
       branches, including the measured checkout 7badb21 cited by every run record; to be confirmed by the owner with
       those consequences before any force-push.
+   Review of 5d766a4 (Codex): the in-place redaction byte-checked (93 MAC-only substitutions); three P2s fixed. (a) The
+   expression missed an address touching ':' or '-' ("peer:<mac>", "<mac>: connected"): now only a letter or digit
+   bounds it, in both tools. (b) The scanner unwrapped one gzip layer only: now gzip and tar recursively, up to 8
+   layers; deeper nesting or another container (zip, xz, bzip2, zstd) is an error. (c) A missing path scanned CLEAN:
+   missing or unreadable inputs now end in "RESULT scan: ERROR" (exit 2). 9 regressions added. The stricter
+   expression finds nothing more in the committed export; the scan of platforms/ and suite/ reads every archive.
