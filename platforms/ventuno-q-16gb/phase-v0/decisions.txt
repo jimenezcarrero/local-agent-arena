@@ -2908,3 +2908,44 @@ D180 2026-10-21 V0e for B9 declared before running: Ternary-Bonsai-2-9B Q2_0 on 
    depths to 28672, the frozen 16K gate) and A32-5's V0e driver and policy with B9's command and identity checks; DSP
    retry events counted, not faults (D136). No owner decisions left open in the plan except the disk to free before
    launch (6.6 GB free, 10 GB required). Implementation and tests follow the plan's review; nothing runs before the go.
+D181 2026-10-22 B9 run: result. Owner (2026-10-21, before sleeping): "Ok do it and plan work for all the night", "Ok
+   I allow you to run NPUs and try to fix if something goes wrong", "Try to work together with Codex for review what are
+   you doing". PR #102 (plan, D180) and PR #103 (implementation, Codex all clean at 7faa274) merged as 9b7b78f.
+   Disk (plan section 8, 6.6 GB free): on the owner's choice, B1d-9B's cpu-ref-9b.kld (sha256 e265e26e...) and B1e's
+   nh-cpu-ref.kld (b753f86c...), both rebuildable by their step0.sh, and the ~/v0-backups snapshots 2026-10-04 to
+   2026-10-17 (after checking every bench-runs file in them present, identical or appended-to, in the 2026-10-20
+   snapshot) were deleted (recorded in ~/npu-dev/b1/b1d-9b/deletions.txt and ~/v0-backups/deletions.txt); 13 GB free.
+   Launch checks (runs/v0d-admit-B9/launch-checks.txt, runs/v0e-B9/launch-checks.txt): 6 files deployed, 104 ~/v0
+   and ~/v0/monitor copies equal to 9b7b78f; no llama process or driver; watchdog and sampler running; both packages,
+   the model, both retry libraries and the .farf files as declared; measured checkout 7badb21 clean; dpkg baseline
+   b295c458... with 0 lines of drift (no reset needed); health rc 0.
+   Stage 1, admission (00:23-01:25, "v0d_admit.sh B9"): attempt 1, 0 faults; baseline probe, warm-up, r1-r3 and the
+   tool gates PASS (10/10, 3/3); identity checked at entry, before every load and after the set; memory ADMIT on every
+   step (lowest L_min 9,503,622 kB, r2). GATE B9: PASS, median 16K prefill 190.5 (>= 145), decode 7.58 (>= 4.4);
+   r1-r3 18,035/18,037/18,033 tokens. Medians at 8,192: decode 8.67; at 28,672: prefill 181.1, decode 6.79 tok/s.
+   Stage 2, V0e (01:26-03:54, "v0e_A_retry.sh B9"): QUALIFIED at window 32768.
+   - Baseline probes 01:26 and 02:15: PASS; identities checked before every baseline load and around every session.
+   - S1 (01:27-02:12, memory ADMIT L_min 9,619,968 kB): turns PASS 52/52 (largest request 30,309 tokens, time to
+     first token 169.8 s; reuse 0 of 170,640 continued prompt tokens, reported, D171); window PASS 4/4 (near-limit
+     prompt 31,549 of 32,768); compaction PASS (1 compaction, recall after it); streaming probe 10/10, agentic 3/3,
+     pi smoke 7/7. COST: 47 requests, 5.5 % from the cache, forced 40, largest prompt 31,626 (prefill 177.5 s);
+     prompt cache up to 5,091.8 MiB of 5,120. DSP retry events 0.
+   - S2 (02:17-03:54, memory ADMIT L_min 8,414,649 kB): 52 cycles, sustained summary VALID (prefill 202.0 -> 201.7
+     tok/s, decode 8.7 -> 8.3, NSP max 46.6 -> 45.3 C; no decline over 10 %), speed invalid 0, pi smoke 52/52. COST:
+     316 requests, 44.0 % from the cache, forced 53; prompt cache up to 5,111.2 MiB. DSP retry events 15 (02:24-03:44),
+     all "dspqueue_peek failed: 0x0000002f (1 in a row), retrying" on CDSP0 (0x2f AEE_ENOMORE, as D133), each with
+     the DSP-side "wait_signal_locked failed with 0x2f" pair as in D127; 11 and 4 events under two different DSP-side
+     ids (which session each is was not mapped). Longest run 1, so none flagged (D136). The journal's other error lines
+     are the classes of B4's and A32-5's qualified S2 journals (the 0xc wait_signal_locked timeout, 1,619 here against
+     1,564 in B4's; module-table, notification and shutdown lines); the driver counted 0 faults. Each event was
+     followed by continued service (the session passed).
+   - Recomputed from the committed monitor export (runs/v0e-B9/recompute-20261022.txt): the 10 kernel audits pass and
+     the memory floors and the gate equal the driver's.
+   What it shows: on two sessions of ff5a2337 the AEE_ENOMORE peek errors occur (15 in 97 minutes of S2, none in S1 or
+   the admission), and the retry build recovered from each; with the unpatched library each would, by the F1
+   mechanism (D127), have ended that session's queue (an inference, not tested here). This is the first observation of
+   recovery on this build (B1f had no event). Not isolated: why S2 and not S1. The B1f choice of the patched build
+   (b1f-retry/SPEC.txt section 1) is supported by this run.
+   Qualification covers this exact configuration at window 32768 only; it is not a GO: GO is the owner's decision.
+   Compared with B4 (D179; other model, one session): decode at 28,672 about 6.8 against 3.7 tok/s, 16K prefill
+   190.5 against 229.7; lowest memory margin 3.9 against 6.3 GB.
