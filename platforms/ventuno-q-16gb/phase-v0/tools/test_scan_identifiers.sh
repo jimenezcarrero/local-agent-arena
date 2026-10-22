@@ -33,6 +33,19 @@ chk "gzip of gzip" "$(scan $T/gg; grep -c 'machine-id 1' $T/out)" "1
 mkdir -p $T/nt/in $T/nt/out && printf 'x %s y\n' $SCAN_MACHINE_ID | gzip > $T/nt/in/evidence.txt.gz && tar -czf $T/nt/out/inner.tar.gz -C $T/nt/in evidence.txt.gz && tar -czf $T/nt/outer.tar.gz -C $T/nt/out inner.tar.gz && rm -r $T/nt/in $T/nt/out
 chk "tar.gz in tar.gz with a .gz member" "$(scan $T/nt; grep -c 'inner.tar.gz:evidence.txt.gz: machine-id 1' $T/out)" "1
 1"
+# V7 tar (no "ustar" signature) with a gzipped member, plain and gzip-wrapped (Codex review of b064a23)
+mkdir -p $T/v7 && printf 'x %s y\n' $SCAN_MACHINE_ID | gzip > $T/v7m.gz && python3 -I -c '
+import sys, tarfile
+src, out = sys.argv[1], sys.argv[2]
+with tarfile.open(out, "w", format=tarfile.USTAR_FORMAT) as t:
+    t.add(src, arcname="evidence.txt.gz")
+b = bytearray(open(out, "rb").read())
+b[257:265] = bytes(8); b[148:156] = b" " * 8          # V7: no magic or version; checksum over the new header
+b[148:156] = b"%06o\0 " % sum(b[:512])
+open(out, "wb").write(bytes(b))' $T/v7m.gz $T/v7/e.tar && rm $T/v7m.gz && gzip -c $T/v7/e.tar > $T/v7/e.tar.gz
+chk "fixture is V7 (no ustar) and readable" "$(python3 -I -c "import sys,tarfile; d=open(sys.argv[1],'rb').read(); print(d[257:262]==b'ustar', tarfile.open(sys.argv[1]).getnames())" $T/v7/e.tar)" "False ['evidence.txt.gz']"
+chk "V7 tar with a .gz member, plain and gzipped" "$(scan $T/v7; grep -c 'evidence.txt.gz: machine-id 1' $T/out)" "1
+2"
 mkdir -p $T/deep && printf 'clean\n' | gzip | gzip | gzip | gzip | gzip | gzip | gzip | gzip | gzip | gzip > $T/deep/x.gz
 chk "nesting deeper than the limit is an error" "$(scan $T/deep; grep -c 'nested deeper' $T/out)" "2
 1"

@@ -59,9 +59,18 @@ def contents(name, data, depth=0):
     for magic, kind in OTHER.items():
         if data.startswith(magic):
             raise ScanError(f"{name}: unsupported container ({kind})")
-    if len(data) >= 512 and data[257:262] == b"ustar":
+    # Tar is probed with the tar reader itself, not by the "ustar" signature, which V7 archives lack (Codex review of
+    # b064a23). A plain file fails the header checksum and stays a leaf; a file that opens as tar but then fails to
+    # read is an error.
+    t = None
+    if len(data) >= 512:
         try:
-            with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as t:
+            t = tarfile.open(fileobj=io.BytesIO(data), mode="r:")
+        except tarfile.ReadError:
+            t = None
+    if t is not None:
+        try:
+            with t:
                 for m in t.getmembers():
                     if m.isfile():
                         yield from contents(f"{name}:{m.name}", t.extractfile(m).read(), depth + 1)
