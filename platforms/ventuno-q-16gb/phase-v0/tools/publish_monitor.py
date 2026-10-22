@@ -37,9 +37,10 @@ SCRUB = [(v, tag) for v, tag in ((_read("/etc/machine-id"), "<machine-id>"),
 # descriptor index ("SerialNumber=3") is not an identifier and is kept.
 USB_SERIAL = re.compile(r"(SerialNumber: )[^\s\"\\]+")
 # MAC addresses (six hex pairs, one separator throughout): the Wi-Fi driver logs the access point's address, which
-# public Wi-Fi location services resolve to a place, and the board's own (D182). Time ranges such as
-# "07:47:00-08:44:00" mix separators and are kept.
-MAC = re.compile(r"(?<![0-9A-Fa-f:-])[0-9A-Fa-f]{2}([:-])(?:[0-9A-Fa-f]{2}\1){4}[0-9A-Fa-f]{2}(?![0-9A-Fa-f:-])")
+# public Wi-Fi location services resolve to a place, and the board's own (D182). Punctuation may touch an address
+# ("peer:<mac>", "<mac>: connected"); a letter or digit may not. Time ranges such as "07:47:00-08:44:00" mix
+# separators and are kept; a longer run of pairs is redacted in part, which only over-redacts.
+MAC = re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{2}([:-])(?:[0-9A-Fa-f]{2}\1){4}[0-9A-Fa-f]{2}(?![0-9A-Za-z])")
 
 
 def scrub(text):
