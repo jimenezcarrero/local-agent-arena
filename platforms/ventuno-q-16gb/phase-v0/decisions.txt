@@ -2929,10 +2929,10 @@ D181 2026-10-22 B9 run: result. Owner (2026-10-21, before sleeping): "Ok do it a
      first token 169.8 s; reuse 0 of 170,640 continued prompt tokens, reported, D171); window PASS 4/4 (near-limit
      prompt 31,549 of 32,768); compaction PASS (1 compaction, recall after it); streaming probe 10/10, agentic 3/3,
      pi smoke 7/7. COST: 47 requests, 5.5 % from the cache, forced 40, largest prompt 31,626 (prefill 177.5 s);
-     prompt cache up to 5,091.8 MiB of 5,120. DSP retry events 0.
+     prompt cache up to 5,111.2 MiB of 5,120. DSP retry events 0.
    - S2 (02:17-03:54, memory ADMIT L_min 8,414,649 kB): 52 cycles, sustained summary VALID (prefill 202.0 -> 201.7
      tok/s, decode 8.7 -> 8.3, NSP max 46.6 -> 45.3 C; no decline over 10 %), speed invalid 0, pi smoke 52/52. COST:
-     316 requests, 44.0 % from the cache, forced 53; prompt cache up to 5,111.2 MiB. DSP retry events 15 (02:24-03:44),
+     316 requests, 44.0 % from the cache, forced 53; prompt cache up to 5,091.8 MiB. DSP retry events 15 (02:24-03:44),
      all "dspqueue_peek failed: 0x0000002f (1 in a row), retrying" on CDSP0 (0x2f AEE_ENOMORE, as D133), each with
      the DSP-side "wait_signal_locked failed with 0x2f" pair as in D127; 11 and 4 events under two different DSP-side
      ids (which session each is was not mapped). Longest run 1, so none flagged (D136). The journal's other error lines
@@ -2941,10 +2941,12 @@ D181 2026-10-22 B9 run: result. Owner (2026-10-21, before sleeping): "Ok do it a
      followed by continued service (the session passed).
    - Recomputed from the committed monitor export (runs/v0e-B9/recompute-20261022.txt): the 10 kernel audits pass and
      the memory floors and the gate equal the driver's.
-   What it shows: on two sessions of ff5a2337 the AEE_ENOMORE peek errors occur (15 in 97 minutes of S2, none in S1 or
-   the admission), and the retry build recovered from each; with the unpatched library each would, by the F1
+   What it shows: on two sessions of ff5a2337 the AEE_ENOMORE peek errors occur (15 in 97 minutes of S2, none in S1; the
+   admission's DSP stream was not exported, so its count is unknown), and the retry build recovered from each; with the unpatched library each would, by the F1
    mechanism (D127), have ended that session's queue (an inference, not tested here). This is the first observation of
-   recovery on this build (B1f had no event). Not isolated: why S2 and not S1. The B1f choice of the patched build
+   recovery on this build (B1f had no event). Not isolated: why S2 and not S1.
+   Review of 34b5c8f (Codex): the S1/S2 prompt-cache maxima were swapped and the admission was said to have no retry
+   event without its DSP capture; both corrected here. The B1f choice of the patched build
    (b1f-retry/SPEC.txt section 1) is supported by this run.
    Qualification covers this exact configuration at window 32768 only; it is not a GO: GO is the owner's decision.
    Compared with B4 (D179; other model, one session): decode at 28,672 about 6.8 against 3.7 tok/s, 16K prefill
