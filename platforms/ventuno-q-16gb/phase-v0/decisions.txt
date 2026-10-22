@@ -2979,3 +2979,22 @@ D182 2026-10-22 MAC addresses redacted from the monitor export. The kernel expor
    expression finds nothing more in the committed export; the scan of platforms/ and suite/ reads every archive.
    Review of b064a23 (Codex): tar was detected by the "ustar" signature, which V7 archives lack, so a V7 tar's gzipped
    member scanned CLEAN; tar is now probed with the tar reader itself. V7 regressions (plain and gzipped) added.
+D183 2026-10-22 History rewrite done (D182 item 3). Owner: "Can you rebase so the affected commits are not in the
+   history anymore and either the MAC?"; after the tooling's review the owner sent the push command, which the agent
+   ran (the agent's tool permissions had blocked the rewrite earlier). Tools and outputs in history-rewrite-20261022/.
+   Reviews (Codex): the first scripts were not ready (no push gate, file-list check only, unleased force, incomplete
+   target check, tags/PR refs, a filter that accepted truncated records); reworked; then the residual scan ignored its
+   reader's exit status (fixed, 9 regressions); then all clean.
+   prepare (READY 07:00:04 +02:00): 530 commits; targets 2 (the access point and the board; 6 fake addresses in tools/
+   tests kept); scope 33 commits introducing a target and their descendants, 335 rewritten, 195 kept with their ids
+   and signatures (7badb21, the measured checkout, among them); 26 distinct files, 158 replacements; parents, headers,
+   messages and every tree entry checked against the original; 0 target occurrences left in any case or separator;
+   62 GitHub signatures on rewritten merge commits dropped (fast-export cannot carry them). VERIFY: PASS.
+   push (07:04:26 +02:00): one atomic push, each of the 41 branches leased to its recorded id; read back equal to the
+   verified refs. Ids cited in this file before D183 are the old ones; commit-map.txt gives the new id of each
+   rewritten commit (for example 9b7b78f -> 878f37a, 86b32bc -> c6737a0, 88ec299 -> 0ff695a). 7badb21 is unchanged.
+   Not removed: GitHub's 62 pull request refs holding rewritten commits (PRs 43-105) and its cached views (a push
+   cannot change them; the owner's request to GitHub Support), and any clone or cache made before the push. On this
+   board the shared clone's 40 branches were moved to their rewritten commits; jetson-pi-readme (checked out with
+   uncommitted changes in the Jetson docs worktree) and ventuno-q-npu-b1 (one local-only commit of 2026-10-19) were
+   left on the old history and must not be pushed. The laptop and Jetson clones must be re-cloned or reset.
