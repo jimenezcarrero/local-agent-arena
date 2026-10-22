@@ -2962,7 +2962,7 @@ D182 2026-10-22 MAC addresses redacted from the monitor export. The kernel expor
    1. publish_monitor.py replaces every MAC address (six hex pairs, one separator throughout) with <mac>; time ranges
       such as 07:47:00-08:44:00 are kept. tools/scan_identifiers.py checks evidence before a commit (plain files, .gz
       and .tar/.tar.gz members): machine-id, SoC serial, unredacted USB serials, MAC addresses, and with --hostname
-      and --boot-id those two (for npu-dev evidence); counts only, never values. tools/test_scan_identifiers.sh 20/20.
+      and --boot-id those two (for npu-dev evidence); counts only, never values. tools/test_scan_identifiers.sh 22/22.
       The ~/v0/monitor copy of publish_monitor.py is deployed after merge (launch checks compare it).
    2. The 13 committed kernel exports redacted in place with the same expression (93 replacements, nothing else
       changed). No audited line holds a MAC: all 58 committed kernel_audit verdicts recomputed on the redacted export
@@ -2977,3 +2977,5 @@ D182 2026-10-22 MAC addresses redacted from the monitor export. The kernel expor
    layers; deeper nesting or another container (zip, xz, bzip2, zstd) is an error. (c) A missing path scanned CLEAN:
    missing or unreadable inputs now end in "RESULT scan: ERROR" (exit 2). 9 regressions added. The stricter
    expression finds nothing more in the committed export; the scan of platforms/ and suite/ reads every archive.
+   Review of b064a23 (Codex): tar was detected by the "ustar" signature, which V7 archives lack, so a V7 tar's gzipped
+   member scanned CLEAN; tar is now probed with the tar reader itself. V7 regressions (plain and gzipped) added.
