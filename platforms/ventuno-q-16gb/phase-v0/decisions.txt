@@ -2951,3 +2951,23 @@ D181 2026-10-22 B9 run: result. Owner (2026-10-21, before sleeping): "Ok do it a
    Qualification covers this exact configuration at window 32768 only; it is not a GO: GO is the owner's decision.
    Compared with B4 (D179; other model, one session): decode at 28,672 about 6.8 against 3.7 tok/s, 16K prefill
    190.5 against 229.7; lowest memory margin 3.9 against 6.3 GB.
+D182 2026-10-22 MAC addresses redacted from the monitor export. The kernel export carried the Wi-Fi driver's
+   association lines ("wlp3s0: authenticate with <access point> (local address=<board>)", "Limiting TX power ... as
+   advertised by <access point>") unredacted since the first export (e42d07e): 13 files, 80 lines with the access
+   point's address and 13 with the board's own. publish_monitor.py removed only the machine-id, the SoC serial and USB
+   serials (D111). The agent saw the access point's address during D181's scan and kept it as an existing convention
+   instead of raising it; the owner asked about it the next morning. Checked on the owner's choice ("Both"): Apple's
+   Wi-Fi location service returns a location for the access point's address (stated accuracy 23 m; coordinates not
+   recorded); WiGLE pending the owner's token. Owner: "Fix with the steps 1, 2 and 3".
+   1. publish_monitor.py replaces every MAC address (six hex pairs, one separator throughout) with <mac>; time ranges
+      such as 07:47:00-08:44:00 are kept. tools/scan_identifiers.py checks evidence before a commit (plain files, .gz
+      and .tar/.tar.gz members): machine-id, SoC serial, unredacted USB serials, MAC addresses, and with --hostname
+      and --boot-id those two (for npu-dev evidence); counts only, never values. tools/test_scan_identifiers.sh 11/11.
+      The ~/v0/monitor copy of publish_monitor.py is deployed after merge (launch checks compare it).
+   2. The 13 committed kernel exports redacted in place with the same expression (93 replacements, nothing else
+      changed). No audited line holds a MAC: all 58 committed kernel_audit verdicts recomputed on the redacted export
+      (MONITOR_DIR=monitor) are unchanged (pass). scan_identifiers.py over platforms/ and suite/: no MAC or
+      identifier outside this change's own code, tests and documentation.
+   3. History rewrite (removing the two addresses from every commit) is separate: it changes 364 of 527 commits on all
+      branches, including the measured checkout 7badb21 cited by every run record; to be confirmed by the owner with
+      those consequences before any force-push.
