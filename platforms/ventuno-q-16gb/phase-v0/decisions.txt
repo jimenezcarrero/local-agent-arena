@@ -3008,3 +3008,11 @@ D184 2026-10-23 GO for B9 (RUNBOOK V0d). Owner, 2026-10-23, after D181's qualifi
    suite ladder at 32768 only (no 65K marathon: B9's split leaves no mapping margin for it, estimated; the pi 32K
    stall reported, not engineered away), three repeats, the qualified command plus --metrics, an identity-checked
    launcher. Implementation and tests follow the plan's review; nothing runs before the owner's go for the run.
+   Review of f331640 (Codex, three P2s on the plan's integration rules), all addressed in the plan's section 4:
+   (a) suite/lib.sh's manifest() calls the server binary with --version while the measured server is up; the
+   launcher now answers it from a version line recorded at launch checks, without an identity check, a backend load
+   or a lifetime record. (b) The frozen memory rule (memfloor --admit 5120) is carried into V1 per server lifetime,
+   restarts included, with sample coverage required and the 1.5 GiB health floor not standing in for it. (c) DSP
+   capture fails closed per lifetime (V0e's journal() checks, PID and boot bound), the ledger matched one-to-one with
+   the suite's server logs, so an omitted restart or a missing export stops the batch instead of reading as zero.
+   Arenas now run one at a time (STEPS=<step>), arena 1's gate kept, with every check after each arena.
