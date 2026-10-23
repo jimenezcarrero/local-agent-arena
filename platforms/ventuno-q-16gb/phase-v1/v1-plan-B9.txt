@@ -1,0 +1,88 @@
+Plan for V1 on configuration B9 (Ternary-Bonsai-2-9B Q2_0 on two NPU sessions, the htp_main_thread retry build of
+ff5a2337): the arena ladder at window 32768, three repeats. Declared 2026-10-23, PROPOSED for review. Owner, 2026-10-23,
+after D181's qualification: "Ok for B9" (the GO, phase-v0/decisions.txt D184). Implementation and its tests follow this
+plan's review; nothing runs on the NPU before the owner's go for the run itself.
+
+1. What runs, and what does not
+  Native lane only, on B9 as qualified (phase-v0/v0e-plan-B9.txt section 3, D181). Two deviations from RUNBOOK V1, both
+  recorded in D184:
+  - The native lane's file is Ternary-Bonsai-2-9B Q2_0, not Ornith-1.0-9B pure Q4_0: no Ornith-1.0 Q4_0 configuration
+    qualified (H not qualified; H2 not qualified, D112-D117). The runbook's "GO, 9B" names the Q4_0 file; this GO is
+    the owner's for B9. Results are B9's and are never presented as Ornith-1.0's.
+  - Parity lane: "parity file not viable on this board" (RUNBOOK V1). Ornith-1.0 IQ3_M: iq3_s is unsupported on HTP
+    (V0c), the CPU route was screened out under D32 (2.7/1.36 tok/s at 512), and OpenCL placed it only partially. No
+    arenas for it.
+  V2 rows: none has an admitted configuration; each stays "not answerable on this tier" until one qualifies.
+  A32-5 (NeoHorse-1-4B) and B4 (Ternary-Bonsai-2-4B) stay qualified and not GO; they are not run here.
+
+2. Window: 32768 only
+  The ladder is run_model.sh with ctx 32768 and big 0: arenas 1, 2 and 3 at 32768, arena 4 at 32768 (the 32K crusher,
+  pi's defaults, local32k), no big crusher.
+  - 32768 is B9's only qualified window (V0e covers a window only at its size).
+  - 65536 is not a choice for B9 as configured: at -c 40960 HTP0:1 was estimated at about 2,028 MiB mapped, about
+    117 MiB under the map R2 refused (v0e-plan-B9.txt section 4; estimated, never loaded); 65536 adds more F16 KV per
+    session than that margin. Measuring a 65K fit would be new NPU development (a new split or KV placement and its
+    own V0d/V0e), outside this plan.
+  - Consequence, reported with the results, not engineered away: arena 3 runs at 32K, where pi 0.80.10 can leave a
+    session in which every reply gets one token (platforms/jetson-orin-nano-8gb/pi-32k-window.txt); RUNBOOK asks for
+    65K marathons wherever the model fits. The marathon is comparable with no Jetson 65K marathon; the 32K crusher is
+    comparable in window with the Jetson's 32K column (suite rule 7: never ranked across tiers).
+
+3. Exact configuration (unchanged from V0e, D181)
+  Model ~/npu-dev/b1/models/Ternary-Bonsai-2-9B-Q2_0.gguf, sha256 1f884aa5...384d. Package PB (ff5a2337,
+  tools/pkg-identity-ff5a2337.txt). DSP library ~/npu-dev/htp-retry-ff5a2337/libggml-htp-v75.so, sha256 65e50e67...
+  .farf ~/npu-dev/farf/llama-server.farf. pi 0.80.10, provider bench, model local32k (contextWindow 32768, maxTokens
+  8192). Sampling: llama-server defaults with the GGUF's metadata, thinking on (template default), as V0e;
+  suite/check_sampling.sh on the file before the first run (OPERATING rule 6), its output in files.txt.
+  Server, started by the arena scripts through one launcher (section 4):
+    env LD_LIBRARY_PATH=$PB/lib "ADSP_LIBRARY_PATH=$HOME/npu-dev/farf;$R;$PB/lib" GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1
+      GGML_HEXAGON_NHMX=1 $PB/bin/llama-server -m $MB/Ternary-Bonsai-2-9B-Q2_0.gguf --cache-ram 5120 -lv 4
+      --device HTP0:0,HTP0:1 -ts 18,15 -ot 'token_embd\.weight=CPU' -ngl 999 -np 1 -fa on --jinja --ctx-checkpoints 0
+      --metrics -c 32768 --host 127.0.0.1 --port 8080
+  The one addition is --metrics, which the suite requires (arena 3's prefill accounting reads /metrics); it adds an
+  endpoint and changes no placement, cache, batch, thread, power or sampling setting. -lv 4 is kept: the qualified
+  command used it, DSP retry events are read from the logs, and V0e's server logs were small (the whole v0e-B9 run
+  directory is 7.5 MB).
+
+4. Implementation (after this plan's review; offline tests)
+  phase-v1/tools/b9_server.sh, the launcher run_model.sh receives as its binary:
+  - accepts exactly the suite's trailing arguments (-c 32768 --host 127.0.0.1 --port <BENCH_PORT>) and refuses any
+    other -c, or any other argument;
+  - runs phase-v0/tools/b9_identity_check.sh (V0e's, deployed in ~/v0) before every start, so restarts are checked too,
+    and exits non-zero on a mismatch, which the suite records as a failed start;
+  - then execs llama-server (exec, so the arena's server PID is llama-server's, the stall watchdog matches it by its
+    path, and the suite's stop and restart reach it).
+  phase-v1/tools/v1_b9_batch.sh, the batch driver:
+  - preconditions once (launch-checks.txt, as V0e's section 8): no llama-server; watchdog and health sampler running;
+    health check pass without package drift (a reset as D164/D177 if unattended upgrades changed packages, recorded);
+    measured checkout 7badb21 clean; the ~/v0 copies equal to the reviewed revision; identities; disk >= 10 GB free;
+    BENCH_WORK=~/bench-runs/v1 (outside the repository, as the suite enforces); pi models.json local32k as above;
+  - for repeat r in 1 2 3: the V0e baseline probe (A32-5's, unchanged: NPU health, not B9), then
+    "run_model.sh b9-q20-htp2-r<r> 32768 0 b9_server.sh" (all steps), then the post-ladder checks below. No checker
+    runs while a server is up (log checkers need about 8 times a log's size in memory; one was OOM-killed during B1d);
+  - after each ladder, from the run windows: the journal's DSP lines for that window (retry events counted; any other
+    DSP fault line, a retry run longer than 1, a watchdog kill or an OOM kill stops the batch before the next ladder,
+    and the owner is told); health verdict; identity check.
+  Stopping never deletes or reruns anything: an interrupted ladder keeps its denominator and is reported as
+  interrupted (OPERATING rule 4, suite README "Interrupted runs").
+  Tests (mocked, as the V0e drivers'): the launcher refuses wrong windows and extra arguments, refuses on an identity
+  mismatch, and execs with the exact section-3 command; the driver stops on each stop condition, runs no checker while
+  a mocked server is up, and refuses to start on each failed precondition.
+
+5. After the batch (server stopped)
+  suite/tools/holdout_audit.py on the three marathons (exit 0 required; 2 = not verified; 1 = the arena-3 fix failed);
+  platforms/jetson-orin-nano-8gb/tools/pi_length_scan.py on all runs (short length-limited replies and stalled turns,
+  the 32K stall in particular); suite/tools/oom_exposure.py and suite/tools/restart_causes.py per run; the DSP retry events per run;
+  phase-v0/tools/scan_identifiers.py over everything before it is committed.
+
+6. Recording
+  platforms/ventuno-q-16gb/phase-v1/: results.txt, runs/<label>/, files.txt, notes.md, README.md (RUNBOOK "Recording
+  results"). Arenas 1-2: median of the three repeats, a failed or gated attempt entering at its cap (suite README).
+  Arenas 3 and 4: pass counts per repeat, interrupted runs reported separately. Every DSP retry event listed with its
+  run and turn. One PR from ventuno-q to main for the phase; reviewed before merge.
+
+7. Time and disk
+  Upper bound per ladder, from the arena budgets: arena 1 (two attempts) and 2 up to 45 min, arena 3 up to 110 min,
+  arena 4 at 32K up to 240 min: about 6.6 h; three ladders and probes up to about 20 h. Typical will be shorter; the
+  batch runs unattended (OPERATING rules 12-17: lingering on, hourly supervision by the agent, no edits to running
+  scripts). Disk: 13 GB free today, 10 GB required at launch.
