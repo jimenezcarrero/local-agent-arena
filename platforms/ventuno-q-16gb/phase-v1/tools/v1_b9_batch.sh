@@ -15,7 +15,7 @@
 #   memfloor --admit 5120.
 #   Faults (exit 3): a watchdog kill, a kernel-audit fault (OOM kills included), a server-log device fault, a fault in
 #   a baseline probe, a logged retry run longer than 1. STOP (exit 2): any missing or incomplete evidence, a refused
-#   start, a memory REJECT, a failed check. Either ends the batch before the next arena; nothing is deleted or rerun.
+#   start, a memory REJECT, a failed check, an arena without its terminal RESULT and env.txt. Either ends the batch before the next arena; nothing is deleted or rerun.
 # Overridable for tests: BR, V1, CHECKOUT, MEASURE_SHA, V0D_LIB, V0D_RUNNER, SUITE, LAUNCHER, B9_CHECK, JOURNAL, MEMFLOOR, COVERAGE,
 #   HEALTH_CHECK, HVERDICT, DAEMONS, LIST_SERVERS, VERSION_CMD, MEASURE, PI_MODELS, MIN_DISK_KB, REPEATS, KWAIT_TRIES,
 #   KWAIT_S, plus the runner's variables.
@@ -36,9 +36,15 @@ CAP=5120; WIN=32768
 mkdir -p "$V1" "$LT"; say() { echo "$(date -Is) $*" | tee -a "$ST"; sync; }
 stop() { say "STOP: $*"; say "V1 B9 batch: STOPPED (evidence)"; exit 2; }
 faultstop() { say "FAULT: $*"; say "V1 B9 batch: STOPPED (fault)"; exit 3; }
-servers() { $LIST_SERVERS | awk '$2 ~ /\/llama-server$/ {print $1}'; }
-killall_srv() { for pid in $(servers); do kill -KILL $pid; done; sleep 5; }
-daemon_up() { $LIST_SERVERS | awk -v s="$1" '$2=="/bin/bash" && $3==s {f=1} END{exit !f}'; }
+# The process list is evidence too (Codex review of c858ec1): a failed or empty listing stops, never reads as "none".
+# listsrv sets SRVS (llama-server PIDs) in this shell; noserver <what> is true when the listing succeeded with none.
+listsrv() { local o; o=$($LIST_SERVERS) && [ -n "$o" ] || return 1; SRVS=$(printf '%s\n' "$o" | awk '$2 ~ /\/llama-server$/ {print $1}'); }
+noserver() { listsrv || stop "$1: the process list failed"; [ -z "$SRVS" ]; }
+killall_srv() { local pid; listsrv || stop "the process list failed (server cleanup)"; for pid in $SRVS; do kill -KILL $pid; done; sleep 5; }
+daemon_up() { local o; o=$($LIST_SERVERS) && [ -n "$o" ] || return 1; printf '%s\n' "$o" | awk -v s="$1" '$2=="/bin/bash" && $3==s {f=1} END{exit !f}'; }
+# gitrev <repo> <rev>: the commit id, only from a successful command; gitclean <repo>: a successful, empty status
+gitrev() { local c; c=$(git -C "$1" rev-parse --verify --quiet "$2^{commit}" 2>/dev/null) && [ -n "$c" ] && echo "$c"; }
+gitclean() { local o; o=$(git -C "$1" status --porcelain 2>/dev/null) && [ -z "$o" ]; }
 
 # The V0e baseline probe (v0e_A_retry.sh at LV 5), unchanged: campaign package 836d57176, NeoHorse pure Q4_0, the
 # campaign's patched library first on ADSP_LIBRARY_PATH, -ngl 99, depth 512; its identity before every load.
@@ -81,12 +87,12 @@ kaudit() { local i krc=3
 
 # ---- preconditions ----
 [ -n "${V1_REV:-}" ] || stop "V1_REV (the reviewed revision) not set"
-[ "$(git -C "$CHECKOUT" rev-parse HEAD 2>/dev/null)" = "$(git -C "$CHECKOUT" rev-parse "$V1_REV^{commit}" 2>/dev/null)" ] && [ -z "$(git -C "$CHECKOUT" status --porcelain 2>/dev/null)" ] \
-  || stop "the checkout running this driver is not V1_REV $V1_REV, or not clean"
-[ -z "$(servers)" ] || stop "a llama-server is running"
+{ h=$(gitrev "$CHECKOUT" HEAD) && w=$(gitrev "$CHECKOUT" "$V1_REV") && [ "$h" = "$w" ] && gitclean "$CHECKOUT"; } \
+  || stop "the checkout running this driver ($CHECKOUT) is not a readable repository at V1_REV $V1_REV, or not clean"
+noserver launch || stop "a llama-server is running"
 for d in $DAEMONS; do daemon_up "$d" || stop "not running: $d"; done
 $HEALTH_CHECK 10 > "$V1/health-launch.txt" 2>&1; hc=$?; hv=$($HVERDICT "$V1/health-launch.txt" $hc) || stop "launch health: $hv"
-[ "$(git -C "$MEASURE" rev-parse HEAD 2>/dev/null)" = "$MEASURE_SHA" ] && [ -z "$(git -C "$MEASURE" status --porcelain 2>/dev/null)" ] \
+{ h=$(gitrev "$MEASURE" HEAD) && [ "$h" = "$MEASURE_SHA" ] && gitclean "$MEASURE"; } \
   || stop "measured checkout $MEASURE is not 7badb21 clean"
 idl=$($B9_CHECK 2>&1) || stop "B9 identity at launch: $(echo "$idl" | tail -1)"
 [ "$(df -Pk "$HOME" | awk 'NR==2{print $4}')" -ge "$MIN_DISK_KB" ] || stop "free disk under $MIN_DISK_KB kB"
@@ -95,13 +101,13 @@ m=[x for p in json.load(open(sys.argv[1]))['providers'].values() for x in p['mod
 sys.exit(0 if len(m)==1 and m[0]['contextWindow']==32768 and m[0]['maxTokens']==8192 else 1)" "$PI_MODELS" 2>/dev/null \
   || stop "pi's local32k is not contextWindow 32768, maxTokens 8192 in $PI_MODELS"
 $VERSION_CMD 2>&1 | grep -m1 version > "$V1/version.txt"; [ -s "$V1/version.txt" ] || stop "no version line from the pinned binary"
-[ -z "$(servers)" ] || stop "a llama-server is running after the version call"
+noserver "after the version call" || stop "a llama-server is running after the version call"
 say "V1 B9 batch start (pid $$), revision $V1_REV, window $WIN, repeats $REPEATS; $(echo "$idl" | tail -1); health $hv; version $(cat "$V1/version.txt")"
 
 # ---- one arena's evidence (section 4.3, 4.4) ----
 # arena_checks <tag> <step> <t_start> <t_end> <wd0>
 arena_checks() { local tag=$1 step=$2 ta=$3 tb=$4 wd0=$5 labs lab logs recs n i rec t0 t1 pid boot lg dir cov mf hc hv x
-  [ -z "$(servers)" ] || { killall_srv; stop "$tag $step: a llama-server was still running after the arena (killed)"; }
+  noserver "$tag $step" || { killall_srv; stop "$tag $step: a llama-server was still running after the arena (killed)"; }
   [ "$(wdcount)" = "$wd0" ] || faultstop "$tag $step: the NPU stall watchdog fired"
   case $step in 1) labs="$tag-a1 $tag-a1-retry";; 2) labs="$tag-a2";; 3) labs="$tag-a3";; 4s) labs="$tag-a4-32k";; esac
   logs=$(for lab in $labs; do for x in "$V1"/*/"$lab"/server.log "$V1"/*/"$lab"/server_r*.log; do [ -e "$x" ] && readlink -f "$x"; done; done | sort)
@@ -132,6 +138,32 @@ arena_checks() { local tag=$1 step=$2 ta=$3 tb=$4 wd0=$5 labs lab logs recs n i 
   idl=$($B9_CHECK 2>&1) || stop "$tag $step: B9 identity after the arena: $(echo "$idl" | tail -1)"
   say "CHECKS $tag $step: $n server lifetime(s), health $hv, identity ok"; }
 
+# ---- one arena's results (Codex review of c858ec1): run_model.sh returns 0 whatever arenas 2-4 did, so each attempted
+# label needs exactly one terminal RESULT line of its arena's form in $V1/results.txt (SERVER_FAILED stops) and its
+# env.txt (the suite's manifest: version line, the launcher as server command). A model or test failure is a score.
+# needres <label> <arena number>; passres <label>: that RESULT is a pass by run_model.sh's own rule
+resline() { grep -E "^[^ ]+ RESULT $1: " "$V1/results.txt" 2>/dev/null; }
+needres() { local l n e; l=$(resline "$1"); n=$(printf '%s\n' "$l" | grep -c .)
+  [ "$n" = 1 ] || stop "$1: $n RESULT lines in results.txt (exactly one required)"
+  case "$l" in *": SERVER_FAILED"*) stop "$1: SERVER_FAILED";; esac
+  printf '%s\n' "$l" | grep -qE "^[^ ]+ RESULT $1: arena=$2 pimodel=local32k " || stop "$1: RESULT line not of arena $2's form: ${l:0:160}"
+  e=$(ls "$V1"/*/"$1"/env.txt 2>/dev/null | head -1)
+  [ -n "$e" ] && grep -qE '^llama-server: .*version' "$e" && grep -q "^server_cmd: .*b9_server.sh" "$e" || stop "$1: env.txt missing or incomplete"; }
+passres() { resline "$1" | grep -q "pytest=PASS guard=INTACT"; }
+# arena_results <tag> <step> <rc>: returns 0 to go on, 1 for arena 1's genuine gate (two recorded failing attempts,
+# run_model.sh exit 1 and its GATE record); anything inconsistent stops
+arena_results() { local tag=$1 step=$2 rc=$3
+  case $step in
+    1) needres $tag-a1 1
+       if passres $tag-a1; then [ -z "$(resline $tag-a1-retry)" ] && [ $rc = 0 ] || stop "$tag 1: arena 1 passed but rc $rc or a retry was recorded"; return 0; fi
+       needres $tag-a1-retry 1
+       if passres $tag-a1-retry; then [ $rc = 0 ] || stop "$tag 1: the retry passed but run_model.sh exit $rc"; return 0; fi
+       [ $rc = 1 ] && grep -qE "^[^ ]+ GATE $tag: arena 1 failed twice" "$V1/results.txt" || stop "$tag 1: two failing attempts without run_model.sh's gate (rc $rc)"
+       return 1;;
+    2) needres $tag-a2 2;; 3) needres $tag-a3 3;; 4s) needres $tag-a4-32k 4;;
+  esac
+  [ $rc = 0 ] || stop "$tag $step: run_model.sh exit $rc"; return 0; }
+
 # ---- the batch ----
 for r in $REPEATS; do tag=b9-q20-htp2-r$r
   before=$(ls -d "$O"/probe-* 2>/dev/null | sort); f0=$(nfaults)
@@ -144,8 +176,8 @@ for r in $REPEATS; do tag=b9-q20-htp2-r$r
       >> "$V1/run_model-$tag.txt" 2>&1; rc=$?
     tb=$(date +%s); echo "$(date -Is) ARENA $tag $step END rc=$rc" >> "$LEDGER"; say "END $tag $step: run_model rc $rc"
     arena_checks $tag $step $ta $tb $wd0
-    if [ $step = 1 ] && [ $rc = 1 ]; then say "GATE $tag: arena 1 failed twice; this ladder ends (suite rule)"; break; fi
-    [ $rc = 0 ] || stop "$tag $step: run_model.sh exit $rc"
+    arena_results $tag $step $rc || { say "GATE $tag: arena 1 failed twice; this ladder ends (suite rule)"; break; }
+    say "RESULT $tag $step: $(case $step in 1) resline $tag-a1-retry || resline $tag-a1;; 2) resline $tag-a2;; 3) resline $tag-a3;; 4s) resline $tag-a4-32k;; esac | tail -1 | cut -d' ' -f2- | cut -c1-200)"
   done
 done
 say "V1 B9 batch: DONE (repeats $REPEATS)"

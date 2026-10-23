@@ -3032,3 +3032,14 @@ D185 2026-10-23 V1 B9 implementation (v1-plan-B9.txt, PR #107 merged at e30aa9e 
    no cache-state line; a kernel fault and an unknown alert; a watchdog kill; a server-log device fault; a probe
    fault; identity lost mid-batch; arena 1's gate; another run_model exit; a server left up with no checker run; each
    precondition with its own message). Nothing has run on the NPU; the run needs the owner's go.
+   Review of c858ec1 (Codex, three P2s), fixed: (a) the checkout and measured-checkout checks accepted a missing or
+   non-repository directory (empty outputs compared equal): commit ids now come only from successful commands and must
+   be non-empty, and the status must succeed and be empty. (b) A failed process listing read as "no server": the
+   listing is now checked at every use (launch, after the version call, after each arena, cleanup) and a failure or
+   empty listing stops. (c) run_model.sh returns 0 whatever arenas 2-4 did, so an arena without a RESULT passed the
+   checks: each attempted label now needs exactly one RESULT line of its arena's form (SERVER_FAILED stops) and its
+   env.txt (version line, the launcher as server command); arena 1's gate counts only with two recorded failing
+   attempts, run_model.sh exit 1 and its GATE record. test_v1_b9_batch.sh now runs the revision's real run_model.sh and
+   lib.sh with mock arenas: 44/44 (added: an arena exiting 17 without a RESULT, duplicate RESULT lines, SERVER_FAILED,
+   no env.txt, a retry that passes, a process list failing with a server present, a missing, a non-repository checkout,
+   a missing measured checkout, a failing process list at launch).
