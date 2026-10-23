@@ -3016,3 +3016,19 @@ D184 2026-10-23 GO for B9 (RUNBOOK V0d). Owner, 2026-10-23, after D181's qualifi
    capture fails closed per lifetime (V0e's journal() checks, PID and boot bound), the ledger matched one-to-one with
    the suite's server logs, so an omitted restart or a missing export stops the batch instead of reading as zero.
    Arenas now run one at a time (STEPS=<step>), arena 1's gate kept, with every check after each arena.
+D185 2026-10-23 V1 B9 implementation (v1-plan-B9.txt, PR #107 merged at e30aa9e after Codex's all clean at c072f0a):
+   phase-v1/tools/b9_server.sh (section 4.1), v1_b9_batch.sh (4.2-4.4) and v1_coverage.py (4.4's coverage rule).
+   Interpretations, declared: "any other DSP fault line" is V0e's fault definition, unchanged (watchdog kill, kernel
+   audit fault, a server-log "ggml-hex: ... failed" with an abort): the journal's other error classes seen in every
+   qualified S2 (D181: the 0xc wait_signal_locked timeout, module-table, notification and shutdown lines) are not
+   faults. A kernel audit other than pass (npu_map included) stops. The baseline probe's journal is captured
+   fail-closed like a lifetime's; checked against a real probe of D181 (probe-012602: 284 lines, the library open
+   line twice, 162 CDSP0 lines, no retry). A lifetime too short to hold a health sample is missing evidence (stops).
+   Tests: test_b9_server.sh 13/13 (wrong window, extra argument, other host, identity mismatch, no ledger, the exact
+   section-3 argv, the ledger record's PID equal to the exec'd process's, --version through the suite's own
+   manifest() with no identity check or record); test_v1_b9_batch.sh 35/35 (a clean two-repeat batch; a recorded
+   restart; an omitted restart log; a record without a log; a refused start; a failed, an empty and a DSP-less journal
+   export; a logged retry run of 2; a memory REJECT with health passing; missing samples; a 60 s gap (coverage alone);
+   no cache-state line; a kernel fault and an unknown alert; a watchdog kill; a server-log device fault; a probe
+   fault; identity lost mid-batch; arena 1's gate; another run_model exit; a server left up with no checker run; each
+   precondition with its own message). Nothing has run on the NPU; the run needs the owner's go.
