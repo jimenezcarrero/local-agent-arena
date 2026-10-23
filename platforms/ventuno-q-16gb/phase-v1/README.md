@@ -45,20 +45,25 @@ All runs: guard INTACT. Power is not measured on this board (`power_src=none`). 
 | DSP retry events | 22 logged in 14 server lifetimes, each 1 in a row (never repeated); 0 in the 3 baseline probes |
 | Memory | lowest L_min 9,469,424 kB against the 5,588,910 kB admission (5120 MiB cache + 0.33 GiB) |
 | Kernel audit | pass for all 14 server lifetimes |
+| Replay on the committed monitor export | 45/45 verdicts reproduce (`tools/replay_monitor.sh`) |
 | `scan_identifiers.py` | CLEAN (default and `--hostname`); boot ids kept as in phase-v0 (notes.md) |
 
 ## Layout
 
-- `results.txt`: the suite ledger for the three repeats.
+- `results.txt`: the suite ledger for the three repeats, as written (byte-identical to the original).
 - `runs/<label>/`: env.txt, server logs (`server_r1.log` after a restart), turns.log, restarts.log, pytest logs.
 - `lifetimes/<tag>-<arena>-<n>/`: one per server lifetime: run.txt, the fastrpc journal export and its check, kernel
   audit, memory admission; `server-log.txt` names its log under `runs/`.
 - `probes/`: the three V0e baseline probes (one before each repeat).
 - `batch/`: the driver's status, ledger, console, run_model output and health verdicts.
 - `checks/`: the post-batch checker outputs, the DSP retry events with run and turn, the sampling audit.
+- `monitor/`: the privacy-filtered monitor export for 2026-10-23 (phase-v0's `publish_monitor.py`: health minute
+  summaries, every raw sample inside each probe and server-lifetime window +-120 s, the kernel journal copy), with
+  `PROVENANCE.txt`. `tools/replay_monitor.sh` re-runs every lifetime's coverage, memory admission and kernel audit
+  and the probes' kernel audits on it alone: all 45 verdicts reproduce (`checks/monitor-replay.txt`).
 - `files.txt`: revision, binary, library and model hashes, runtime versions, effective sampling, check_sampling.sh
   output, and the hashes of the evidence originals.
 - `launch-checks.txt`: the checks made before the launch.
 
-The board's hostname is replaced by `<host>` in the committed copies (the npu-dev form); `files.txt` gives the
-originals' hashes.
+The board's hostname is replaced by `<host>` in the committed run, lifetime and probe copies (the npu-dev form);
+`files.txt` gives the originals' hashes. The monitor export drops the hostname and machine-id fields as phase-v0's does.
