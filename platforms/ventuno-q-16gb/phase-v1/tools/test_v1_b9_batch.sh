@@ -80,11 +80,14 @@ sleep 1.2
 [ "\$scen" = loadfail ] && [ \$n = 3 ] && { record "RESULT \$label: SERVER_FAILED"; exit 1; }
 case \$n in
   1) r="pytest=PASS guard=INTACT"; { [ "\$scen" = gate ] || { [ "\$scen" = retrypass ] && [ "\${label%-retry}" = "\$label" ]; }; } && r="pytest=FAIL guard=INTACT"
-     record "RESULT \$label: arena=1 pimodel=\$pim \$r time=100s pi_rc=0";;
-  2) record "RESULT \$label: arena=2 pimodel=\$pim pytest=FAIL guard=INTACT time=900s pi_rc=124";;
-  3) record "RESULT \$label: arena=3 pimodel=\$pim turns_passed=7/11 server_restarts=0 guard=INTACT total=3000s"
-     [ "\$scen" = dup ] && record "RESULT \$label: arena=3 pimodel=\$pim turns_passed=7/11 server_restarts=0 guard=INTACT total=3000s";;
-  4) record "RESULT \$label: arena=4 pimodel=\$pim pytest=PASS guard=INTACT anchor_tag=1 anchor_naming=1 functions_md=1";;
+     record "RESULT \$label: arena=1 pimodel=\$pim \$r time=100s pi_rc=0 avg_power=0mW energy=0J power_src=none";;
+  2) record "RESULT \$label: arena=2 pimodel=\$pim pytest=FAIL guard=INTACT time=900s pi_rc=124 avg_power=0mW energy=0J power_src=none";;
+  3) case "\$scen" in prefix) record "RESULT \$label: arena=3 pimodel=\$pim "; exit 0;;
+       badturns) record "RESULT \$label: arena=3 pimodel=\$pim turns_passed=12/11 server_restarts=0 guard=INTACT total=3000s avg_power=0mW energy=0J power_src=none"; exit 0;;
+       truncated) record "RESULT \$label: arena=3 pimodel=\$pim turns_passed=7/11 server_restarts=0 guard=INTACT total=3000s avg_power=0mW"; exit 0;; esac
+     record "RESULT \$label: arena=3 pimodel=\$pim turns_passed=7/11 server_restarts=0 guard=INTACT total=3000s avg_power=0mW energy=0J power_src=none"
+     [ "\$scen" = dup ] && record "RESULT \$label: arena=3 pimodel=\$pim turns_passed=7/11 server_restarts=0 guard=INTACT total=3000s avg_power=0mW energy=0J power_src=none";;
+  4) record "RESULT \$label: arena=4 pimodel=\$pim pytest=PASS guard=INTACT anchor_tag=PASS anchor_naming=FAIL functions_md=PASS compactions=2 server_restarts=0 total=5000s avg_power=0mW energy=0J power_src=none";;
 esac
 exit 0
 MOCK
@@ -108,7 +111,7 @@ rc() { cat $T/rc; }; st() { grep -q -- "$1" $V1/status.txt; }
 
 reset; REP="1 2" go
 ok "clean batch, two repeats (real run_model.sh): DONE, 8 arenas, each with the launcher and window 32768, results recorded" \
-  '[ $(rc) = 0 ] && st "V1 B9 batch: DONE" && [ $(grep -c . $M/arena-calls) = 8 ] && grep -qx "b9-q20-htp2-r2-a4-32k /l/b9_server.sh -c 32768 --host 127.0.0.1 --port 8080" $M/arena-calls && st "RESULT b9-q20-htp2-r1 3: RESULT b9-q20-htp2-r1-a3: arena=3 pimodel=local32k turns_passed=7/11"'
+  '[ $(rc) = 0 ] && st "V1 B9 batch: DONE" && [ $(grep -c . $M/arena-calls) = 8 ] && grep -qx "b9-q20-htp2-r2-a4-32k /l/b9_server.sh -c 32768 --host 127.0.0.1 --port 8080" $M/arena-calls && st "RESULT b9-q20-htp2-r1 3: RESULT b9-q20-htp2-r1-a3: arena=3 pimodel=local32k turns_passed=7/11" && st "RESULT b9-q20-htp2-r1 2: RESULT b9-q20-htp2-r1-a2: arena=2 pimodel=local32k pytest=FAIL guard=INTACT time=900s pi_rc=124"'
 ok "a baseline probe before each repeat, its journal captured (PID and boot bound)" \
   '[ $(grep -c . $M/probes) = 2 ] && grep -q "_PID=4242 _BOOT_ID=b00b" $M/journal-calls && st "DSP baseline probe-"'
 ok "every lifetime: DSP counted as logged events, memory ADMIT with coverage" \
@@ -175,6 +178,8 @@ ok "arena 1 failing once, its retry passing: both attempts checked, the ladder g
   '[ $(rc) = 0 ] && st "CHECKS b9-q20-htp2-r1 1: 2 server lifetime" && grep -q "^b9-q20-htp2-r1-a2 " $M/arena-calls'
 reset; echo noresult > $M/scen; go
 ok "an arena exiting without its RESULT (run_model.sh still 0) stops" '[ $(rc) = 2 ] && st "b9-q20-htp2-r1-a2: 0 RESULT lines" && ! grep -q "^b9-q20-htp2-r1-a3 " $M/arena-calls'
+for c in prefix badturns truncated; do reset; echo $c > $M/scen; go
+  ok "an incomplete or malformed arena-3 RESULT ($c) stops" '[ $(rc) = 2 ] && st "b9-q20-htp2-r1-a3: RESULT line incomplete or not of arena 3" && ! st DONE'; done
 reset; echo dup > $M/scen; go
 ok "two RESULT lines for one label stop" '[ $(rc) = 2 ] && st "b9-q20-htp2-r1-a3: 2 RESULT lines"'
 reset; echo loadfail > $M/scen; go

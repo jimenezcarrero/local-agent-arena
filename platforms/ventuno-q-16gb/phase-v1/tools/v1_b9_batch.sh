@@ -142,11 +142,20 @@ arena_checks() { local tag=$1 step=$2 ta=$3 tb=$4 wd0=$5 labs lab logs recs n i 
 # label needs exactly one terminal RESULT line of its arena's form in $V1/results.txt (SERVER_FAILED stops) and its
 # env.txt (the suite's manifest: version line, the launcher as server command). A model or test failure is a score.
 # needres <label> <arena number>; passres <label>: that RESULT is a pass by run_model.sh's own rule
+# RESFORM[n]: arena n's complete RESULT fields after "pimodel=local32k ", as suite/arena<n>.sh writes them (Codex review
+# of 7e3c353): every field present, in order, each with its allowed values; FAIL, MODIFIED!, a timeout's pi_rc and any
+# turns_passed out of 11 are scores and accepted, a missing, truncated or malformed field is not.
+PWR='avg_power=[0-9.]+mW energy=[0-9.]+J power_src=[a-z-]+'; GRD='guard=(INTACT|MODIFIED!)'
+declare -A RESFORM=(
+  [1]="pytest=(PASS|FAIL) $GRD time=[0-9]+s pi_rc=[0-9]+ $PWR"
+  [2]="pytest=(PASS|FAIL) $GRD time=[0-9]+s pi_rc=[0-9]+ $PWR"
+  [3]="turns_passed=([0-9]|1[01])/11 server_restarts=[0-9]+ $GRD total=[0-9]+s $PWR"
+  [4]="pytest=(PASS|FAIL) $GRD anchor_tag=(PASS|FAIL) anchor_naming=(PASS|FAIL) functions_md=(PASS|FAIL) compactions=[0-9]+ server_restarts=[0-9]+ total=[0-9]+s $PWR")
 resline() { grep -E "^[^ ]+ RESULT $1: " "$V1/results.txt" 2>/dev/null; }
 needres() { local l n e; l=$(resline "$1"); n=$(printf '%s\n' "$l" | grep -c .)
   [ "$n" = 1 ] || stop "$1: $n RESULT lines in results.txt (exactly one required)"
   case "$l" in *": SERVER_FAILED"*) stop "$1: SERVER_FAILED";; esac
-  printf '%s\n' "$l" | grep -qE "^[^ ]+ RESULT $1: arena=$2 pimodel=local32k " || stop "$1: RESULT line not of arena $2's form: ${l:0:160}"
+  printf '%s\n' "$l" | grep -qE "^[^ ]+ RESULT $1: arena=$2 pimodel=local32k ${RESFORM[$2]}$" || stop "$1: RESULT line incomplete or not of arena $2's form: ${l:0:200}"
   e=$(ls "$V1"/*/"$1"/env.txt 2>/dev/null | head -1)
   [ -n "$e" ] && grep -qE '^llama-server: .*version' "$e" && grep -q "^server_cmd: .*b9_server.sh" "$e" || stop "$1: env.txt missing or incomplete"; }
 passres() { resline "$1" | grep -q "pytest=PASS guard=INTACT"; }
