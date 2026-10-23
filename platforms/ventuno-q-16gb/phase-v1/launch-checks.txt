@@ -1,0 +1,17 @@
+V1 B9 launch checks, 2026-10-23 07:50-07:54 +02:00 (before the owner's go; nothing ran on the NPU)
+- Run checkout: ~/v1/checkout, git worktree detached at e3bde61 (PR #108 merge; plan #107 e30aa9e), clean.
+- Deployed copies: 105 ~/v0 and ~/v0/monitor files equal to e3bde61's phase-v0/tools (0 differ).
+- No llama-server or llama-bench running. Health sampler running. NPU stall watchdog not running (it does not start
+  at boot, as D177): started by hand 07:52:27 from ~/v0/npu_stall_watchdog.sh (equal to tools/).
+- B9 identity: OK (ff5a2337 package PASS 133 files, 15 links, 1 external; model 1f884aa5...; retry library 65e50e67...;
+  farf 7acc31cd...). Campaign baseline probe: retry library aa2ae2a9... match, farf 0x1f, package 836d57176 PASS.
+- Measured checkout ~/v0/measure 7badb21, clean. pi 0.80.10; pytest importable; pi local32k = 32768/8192.
+- Disk: 13 GB free (>= 10 GB).
+- Health: first run fail on package drift only: unattended-upgrade 2026-10-23 06:22-06:23 changed 14 packages
+  (distro-info-data, ghostscript, libgs10, libgs10-common, libgs-common, libnss3, libpoppler134, libpoppler-cpp0t64,
+  libpoppler-glib8t64, poppler-utils, openvpn, libcares2, zlib1g, zlib1g-dev). Libraries loaded by either runtime
+  (ldd of bin/llama-server and every lib/*.so* with its LD_LIBRARY_PATH; ff5a2337 and 836d57176): libc6, libgcc-s1,
+  libstdc++6, qcom-libdmabufheap; none upgraded. Harness: node (pi) does not link libz; python3's zlib module uses the
+  system zlib (1.3, now 1:1.3.dfsg-3.1ubuntu2.3, a security revision). As D164/D177/D179: dpkg baseline reset
+  (previous b295c458... kept as ~/bench-runs/monitor/dpkg-baseline-20261021-pre-unattended-20261023.txt; new
+  5262df5b..., 1,715 packages); health rerun 07:53: pass, 0 ALERT lines.

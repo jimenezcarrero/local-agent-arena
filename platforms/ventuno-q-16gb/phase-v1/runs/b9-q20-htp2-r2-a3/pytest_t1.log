@@ -1,0 +1,16 @@
+...F.                                                                    [100%]
+=================================== FAILURES ===================================
+_______________________ test_refund_on_cancelled_ignored _______________________
+
+    def test_refund_on_cancelled_ignored():
+        o = [Order("A", "c1", 1000, "USD", D, status="cancelled"),
+             Order("B", "c2", 1000, "EUR", D)]
+        r = [Refund("A", 500, "n/a")]
+>       assert net_revenue_eur_cents(o, r) == 1000
+E       AssertionError: assert 575.0 == 1000
+E        +  where 575.0 = net_revenue_eur_cents([Order(order_id='A', customer='c1', amount_cents=1000, currency='USD', created=datetime.datetime(2026, 7, 18, 12, 0), ...'B', customer='c2', amount_cents=1000, currency='EUR', created=datetime.datetime(2026, 7, 18, 12, 0), status='active')], [Refund(order_id='A', amount_cents=500, status='n/a')])
+
+tests/test_turn1.py:28: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_turn1.py::test_refund_on_cancelled_ignored - AssertionError...
+1 failed, 4 passed in 0.03s
