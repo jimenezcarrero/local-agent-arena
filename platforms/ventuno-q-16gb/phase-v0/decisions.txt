@@ -3082,3 +3082,27 @@ D187 2026-10-24 Owner decisions after V1 B9 (D186). (a) Boot ids: "Keep the boot
    ff5a2337, so A32-5's env.txt would have named the wrong build), with a driver-to-manifest regression per
    configuration; (b) the post-batch helpers get new entry points with explicit, required roots (B9's retry_turns.py
    and replay_monitor.sh read B9's evidence by default), refusing a missing input instead of falling back to B9's.
+D188 2026-10-24 V1 4B implementation (v1-plan-4B.txt, PR #111 merged at f410af1 after Codex's all clean at c5a0ed0). B9's
+   tools are unchanged (the record of D186's batch). New:
+   - phase-v0/tools/a32_identity_check.sh (section 3.2): the 836d57176 package as built, the patched library and .farf
+     (htp_retry_check.sh's values) and the model's sha256 in one call; fixture tests test_a32_identity_check.sh 9/9.
+     Both identity checks pass on the board's files (read-only hashing, no NPU).
+   - phase-v1/tools/v1_launcher.sh (b9_server.sh's logic, the configuration as NAME, ID_CHECK and CMD), b4_server.sh and
+     a32_server.sh (the qualified commands plus --metrics); test_v1_launcher.sh 26/26 (both configurations: refusals,
+     identity, the exact command, the ledger record, the suite's manifest() --version path).
+   - phase-v1/tools/v1_batch.sh <b4|a32> (section 4.2), made from v1_b9_batch.sh with the configuration table: tag stem
+     (b4-q20-htp1, nh4-q40-a32), launcher, identity, BENCH_WORK ~/bench-runs/v1-<cfg>, the version command on the
+     package the launcher execs (captured with the process list checked before and after, refused unless it names the
+     build: ff5a2337 or 836d57176), the retry rule (A32-5 counts as B9; a retry line in a B4 lifetime stops). New
+     precondition: the sampling audit present ($V1/sampling-audit.txt, made in the launch checks). Probe evidence goes
+     to ~/bench-runs/v0/v1-<cfg>-probes. test_v1_batch.sh 110/110: B9's 47 scenarios for each configuration plus an
+     unknown configuration, no sampling audit, a server up at the version capture, a version naming the other build,
+     the default version command per package with the driver-to-manifest path through the real launcher, B4's retry
+     stop, A32-5's retry count, the batch writing only its own BENCH_WORK.
+   - phase-v1/tools/v1_retry_turns.py <live work root> and v1_replay_monitor.sh <record root> <phase-v0 tools dir>
+     (section 4.4): both roots required; missing lifetimes, status, monitor export, journal or tools refuse (exit 2,
+     nothing read elsewhere); the replay takes the configuration from the record's directory name (b4, a32, phase-v1
+     for B9) and refuses lifetimes or status START lines of another stem. test_v1_post.sh 24/24: B9's record through the
+     new entry point gives its committed 45/45; b4/ and a32/ records made from it replay 45/45; each missing or foreign
+     input refused; a changed recorded verdict DIFFERENT; the retry list on B9's work root equals the committed one.
+   B9's own tests unchanged: test_b9_server.sh 13/13, test_v1_b9_batch.sh 47/47.
