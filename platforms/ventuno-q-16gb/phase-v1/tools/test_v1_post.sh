@@ -64,7 +64,7 @@ ok "a tools root without memfloor.py and kernel_audit.py is refused" '[ $rc = 2 
 
 # v1_retry_turns.py on a synthetic B4 work root (v1-b4): one marathon lifetime, retry lines in turns 1 and 2
 W=$T/w/v1-b4; Y=b4-q20-htp1; run=$W/arena3/$Y-r1-a3; LT1=$W/lifetimes/$Y-r1-3-1
-mkwork() { rm -rf $T/w; mkdir -p $LT1 $run/pisessions; touch $W/status.txt
+mkwork() { rm -rf $T/w; mkdir -p $LT1 $run/pisessions; echo "t LIFETIME $Y-r1-3-1: pid 1, covered" > $W/status.txt
   printf 'TURN x #1: PASS\nTURN x #2: PASS\n' > $run/turns.log; touch $run/server.log
   echo "2026-10-24T08:00:00+02:00 START pid=1 boot=b log=$run/server.log" > $W/ledger.txt
   printf '{"type": "message", "timestamp": "2026-10-24T06:00:00.000Z", "message": {"role": "user"}}\n{"type": "message", "timestamp": "2026-10-24T06:10:00.000Z", "message": {"role": "assistant"}}\n{"type": "message", "timestamp": "2026-10-24T06:20:00.000Z", "message": {"role": "user"}}\n' > $run/pisessions/s.jsonl
@@ -91,10 +91,23 @@ mkwork; mkdir -p $W/arena3/b9-q20-htp2-r1-a3; cp -r $run/. $W/arena3/b9-q20-htp2
 echo "x START pid=2 boot=b log=$W/arena3/b9-q20-htp2-r1-a3/server.log" >> $W/ledger.txt; rt $W
 ok "retry turns: a run of another configuration inside the root is refused" '[ $(rrc) = 2 ] && grep -q "resolves outside" $T/out'
 mkwork; : > $W/ledger.txt; rt $W; ok "retry turns: a server log not recorded in the ledger is refused" '[ $(rrc) = 2 ] && grep -q "not recorded in the ledger" $T/out'
-mkwork; mv $LT1 $W/lifetimes/b9-q20-htp2-r1-3-1; rt $W; ok "retry turns: a lifetime of another configuration is refused" '[ $(rrc) = 2 ] && grep -q "is not $Y.s" $T/out'
+mkwork; mv $LT1 $W/lifetimes/b9-q20-htp2-r1-3-1; sed -i "s/$Y-r1-3-1/b9-q20-htp2-r1-3-1/" $W/status.txt; rt $W; ok "retry turns: a lifetime of another configuration is refused" '[ $(rrc) = 2 ] && grep -q "is not $Y.s" $T/out'
 mkwork; rm -rf $run/pisessions; rt $W; ok "retry turns: a marathon without its pi session is refused" '[ $(rrc) = 2 ] && grep -q "0 pi user messages for 2 turns" $T/out'
 mkwork; echo "2026-10-24T07:59:00+02:00 h p: CDSP0:[R]: y (1 in a row), retrying" >> $LT1/fastrpc-journal.txt; rt $W
 ok "retry turns: an event outside every turn is refused, not listed as unknown" '[ $(rrc) = 2 ] && grep -q "outside every turn" $T/out'
+# review of 687ffbe: turn evidence required by the arena, the lifetime inventory one-to-one
+mkwork; rm $run/turns.log; rt $W; ok "retry turns: a marathon without turns.log is refused, not labelled one-turn" '[ $(rrc) = 2 ] && grep -q "no turn records" $T/out && ! grep -q "turn -" $T/out'
+mkwork; : > $run/turns.log; rt $W; ok "retry turns: a marathon with an empty turns.log is refused" '[ $(rrc) = 2 ] && grep -q "no turn records" $T/out'
+mkwork; : > $run/pisessions/s.jsonl; rt $W; ok "retry turns: a marathon with an empty session is refused" '[ $(rrc) = 2 ] && grep -q "0 pi user messages" $T/out'
+# a second lifetime (arena 1, one turn), recorded in status and ledger, with one event
+mk2() { mkwork; r2=$W/arena1/$Y-r1-a1; L2=$W/lifetimes/$Y-r1-1-1; mkdir -p $r2 $L2; touch $r2/server.log; ln -s $r2/server.log $L2/server.log
+  cp $LT1/journal-check.txt $L2/; printf '2026-10-24T07:00:01+02:00 h p: Successfully opened file libggml-htp-v75.so\n2026-10-24T07:01:00+02:00 h p: CDSP0:[R]: z (1 in a row), retrying\n' > $L2/fastrpc-journal.txt
+  echo "t LIFETIME $Y-r1-1-1: pid 2, covered" >> $W/status.txt; echo "2026-10-24T07:00:00+02:00 START pid=2 boot=b log=$r2/server.log" >> $W/ledger.txt; }
+mk2; rt $W; ok "retry turns: two lifetimes, arena 1's event labelled -, three events" '[ $(rrc) = 0 ] && grep -q "07:01:00.*$Y-r1-1-1 .*turn - " $T/out && grep -qx "# 3 logged retry events" $T/out'
+mk2; rm -rf $L2; rt $W; ok "retry turns: a recorded lifetime removed is refused, not a smaller count" '[ $(rrc) = 2 ] && grep -q "not the ones status.txt records" $T/out && ! grep -q "logged retry events" $T/out'
+mk2; sed -i '$d' $W/status.txt; rt $W; ok "retry turns: a lifetime status.txt does not record is refused" '[ $(rrc) = 2 ] && grep -q "not the ones status.txt records" $T/out'
+mk2; echo "x START pid=3 boot=b log=$W/arena1/$Y-r2-a1/server.log" >> $W/ledger.txt; rt $W
+ok "retry turns: a ledger server start without its lifetime is refused" '[ $(rrc) = 2 ] && grep -q "not the ledger.s server starts one-to-one" $T/out'
 if [ -d "$HOME/bench-runs/v1/lifetimes" ]; then
   ok "retry turns: B9's work root gives B9's committed list" \
     '[ "$(python3 -I $HERE/v1_retry_turns.py $HOME/bench-runs/v1)" = "$(cat "$PV1/checks/dsp-retry-events.txt")" ]'
