@@ -3106,3 +3106,14 @@ D188 2026-10-24 V1 4B implementation (v1-plan-4B.txt, PR #111 merged at f410af1 
      new entry point gives its committed 45/45; b4/ and a32/ records made from it replay 45/45; each missing or foreign
      input refused; a changed recorded verdict DIFFERENT; the retry list on B9's work root equals the committed one.
    B9's own tests unchanged: test_b9_server.sh 13/13, test_v1_b9_batch.sh 47/47.
+   Review of b0cec52 (Codex, four P2s; launch commands, identity and version capture confirmed), fixed: (a) B4's
+   no-retry identity stop now precedes the streak rule, so a B4 lifetime's logged run of 2 stops as evidence (exit 2),
+   not as a retry-path fault (exit 3); lifetime-only streak regressions for both configurations. (b)
+   v1_retry_turns.py requires the capture the driver accepted (journal-check "ok:", a non-empty export with the
+   library open line and CDSP0 lines), status and ledger, a pi session with one user message per turn, and every
+   event inside a turn; otherwise it refuses instead of listing zero or unknown. (c) Containment: its server.log must
+   resolve to <root>/arena<n>/<stem run>/ and be recorded in the ledger, the root's name giving the stem; the replay's
+   log reference must resolve to a file directly in <record>/runs/<stem run>/. (d) The replay's inventory comes from
+   status.txt (LIFETIME and PROBE lines) and must equal the record's directories one-to-one. test_v1_batch.sh 112/112,
+   test_v1_post.sh 46/46 (empty and unaccepted journals, foreign and traversing links, a missing ledger, session or
+   turn, all probes, one probe or one lifetime removed).

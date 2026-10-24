@@ -96,8 +96,10 @@ jcheck() { local d=$1 spid boot t0 t1 n r; : > "$d/journal-check.txt"
 # dsp <run dir> <what> [lifetime]: jcheck, then the policy: missing evidence stops, a logged run longer than 1 is a fault;
 # in a lifetime of a configuration whose library has no retry path (B4), any retry line stops (an identity question)
 dsp() { local c; c=$(jcheck "$1") || stop "$2: DSP journal evidence missing or incomplete ($(cat "$1/journal-check.txt"))"
-  say "DSP $2: logged retry events ${c% *}, longest run ${c#* }"; [ "${c#* }" -le 1 ] || faultstop "$2: repeated peek errors (${c#* } in a row)"
-  [ "${3:-}" != lifetime ] || [ $RETRY = yes ] || [ "${c% *}" = 0 ] || stop "$2: retry lines from a library without a retry path ($NAME): not the declared library"; }
+  say "DSP $2: logged retry events ${c% *}, longest run ${c#* }"
+  # first (review of b0cec52): retry lines in a B4 lifetime are an identity question, whatever their streak
+  [ "${3:-}" != lifetime ] || [ $RETRY = yes ] || [ "${c% *}" = 0 ] || stop "$2: retry lines from a library without a retry path ($NAME): not the declared library"
+  [ "${c#* }" -le 1 ] || faultstop "$2: repeated peek errors (${c#* } in a row)"; }
 # kaudit <run dir> <what>: the kernel audit once the health samples hold a good kernel read after END (exit 3 = not yet)
 kaudit() { local i krc=3
   for i in $(seq 1 "$KWAIT_TRIES"); do $KAUDIT "$1" > "$1/kernel-audit.txt" 2>&1; krc=$?; [ $krc = 3 ] || break; sleep "$KWAIT_S"; done

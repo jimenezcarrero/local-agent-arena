@@ -34,6 +34,8 @@ cat > $M/journal <<EOF
 echo "\$*" >> $M/journal-calls; case \$(cat $M/j 2>/dev/null || echo ok) in
   fail) echo "journal broke" >&2; exit 1;; empty) exit 0;; nodsp) echo "t host something";;
   retry2) printf 't Successfully opened file libggml-htp-v75.so\nt CDSP0:[R]: dspqueue_peek failed: 0x0000002f (2 in a row), retrying\n';;
+  retry2life) printf 't Successfully opened file libggml-htp-v75.so\nt CDSP0:[R]: line\n'  # probes clean, lifetimes a run of 2
+     echo "\$*" | grep -q _PID=4242 || echo 't CDSP0:[R]: dspqueue_peek failed: 0x0000002f (2 in a row), retrying';;
   *) printf 't Successfully opened file libggml-htp-v75.so\nt CDSP0:[R]: line\n'
      { [ -e $M/retry-ok ] || echo "\$*" | grep -q _PID=4242; } && echo 't CDSP0:[R]: dspqueue_peek failed: 0x0000002f (1 in a row), retrying'; true;; esac
 EOF
@@ -247,6 +249,13 @@ ok "$CFG: pi's local32k not as declared stops" '[ $(rc) = 2 ] && st "local32k is
     AVAIL0=0; POWER_SRC=none; manifest ) > /dev/null 2>&1
   ok "$CFG: through the real launcher, the suite's env.txt names $BUILD (and no lifetime record)" \
     'grep -qx "llama-server: version: 1 (build 1, commit $BUILD)" $T/mrun/env.txt && [ ! -e $T/mledger ]'
+  reset; echo retry2life > $M/j; go
+  if [ $CFG = b4 ]; then
+    ok "b4: a logged run of 2 in a B4 lifetime is the identity stop (exit 2), not a retry-path fault" \
+      '[ $(rc) = 2 ] && st "retry lines from a library without a retry path (B4)" && ! st "FAULT" && st "DSP baseline probe-.*logged retry events 0"'
+  else
+    ok "a32: a logged run of 2 in an A32-5 lifetime is a fault (exit 3)" '[ $(rc) = 3 ] && st "FAULT: $STEM-r1-1-1: repeated peek errors (2 in a row)"'
+  fi
   if [ $CFG = b4 ]; then reset; touch $M/retry-ok; go
     ok "b4: a retry line in a B4 lifetime stops (no retry path in its library)" \
       '[ $(rc) = 2 ] && st "retry lines from a library without a retry path (B4)" && st "DSP baseline probe-"'

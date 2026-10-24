@@ -22,22 +22,34 @@ ls "$P"/monitor/health-*-runs.jsonl > /dev/null 2>&1 && ls "$P"/monitor/kernel-*
 for lt in "$P"/lifetimes/*/; do case $(basename "$lt") in "$STEM"-*) ;; *) refuse "lifetime $(basename "$lt") is not $STEM's";; esac; done
 x=$(grep -oE ' START [a-z0-9-]+-r[0-9]+ ' "$P/batch/status.txt" | grep -v " START $STEM-r" | head -1)
 [ -z "$x" ] || refuse "status.txt names another configuration:$x"
+# the inventory (review of b0cec52): the lifetimes and probes the batch recorded, one-to-one with the record's
+# directories, so a subset cannot stand in for the batch
+want=$(grep -oE ' LIFETIME [^:]+:' "$P/batch/status.txt" | sed 's/^ LIFETIME //; s/:$//' | sort)
+have=$(cd "$P/lifetimes" && ls -d */ 2>/dev/null | tr -d / | sort)
+[ -n "$want" ] && [ "$want" = "$have" ] || refuse "the lifetimes in lifetimes/ are not the ones status.txt records ($(comm -3 <(echo "$want") <(echo "$have") | tr -d '\t' | head -3 | tr '\n' ' '))"
+want=$(grep -oE ' PROBE probe-[0-9]+:' "$P/batch/status.txt" | sed 's/^ PROBE //; s/:$//' | sort)
+have=$(cd "$P/probes" 2>/dev/null && ls -d probe-*/ 2>/dev/null | tr -d / | sort)
+[ -n "$want" ] && [ "$want" = "$have" ] || refuse "the probes in probes/ are not the ones status.txt records ($(comm -3 <(echo "$want") <(echo "$have") | tr -d '\t' | head -3 | tr '\n' ' '))"
+for p in $want; do for f in run.txt kernel-audit.txt; do [ -f "$P/probes/$p/$f" ] || refuse "probe $p: no $f"; done; done
 export MONITOR_DIR=$P/monitor
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 bad=0
 same() { if [ "$2" = "$3" ]; then echo "same      $1"; else echo "DIFFERENT $1"; echo "  recorded: $2"; echo "  replayed: $3"; bad=1; fi; }
 for lt in "$P"/lifetimes/*/; do
   id=$(basename "$lt"); d=$T/$id; mkdir -p "$d"; cp "$lt/run.txt" "$d/"
-  lg=$P/runs/$(sed 's|^arena[0-9]/||' "$lt/server-log.txt" 2>/dev/null); [ -f "$lg" ] || refuse "$id: its server log is not in runs/"
+  for f in run.txt memfloor-admit.txt kernel-audit.txt server-log.txt; do [ -f "$lt/$f" ] || refuse "$id: no $f"; done
+  # containment (review of b0cec52): the log resolves to runs/<stem run>/<file> inside this record, no traversal
+  lg=$(readlink -f "$P/runs/$(sed 's|^arena[0-9]/||' "$lt/server-log.txt")" 2>/dev/null)
+  case "$lg" in "$P/runs/$STEM"-*/server*.log) ;; *) refuse "$id: its server log resolves outside $P/runs/$STEM-* ($lg)";; esac
+  [ "$(dirname "$(dirname "$lg")")" = "$P/runs" ] && [ -f "$lg" ] || refuse "$id: its server log is not a file directly in a run of runs/"
   ln -s "$lg" "$d/server.log"
   cov=$(python3 -I "$HERE/v1_coverage.py" "$d" 2>&1); rec=$(grep -oE "LIFETIME $id: pid [0-9]+, .*; ADMIT" "$P/batch/status.txt" | sed -E 's/^LIFETIME [^:]+: pid [0-9]+, //; s/; ADMIT$//')
   same "$id coverage" "$rec" "$cov"
   same "$id memory admission" "$(cat "$lt/memfloor-admit.txt")" "$(python3 -I "$V0T/memfloor.py" --admit 5120 "$d" 2>&1)"
   same "$id kernel audit" "$(cat "$lt/kernel-audit.txt")" "$(python3 -I "$V0T/kernel_audit.py" "$d" 2>&1)"
 done
-for p in "$P"/probes/probe-*/; do
-  [ -d "$p" ] || continue
-  same "$(basename "$p") kernel audit" "$(cat "$p/kernel-audit.txt")" "$(python3 -I "$V0T/kernel_audit.py" "$p" 2>&1)"
+for p in $want; do
+  same "$p kernel audit" "$(cat "$P/probes/$p/kernel-audit.txt")" "$(python3 -I "$V0T/kernel_audit.py" "$P/probes/$p" 2>&1)"
 done
 [ $bad = 0 ] && echo "RESULT replay: all verdicts reproduce from the committed export" || echo "RESULT replay: DIFFERENT"
 exit $bad
