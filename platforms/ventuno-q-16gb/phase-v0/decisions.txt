@@ -3067,3 +3067,13 @@ D186 2026-10-23 V1 B9 batch done (v1-plan-B9.txt; PR #108 merged at e3bde61, run
    PROVENANCE.txt), and tools/replay_monitor.sh reproduces all 45 verdicts with MONITOR_DIR on it alone (without it
    coverage exits 1 and the kernel audit 3). (b) results.txt had its RESULT timestamps stripped (the suite
    publisher's form): now the original ledger, byte-identical.
+D187 2026-10-24 Owner decisions after V1 B9 (D186). (a) Boot ids: "Keep the boot ids, no redaction needed" (after the
+   agent explained that the kernel draws a new random boot id at every boot, unlike the machine-id). Committed
+   evidence keeps boot ids, as phase-v0 does (D182); scan_identifiers.py --boot-id stays for npu-dev evidence (its
+   undashed-form gap, D186, is a separate small fix if wanted). (b) Next step: "option 1", of three offered (V1 on
+   the two configurations that qualified without a GO; V2 rows, each needing its own qualification; the
+   context-checkpoints A/B on B9): the GO for B4 and A32-5 (each frozen as qualified, D177 and D179, window 32768).
+   The plan phase-v1/v1-plan-4B.txt, PROPOSED: one batch per configuration, B4 first, the qualified commands plus
+   --metrics, B9's driver design with the configuration as a table (B9's tools kept as they ran), a new
+   a32_identity_check.sh adding the model hash, the sampling audit in the launch checks. Implementation and tests
+   follow the plan's review; nothing runs before the owner's go for each run.
