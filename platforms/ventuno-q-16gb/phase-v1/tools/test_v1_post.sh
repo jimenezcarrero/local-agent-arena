@@ -108,6 +108,8 @@ mk2; rm -rf $L2; rt $W; ok "retry turns: a recorded lifetime removed is refused,
 mk2; sed -i '$d' $W/status.txt; rt $W; ok "retry turns: a lifetime status.txt does not record is refused" '[ $(rrc) = 2 ] && grep -q "not the ones status.txt records" $T/out'
 mk2; echo "x START pid=3 boot=b log=$W/arena1/$Y-r2-a1/server.log" >> $W/ledger.txt; rt $W
 ok "retry turns: a ledger server start without its lifetime is refused" '[ $(rrc) = 2 ] && grep -q "not the ledger.s server starts one-to-one" $T/out'
+mkwork; echo "2026-10-24T08:30:00+02:00 START pid=7 boot=b log=$run/server.log" >> $W/ledger.txt; rt $W
+ok "retry turns: a second start (another PID) on the same log is refused, not collapsed" '[ $(rrc) = 2 ] && grep -q "not the ledger.s server starts one-to-one" $T/out && ! grep -q "logged retry events" $T/out'
 if [ -d "$HOME/bench-runs/v1/lifetimes" ]; then
   ok "retry turns: B9's work root gives B9's committed list" \
     '[ "$(python3 -I $HERE/v1_retry_turns.py $HOME/bench-runs/v1)" = "$(cat "$PV1/checks/dsp-retry-events.txt")" ]'

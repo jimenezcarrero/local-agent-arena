@@ -31,11 +31,11 @@ stem = STEMS.get(os.path.basename(root)) or refuse(f'unknown work root name {os.
 for f in ('status.txt', 'ledger.txt'):
     if not os.path.isfile(os.path.join(root, f)):
         refuse(f'no {f} in {root}')
-ledger_logs = set()
+ledger_logs = []  # every recorded start, multiplicity kept (review of 708b5c4)
 for l in open(os.path.join(root, 'ledger.txt')):
     m = re.search(r' START pid=\d+ boot=\S+ log=(.+)$', l.rstrip('\n'))
     if m:
-        ledger_logs.add(os.path.realpath(m[1]))
+        ledger_logs.append(os.path.realpath(m[1]))
 lts = sorted(glob.glob(os.path.join(root, 'lifetimes', '*')))
 if not lts:
     refuse(f'no lifetimes under {root}')
@@ -88,7 +88,7 @@ for lt in lts:
             refuse(f'{name}: a retry event at {line.split()[0]} is outside every turn of {os.path.basename(run)}')
         msg = re.sub(r'^.*?(\S*retrying.*)$', r'\1', line.strip())[:110]
         rows.append(f"{line.split()[0]}  {name:22s} {os.path.basename(run):24s} turn {turn:3s} {msg}")
-if sorted(seen) != sorted(ledger_logs) or len(set(seen)) != len(seen):
+if sorted(seen) != sorted(ledger_logs) or len(set(seen)) != len(seen) or len(set(ledger_logs)) != len(ledger_logs):
     refuse(f'the lifetimes\' server logs are not the ledger\'s server starts one-to-one '
-           f'({len(set(seen))} logs for {len(ledger_logs)} recorded starts)')
+           f'({len(seen)} lifetime logs for {len(ledger_logs)} recorded starts, {len(set(ledger_logs))} distinct)')
 print('\n'.join(rows)); print(f'# {len(rows)} logged retry events')
