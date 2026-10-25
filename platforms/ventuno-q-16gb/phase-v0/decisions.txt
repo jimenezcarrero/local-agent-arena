@@ -3167,9 +3167,15 @@ D190 2026-10-25 V1 A32-5 batch done (v1-plan-4B.txt; driver and launchers from P
    all arena 3 turn timeouts with the server alive, 8 of them on turns that passed; all 11 failed turns are timeouts,
    8 in turns 7-11, whose largest requests carry 18,164-25,185 prompt tokens. Every capped arena 1-2 attempt was still
    generating at 5.7-5.9 tok/s. Observed: generation 6.1 tok/s under 8K of context to 4.9 over 24K (B4 10.8 to 4.1,
-   B9 9.2 to 7.0, same tool); not attributed (model, quantization, split, KV type and sampling all differ). DSP: 9
+   B9 9.2 to 7.0, same tool); not attributed (model, quantization, llama.cpp and DSP library build, split, KV type
+   and sampling all differ). DSP: 9
    retry events in 7 of 32 lifetimes, each 1 in a row; 0 in the 3 baseline probes. Build defaults from the server
    logs (no -np, -fa, --jinja in the qualified command): n_parallel 4 with unified KV, flash_attn auto, F16 KV,
    thinking on, in all 32. holdout_audit exit 0; 2 runs with short replies, recovered, 0 stalled turns; 0 OOM kills;
    two arena 4 requests rejected over the window (34,225; 34,512); replay 99/99 on the committed export; scan CLEAN.
    Results: phase-v1/a32/README.md, notes.md; phase-v1/README.md phase index.
+   Review of 0df93ba (Codex, one P2; results, medians, restarts, DSP counts, 340 original hashes, the 99/99 replay,
+   the monitor export, build defaults and sampling confirmed), fixed in the wording, no rerun: B9 and A32-5 both ran
+   retry-patched DSP libraries but different builds (B9 the ff5a2337 retry build, sha256 65e50e67…; A32-5 the
+   836d57176 one, aa2ae2a9…), so their retry counts are not a same-build comparison; the llama.cpp and DSP library
+   build is now among the confounders of the cross-configuration speed comparison.
