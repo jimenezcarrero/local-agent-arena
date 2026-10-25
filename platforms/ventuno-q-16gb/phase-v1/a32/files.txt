@@ -1,0 +1,460 @@
+# Phase V1 A32-5 files, generated 2026-10-25T17:10:29+01:00 from the files on disk after the batch (V1_REV run checkout ~/v1/checkout-a32).
+# Hashes are of the files as they are now; the batch's own identity check (a32_identity_check.sh, every server start)
+# verified the model and package before each start (status.txt / ledger.txt).
+
+## repository
+  run checkout revision: 45acaf9c29f54d179964f535815afd41229cc9c5 (Merge pull request #113 from jimenezcarrero/ventuno-q-v1-b4)
+  run checkout clean: yes
+  measured checkout (V0e baseline probe): 7badb21a23384379e208d56defab9b0781c5e457
+  18ac3288f28dd678f351568b7336edeede2cc0870eec84ea4aab1c88e979c3cf  /home/arduino/v1/checkout-a32/platforms/ventuno-q-16gb/phase-v1/tools/a32_server.sh
+  e38783026b83830fd538a8d24e83c1088ab487845bd57d8c44ae9efb99d00d5c  /home/arduino/v1/checkout-a32/platforms/ventuno-q-16gb/phase-v1/tools/v1_launcher.sh
+  e2eb625e934b6674297569d1950e02572424a6fadb2047d09ef4f34c36d82111  /home/arduino/v1/checkout-a32/platforms/ventuno-q-16gb/phase-v1/tools/v1_batch.sh
+  0877e20045a37b90f7d5dc87f6887a5985a091fada40a19dafbc83e35dbfddbb  /home/arduino/v1/checkout-a32/platforms/ventuno-q-16gb/phase-v1/tools/v1_coverage.py
+  bc8d06a375afae9becade884d7c2ef38045c1d0fc4ae7744789e5504f4b3130b  /home/arduino/v1/checkout-a32/suite/run_model.sh
+  192b485c7754781533129130f3c7d2c8a2fd9797e6e9f3b2aaa91eb61f8a0d0a  /home/arduino/v1/checkout-a32/suite/lib.sh
+  b14dba861cfe46160c9cb0ada797b95b7706f95bf346ba204a728787343e5335  /home/arduino/v1/checkout-a32/suite/arena1.sh
+  b9a5c2d21e58c00fe1896e52bcb835d78efa70f3f7c172553615f60489ff30c1  /home/arduino/v1/checkout-a32/suite/arena2.sh
+  7ae2c976325d11c51d3e6aadbe40786f325c8bba9e450ef0e594f6944f48fb11  /home/arduino/v1/checkout-a32/suite/arena3.sh
+  c4bda031360243507e573218b4f259e1a3d87a89ad0a9aa73acee44187ed40be  /home/arduino/v1/checkout-a32/suite/arena4.sh
+
+## server
+  launcher: platforms/ventuno-q-16gb/phase-v1/tools/a32_server.sh via v1_launcher.sh (suite call: -c 32768 --host 127.0.0.1 --port 8080)
+  effective command (a32_server.sh CMD, then the suite's arguments):
+    env LD_LIBRARY_PATH=~/v0/hexpkg/pkg-linux/lib "ADSP_LIBRARY_PATH=~/v0/farf;~/v0/htp-retry;~/v0/hexpkg/pkg-linux/lib" GGML_HEXAGON_DEVICES=HTP0:0,HTP0:1 ~/v0/hexpkg/pkg-linux/bin/llama-server -m ~/v0/models/q40/NeoHorse-1-4B-q4_0-pure.gguf --cache-ram 5120 -lv 4 --device HTP0:0,HTP0:1 -ngl 32 --ctx-checkpoints 0 --metrics -c 32768 --host 127.0.0.1 --port 8080
+  version (llama-server --version, recorded): version: 0.5.0-dev (build 11381, commit 836d57176)
+  binary and libraries (the package's own; the patched DSP library from htp-retry is first on ADSP_LIBRARY_PATH):
+  815b22bb99c8f63ee59791a9c0678bb90e9bd5574322ef959e22c98578aa5365  /home/arduino/v0/hexpkg/pkg-linux/bin/llama-server
+  eb04ce8a84acdd647cdf8c7f6e8ac386dc1ce40e52bf6bee7855aef85a28c945  /home/arduino/v0/hexpkg/pkg-linux/lib/libcdsprpc.so
+  c54d2b74753e02e0e747203acccbd9c1fedf6dd315a84e24f6dbb2843c739b4d  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-base.so
+  c54d2b74753e02e0e747203acccbd9c1fedf6dd315a84e24f6dbb2843c739b4d  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-base.so.0
+  c54d2b74753e02e0e747203acccbd9c1fedf6dd315a84e24f6dbb2843c739b4d  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-base.so.0.25.3
+  70178d45434a74ec7d0855cd5cf2d63bc2733fc5df22a32ed79f1d1983d91bd6  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-cpu.so
+  70178d45434a74ec7d0855cd5cf2d63bc2733fc5df22a32ed79f1d1983d91bd6  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-cpu.so.0
+  70178d45434a74ec7d0855cd5cf2d63bc2733fc5df22a32ed79f1d1983d91bd6  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-cpu.so.0.25.3
+  53130fb45c01835a7eaf6b8f89525c3a17ef421211f1dcddb4c7c5d619d4a78d  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-hexagon.so
+  53130fb45c01835a7eaf6b8f89525c3a17ef421211f1dcddb4c7c5d619d4a78d  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-hexagon.so.0
+  53130fb45c01835a7eaf6b8f89525c3a17ef421211f1dcddb4c7c5d619d4a78d  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-hexagon.so.0.25.3
+  ca20bc51a1ab659b6f279b9d13ba65d6d5cc4994124ee8ff746d2b7265686119  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-htp-v73.so
+  1fd898cc0709498defeed3439a52500ff8340efd7725b3f88902e0adb2d0aa37  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-htp-v75.so
+  3f05bcfad782c86db255d2d6778a7ed29d7287ae1a6254ad58fd103e71131bde  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-htp-v79.so
+  a0e64fc49b5fe5ef3d12bd328d61627c4a0755fe82afccabea00cc5a309df49d  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml-htp-v81.so
+  496f443610df36fa41a4dd57cde2bebc484e09cd874f351bd07c81acae08a7f5  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml.so
+  496f443610df36fa41a4dd57cde2bebc484e09cd874f351bd07c81acae08a7f5  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml.so.0
+  496f443610df36fa41a4dd57cde2bebc484e09cd874f351bd07c81acae08a7f5  /home/arduino/v0/hexpkg/pkg-linux/lib/libggml.so.0.25.3
+  50289d710715e566c1eadb337809d776aa44d95b9ab02670e15991da5debeeaa  /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-batched-bench-impl.so
+  a8e1a334094a08662449d6293d7594306c6a0188e6753bc1d7190c74c0734862  /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-bench-impl.so
+  3305bee3a40b0e4e021f66edc5c54336eb407726a3f440686c47f887ba41ee8e  /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-cli-impl.so
+  ccc8ac37b7d0c22bf964e7a7ef08b41cd252c58b64846ac80ef0ea29496e7065  /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-common.so
+  ccc8ac37b7d0c22bf964e7a7ef08b41cd252c58b64846ac80ef0ea29496e7065  /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-common.so.0
+  ccc8ac37b7d0c22bf964e7a7ef08b41cd252c58b64846ac80ef0ea29496e7065  /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-common.so.0.5.0
+  75830fd3a80a1ccf5904cf335ddf8c6d47808d606d6b2414a7683f8d8d7e9475  /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-completion-impl.so
+  10d1f0d82d42a7b61389eac97d63246631cd7f430950f92a4c512291d285421d  /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-fit-params-impl.so
+  377e5fba9e4d72217e59a83fcba05b22feae05bb2ba5d3b9743cd05f19c8cde1  /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-perplexity-impl.so
+  b328de57efb374de83bf957e5b1632065929c3bbc2dcd250c5ece95640aed667  /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-quantize-impl.so
+  96beb832322280e7b9dc078928480dbc46cff13922fe737783b144c7e9594fb8  /home/arduino/v0/hexpkg/pkg-linux/lib/libllama-server-impl.so
+  5e28c16114873465fb5f3bdbb7d5986236927326cbea4b1b722a2ff7b4ea1c5d  /home/arduino/v0/hexpkg/pkg-linux/lib/libllama.so
+  5e28c16114873465fb5f3bdbb7d5986236927326cbea4b1b722a2ff7b4ea1c5d  /home/arduino/v0/hexpkg/pkg-linux/lib/libllama.so.0
+  5e28c16114873465fb5f3bdbb7d5986236927326cbea4b1b722a2ff7b4ea1c5d  /home/arduino/v0/hexpkg/pkg-linux/lib/libllama.so.0.5.0
+  1cab37266089167d8c7115c324d41d81a310c46ef6ad5360d8839790fcc0eb00  /home/arduino/v0/hexpkg/pkg-linux/lib/libmtmd.so
+  1cab37266089167d8c7115c324d41d81a310c46ef6ad5360d8839790fcc0eb00  /home/arduino/v0/hexpkg/pkg-linux/lib/libmtmd.so.0
+  1cab37266089167d8c7115c324d41d81a310c46ef6ad5360d8839790fcc0eb00  /home/arduino/v0/hexpkg/pkg-linux/lib/libmtmd.so.0.5.0
+  patched DSP library (htp-retry):
+  aa2ae2a978d95935b763234c1a6cefe27f42c1cf98d67f041c17f13210fedde2  /home/arduino/v0/htp-retry/libggml-htp-v75.so
+  FARF:
+  7acc31cde8878ed69e7db525b71c42440f49d29972de44d6c0653564a613e645  /home/arduino/v0/farf/llama-server.farf
+  identity check:
+  bb865cae56a523332b22ffce9fc6ffdb045397e5db6f102abaf8442374d7aeb0  /home/arduino/v0/a32_identity_check.sh
+
+## model
+  f822fa2602af45d802e54bac518bab3f62b08943029626114a474afc3d8f3049  /home/arduino/v0/models/q40/NeoHorse-1-4B-q4_0-pure.gguf
+  source: TokenRhythm/NeoHorse-1-4B-GGUF BF16 @3c5d58ca, llama-quantize --pure Q4_0 with 836d57176 (~/v0/models/q40/NeoHorse-1-4B-q4_0-pure.quantize.log)
+
+## runtime
+  llama-server: version: 0.5.0-dev (build 11381, commit 836d57176)
+  pi: 0.80.10  provider: bench
+  python: 3.12.3 pytest 7.4.4
+  kernel: 6.8.0-1084-qcom
+  node: v22.23.3
+
+## effective sampling (each run's env.txt, from /props)
+  nh4-q40-a32-r1-a1        temperature=0.800000011920929  top_p=0.949999988079071  top_k=40  min_p=0.05000000074505806  presence_penalty=0.0  frequency_penalty=0.0  repeat_penalty=1.0  repeat_last_n=64  dry_multiplier=0.0  seed=4294967295
+  nh4-q40-a32-r2-a1        temperature=0.800000011920929  top_p=0.949999988079071  top_k=40  min_p=0.05000000074505806  presence_penalty=0.0  frequency_penalty=0.0  repeat_penalty=1.0  repeat_last_n=64  dry_multiplier=0.0  seed=4294967295
+  nh4-q40-a32-r3-a1        temperature=0.800000011920929  top_p=0.949999988079071  top_k=40  min_p=0.05000000074505806  presence_penalty=0.0  frequency_penalty=0.0  repeat_penalty=1.0  repeat_last_n=64  dry_multiplier=0.0  seed=4294967295
+  nh4-q40-a32-r3-a1-retry  temperature=0.800000011920929  top_p=0.949999988079071  top_k=40  min_p=0.05000000074505806  presence_penalty=0.0  frequency_penalty=0.0  repeat_penalty=1.0  repeat_last_n=64  dry_multiplier=0.0  seed=4294967295
+  nh4-q40-a32-r1-a2        temperature=0.800000011920929  top_p=0.949999988079071  top_k=40  min_p=0.05000000074505806  presence_penalty=0.0  frequency_penalty=0.0  repeat_penalty=1.0  repeat_last_n=64  dry_multiplier=0.0  seed=4294967295
+  nh4-q40-a32-r2-a2        temperature=0.800000011920929  top_p=0.949999988079071  top_k=40  min_p=0.05000000074505806  presence_penalty=0.0  frequency_penalty=0.0  repeat_penalty=1.0  repeat_last_n=64  dry_multiplier=0.0  seed=4294967295
+  nh4-q40-a32-r3-a2        temperature=0.800000011920929  top_p=0.949999988079071  top_k=40  min_p=0.05000000074505806  presence_penalty=0.0  frequency_penalty=0.0  repeat_penalty=1.0  repeat_last_n=64  dry_multiplier=0.0  seed=4294967295
+  nh4-q40-a32-r1-a3        temperature=0.800000011920929  top_p=0.949999988079071  top_k=40  min_p=0.05000000074505806  presence_penalty=0.0  frequency_penalty=0.0  repeat_penalty=1.0  repeat_last_n=64  dry_multiplier=0.0  seed=4294967295
+  nh4-q40-a32-r2-a3        temperature=0.800000011920929  top_p=0.949999988079071  top_k=40  min_p=0.05000000074505806  presence_penalty=0.0  frequency_penalty=0.0  repeat_penalty=1.0  repeat_last_n=64  dry_multiplier=0.0  seed=4294967295
+  nh4-q40-a32-r3-a3        temperature=0.800000011920929  top_p=0.949999988079071  top_k=40  min_p=0.05000000074505806  presence_penalty=0.0  frequency_penalty=0.0  repeat_penalty=1.0  repeat_last_n=64  dry_multiplier=0.0  seed=4294967295
+  nh4-q40-a32-r1-a4-32k    temperature=0.800000011920929  top_p=0.949999988079071  top_k=40  min_p=0.05000000074505806  presence_penalty=0.0  frequency_penalty=0.0  repeat_penalty=1.0  repeat_last_n=64  dry_multiplier=0.0  seed=4294967295
+  nh4-q40-a32-r2-a4-32k    temperature=0.800000011920929  top_p=0.949999988079071  top_k=40  min_p=0.05000000074505806  presence_penalty=0.0  frequency_penalty=0.0  repeat_penalty=1.0  repeat_last_n=64  dry_multiplier=0.0  seed=4294967295
+  nh4-q40-a32-r3-a4-32k    temperature=0.800000011920929  top_p=0.949999988079071  top_k=40  min_p=0.05000000074505806  presence_penalty=0.0  frequency_penalty=0.0  repeat_penalty=1.0  repeat_last_n=64  dry_multiplier=0.0  seed=4294967295
+
+## sampling audit (suite/check_sampling.sh from the run checkout, in the launch checks before the first run)
+  # checked 2026-10-25T08:25:00+01:00
+  ## GGUF: NeoHorse-1-4B-q4_0-pure.gguf
+    embedded sampling: none — llama.cpp defaults apply unless you pass flags
+  ## card: TokenRhythm/NeoHorse-1-4B-GGUF
+    revision: 3c5d58ca82e5 2026-09-10T03:50:26.000Z
+    "min_p": 0.0,
+    "presence_penalty": 1.5,
+    "temperature": 1.0,
+    "top_k": 20,
+    "top_p": 0.95,
+    > **Reported protocol:** SGLang v0.5.17 · `temperature=1.0` · `top_p=0.95` · `top_k=20` · `min_p=0.0` · `presence_penalty=1.5` · `repetition_penalty=1.0` · thinking mode enabled with `enable_
+  ## card: TokenRhythm/NeoHorse-1-4B
+    revision: 56f0584bb405 2026-09-10T07:47:12.000Z
+    > **Reported protocol:** SGLang v0.5.17 · `temperature=1.0` · `top_p=0.95` · `top_k=20` · `min_p=0.0` · `presence_penalty=1.5` · `repetition_penalty=1.0` · thinking mode enabled with `enable_
+  ## llama.cpp defaults if nothing above applies: temp 0.8, top_k 40, top_p 0.95, min_p 0.05, no penalties
+  ## after starting the server, confirm with: curl -s localhost:8080/props | grep -oE '"(temperature|top_k|top_p|min_p|presence_penalty)":[^,]*'
+
+## evidence originals (~/bench-runs/v1-a32 and ~/bench-runs/v0/v1-a32-probes, before the hostname was replaced by <host> in the committed copies)
+  11ccc2f7efe12bda260cc5d3f1dacc311b56d3169ab6a9f0b838581ca0206ecf  arena1/nh4-q40-a32-r1-a1/env.txt
+  f82ef5dfe7698ffb764de054a81d190d7df4e7119218d436d12350d7af175f80  arena1/nh4-q40-a32-r1-a1/pytest.log
+  b31b8261288f556831380fe7d1a76998bf8135a80cee7fc0cc5b53dfa00e4204  arena1/nh4-q40-a32-r1-a1/server.log
+  ccaafae11d4f6596f5a577caf005022aa52647020a3ffb8214dac840f0198fca  arena1/nh4-q40-a32-r2-a1/env.txt
+  f82ef5dfe7698ffb764de054a81d190d7df4e7119218d436d12350d7af175f80  arena1/nh4-q40-a32-r2-a1/pytest.log
+  c31b8f7a39797d3377559023865a8094503e35297708fe7029accc62bd90facc  arena1/nh4-q40-a32-r2-a1/server.log
+  974dc9cb5d49f1b23283e5741e6569518395694831c9fb0983a1b057f2f33c89  arena1/nh4-q40-a32-r3-a1-retry/env.txt
+  f82ef5dfe7698ffb764de054a81d190d7df4e7119218d436d12350d7af175f80  arena1/nh4-q40-a32-r3-a1-retry/pytest.log
+  ef9514bd3cd82cfb5afeab72f3600f14ecce9e261cd83a75d2a9b48b578cb7cb  arena1/nh4-q40-a32-r3-a1-retry/server.log
+  64744212ca6c6e2c1d5e81e4ae8a43af65260ae2edca8fcc1e1e89a490a07cbc  arena1/nh4-q40-a32-r3-a1/env.txt
+  08955be8521a92fbd637edb9623a5be85b749e29fc0228411f51b6f3e8db7007  arena1/nh4-q40-a32-r3-a1/pytest.log
+  f7b1bc907415b4cefea5515c90df77ceea208f995b954c4a847d8eead233abf0  arena1/nh4-q40-a32-r3-a1/server.log
+  b4c76d0294c0b0cfff9570a78552db31e84275216840915993755a8f3381235b  arena2/nh4-q40-a32-r1-a2/env.txt
+  bb694b324b4319c91905d69899df9d978b64574c7f7a4facbb9d0c4f432e021b  arena2/nh4-q40-a32-r1-a2/pytest.log
+  e013ac1a44044bd88a3fc571c93777d44fd7713c24afbc2ae4a2365ff98fcda8  arena2/nh4-q40-a32-r1-a2/server.log
+  b17c312474880d098c48c4669372a165339178442d32f7e73357f1b228497254  arena2/nh4-q40-a32-r2-a2/env.txt
+  b61914cf4e0ad3fcc0e75ba403e6d98f5606c906b58ca4130eaebd7df3cff61b  arena2/nh4-q40-a32-r2-a2/pytest.log
+  2e2205582e2374aeb3dd90598de63a338885226747da06e2967dd0368e60b5bb  arena2/nh4-q40-a32-r2-a2/server.log
+  c6819c399c3279dade19e6644b7142744dca4d6e0008b1eae8d4a65373ef5962  arena2/nh4-q40-a32-r3-a2/env.txt
+  8b47a7ee7d23e193cf4ff4ef4c080e7df266e08cdc3062ae2b1372a8d1a4036e  arena2/nh4-q40-a32-r3-a2/pytest.log
+  4f538d43eb51f7e3c6331166dc18a0f8d0a782ee35b2c7310652aa7c6b1effe3  arena2/nh4-q40-a32-r3-a2/server.log
+  3cfe3cf1d4c9ff97ffb2e06bf2a05354eda551dfed2672cdbb564c79d1af267c  arena3/nh4-q40-a32-r1-a3/env.txt
+  9310d484212a1fe2c33b4b8accdf50a2639f09ba039354f8448f8aa8d173e1ff  arena3/nh4-q40-a32-r1-a3/pytest_t1.log
+  fc4bdbc306a5cd8229bd86fe73dad4927cb19b1f79f8884e3c7fff5dcb539bcc  arena3/nh4-q40-a32-r1-a3/pytest_t10.log
+  fc4bdbc306a5cd8229bd86fe73dad4927cb19b1f79f8884e3c7fff5dcb539bcc  arena3/nh4-q40-a32-r1-a3/pytest_t11.log
+  ee09f6debd9f81709cd5af75a47e8b1c6ed9a94b8e82a9b34c00f597199e9c17  arena3/nh4-q40-a32-r1-a3/pytest_t2.log
+  d69b6f69e04bc0a56bc320b823fe9ffa437ecb7e0a2d05a2ace978766d34d550  arena3/nh4-q40-a32-r1-a3/pytest_t3.log
+  468e689e139b7e68ec038b0c54b35b37f60c211560f04d323bfedafe3d5c6b74  arena3/nh4-q40-a32-r1-a3/pytest_t4.log
+  2517e9eae50646d7bbe12680a6b4bab62b845ea0743476059c8b765356d3b1f7  arena3/nh4-q40-a32-r1-a3/pytest_t5.log
+  3da4ba403df666fb39ff2fc6af3cfa694bba99d7c9d88407e7e5a05a5436e3e9  arena3/nh4-q40-a32-r1-a3/pytest_t6.log
+  044af7835ebc0e80d6e13d203b5537ecf4f236c8dbcf40820ee786efac8e4bd0  arena3/nh4-q40-a32-r1-a3/pytest_t7.log
+  ea7ed0516efe6736a8eaee426685e40a2393fbf3ae84104a743f394204c2ec33  arena3/nh4-q40-a32-r1-a3/pytest_t8.log
+  ca297b4167ea52f7a0e7e3fb4defd206e74168ef515dfd8fecdf753aeb5acf97  arena3/nh4-q40-a32-r1-a3/pytest_t9.log
+  be53561d5ae99e831d145d6c3dd1302312d205023b96741ee573110607183e60  arena3/nh4-q40-a32-r1-a3/restarts.log
+  9e5cb5a945d111d54e1ca1cb8092736fc15fd614cfb25f96d78eeffae5a8336d  arena3/nh4-q40-a32-r1-a3/server.log
+  55dc9ac994ed1f10aa48bad0e7bf02bbc6d55d775bbad6480181ced920ce018f  arena3/nh4-q40-a32-r1-a3/server_r1.log
+  98807598c02c8eca31a7c8fc46565fe4b2b6cc615654ce52491a40392e770630  arena3/nh4-q40-a32-r1-a3/server_r2.log
+  8d38a974276d1613aced5cc16507297ef09fa142c6fb50d08f2e10dcf5864b00  arena3/nh4-q40-a32-r1-a3/server_r3.log
+  4dd38af90b040aa9718335d2a1d2c628dd17baf55c1cc4043bfdc3b8ad88556c  arena3/nh4-q40-a32-r1-a3/server_r4.log
+  3bcdc7a0ee3f117e8f718136ac79ec95790c4b8e196b318a46c68a76bf971ca9  arena3/nh4-q40-a32-r1-a3/server_r5.log
+  782e9e84090776b702b4f5853f0b2c59ce75858b42f8c6f89badeeb501f437f6  arena3/nh4-q40-a32-r1-a3/server_r6.log
+  a0ed9c2348683eb24dbf07f89133e18978fb84f6b3bcb5b846a8dc6a71824be7  arena3/nh4-q40-a32-r1-a3/tests_final.md5
+  4fdf5a584b939ba148ba8f088c114ea130a00d9f352cf3a3ff2206486db4a63c  arena3/nh4-q40-a32-r1-a3/turns.log
+  744581f3e306fcb631953527ec9ebbb7acc75c631ee41f2b5d71f79d00a5a24c  arena3/nh4-q40-a32-r2-a3/env.txt
+  8d4e45fdba0718f7402118b09b5dbd75a7c1f968e31a1ac138748346416f232f  arena3/nh4-q40-a32-r2-a3/pytest_t1.log
+  eaf3153405397cd40eb94d32ef48cc8a3a1650e67b4f0e9f22420e3b0a736d4a  arena3/nh4-q40-a32-r2-a3/pytest_t10.log
+  95c42e53feef2a3d024eebec64d88f275e3f8f4d069f7c4adf508aec7f42c365  arena3/nh4-q40-a32-r2-a3/pytest_t11.log
+  ee09f6debd9f81709cd5af75a47e8b1c6ed9a94b8e82a9b34c00f597199e9c17  arena3/nh4-q40-a32-r2-a3/pytest_t2.log
+  d69b6f69e04bc0a56bc320b823fe9ffa437ecb7e0a2d05a2ace978766d34d550  arena3/nh4-q40-a32-r2-a3/pytest_t3.log
+  468e689e139b7e68ec038b0c54b35b37f60c211560f04d323bfedafe3d5c6b74  arena3/nh4-q40-a32-r2-a3/pytest_t4.log
+  2517e9eae50646d7bbe12680a6b4bab62b845ea0743476059c8b765356d3b1f7  arena3/nh4-q40-a32-r2-a3/pytest_t5.log
+  26fbeab7ccff6016c0eb186fed2d6c5c8bb7ebf0eba5f3ea48ddc8a7ecbe5314  arena3/nh4-q40-a32-r2-a3/pytest_t6.log
+  044af7835ebc0e80d6e13d203b5537ecf4f236c8dbcf40820ee786efac8e4bd0  arena3/nh4-q40-a32-r2-a3/pytest_t7.log
+  ea7ed0516efe6736a8eaee426685e40a2393fbf3ae84104a743f394204c2ec33  arena3/nh4-q40-a32-r2-a3/pytest_t8.log
+  eaf3153405397cd40eb94d32ef48cc8a3a1650e67b4f0e9f22420e3b0a736d4a  arena3/nh4-q40-a32-r2-a3/pytest_t9.log
+  c970b66cada82972d9bf20e798327bb0ea7e237aa8c826e30b96005282e63c3d  arena3/nh4-q40-a32-r2-a3/restarts.log
+  0a9427b57dde9c7774d7550272093312ce0965fbd2d6557ad252ee42de1a2e44  arena3/nh4-q40-a32-r2-a3/server.log
+  0ec85f362f11df25c30d2dd9bb6b57bb4970e98e7d5818fda54a9e050ba6392b  arena3/nh4-q40-a32-r2-a3/server_r1.log
+  a959f51e4c2d6a75eb90d7eda88edc78d9c442dafd85b7ca995e546acbe7896d  arena3/nh4-q40-a32-r2-a3/server_r2.log
+  df43db12ef561795ad8c22b1aa7505528754ee7750a6c0190ff6f151c2cf1ccd  arena3/nh4-q40-a32-r2-a3/server_r3.log
+  c22b678ffff14ada65e7b99b9570c8bd6bb18a260256e48df38fc1ae0f954c26  arena3/nh4-q40-a32-r2-a3/server_r4.log
+  6bd80fd1f9482efe5e69a26ae5dc12c44dc1ba87e35dc85549d6283572f938f4  arena3/nh4-q40-a32-r2-a3/server_r5.log
+  1ae81cdc80afee7d9dabd48b25d33f74828cc86a75c622175be0093a228260c5  arena3/nh4-q40-a32-r2-a3/server_r6.log
+  0a37a044c9078f42597bfe60f8ade6febea7826d6f76809293f24a8c6a3d573b  arena3/nh4-q40-a32-r2-a3/server_r7.log
+  a0ed9c2348683eb24dbf07f89133e18978fb84f6b3bcb5b846a8dc6a71824be7  arena3/nh4-q40-a32-r2-a3/tests_final.md5
+  7658b4d9e90c5fafac9a738f940d6174296781727a2af5a31f185aab616db31e  arena3/nh4-q40-a32-r2-a3/turns.log
+  060ce9feabe47db998d57f7e574369931b530a91201a2db6fbb15b30863842eb  arena3/nh4-q40-a32-r3-a3/env.txt
+  82ee09b04e7806b9a57748bcdc9da5e0bdce9228bd270b89e822c6de627cbf33  arena3/nh4-q40-a32-r3-a3/pytest_t1.log
+  3dc568913f31eecf3ccc520cf46166ae352301c7cd2f9803b73df60a7cafda2d  arena3/nh4-q40-a32-r3-a3/pytest_t10.log
+  f3675200308d9086f91b13696fdbc4e1edb5627d2d4c42fc2fbe30e9933e25f1  arena3/nh4-q40-a32-r3-a3/pytest_t11.log
+  ee09f6debd9f81709cd5af75a47e8b1c6ed9a94b8e82a9b34c00f597199e9c17  arena3/nh4-q40-a32-r3-a3/pytest_t2.log
+  d69b6f69e04bc0a56bc320b823fe9ffa437ecb7e0a2d05a2ace978766d34d550  arena3/nh4-q40-a32-r3-a3/pytest_t3.log
+  468e689e139b7e68ec038b0c54b35b37f60c211560f04d323bfedafe3d5c6b74  arena3/nh4-q40-a32-r3-a3/pytest_t4.log
+  2517e9eae50646d7bbe12680a6b4bab62b845ea0743476059c8b765356d3b1f7  arena3/nh4-q40-a32-r3-a3/pytest_t5.log
+  1112ff58c06500a279433c9cafd4e11cb1cadbee38c55d8e635b8eed5319bbaf  arena3/nh4-q40-a32-r3-a3/pytest_t6.log
+  24f97dda1ab5e538c04e5df1ba763a5b896244639d4d104ab037506913b4eb8a  arena3/nh4-q40-a32-r3-a3/pytest_t7.log
+  6bbe39253061e533d984eab6a35e3d435ed1803ec05e4ebbf9e3cba2d2ef09c1  arena3/nh4-q40-a32-r3-a3/pytest_t8.log
+  1469cea92abf7094bbcfc7156799911559d9faa6a1f85ef463fcbeeb198d6b0a  arena3/nh4-q40-a32-r3-a3/pytest_t9.log
+  c1226406a64e3df0833c1a0b661c7c3bbd52ac915cac063697de772ddc228006  arena3/nh4-q40-a32-r3-a3/restarts.log
+  384ea7e24fbb11020c408143aff619b33d74b5695fab3005582be5bbc35bad4d  arena3/nh4-q40-a32-r3-a3/server.log
+  a3fe6094916f47156410211d0b97146ee929bfa1d635e2f0e08ee2e1de29e68f  arena3/nh4-q40-a32-r3-a3/server_r1.log
+  f876a2c0dd0e82baee8aed815118c8f9a47fb865dfeb84bffc8d1d8ead8ed058  arena3/nh4-q40-a32-r3-a3/server_r2.log
+  94c765b0a6e8e8822f553b1f2a8a83e2a08cdf2a87af537b7d817ee7352c927a  arena3/nh4-q40-a32-r3-a3/server_r3.log
+  a11916c7c52ec9c799c041fe04796b50f6579d96ff47cc81f642d32d5860bed9  arena3/nh4-q40-a32-r3-a3/server_r4.log
+  8a825982a6b5099aa5db6046a2f1a8c0c7875f6b0e9720a18b145ba0c422ca43  arena3/nh4-q40-a32-r3-a3/server_r5.log
+  fab2584d5764c68fee3f36658abc7245846d7916b072e19eee541514e28efb86  arena3/nh4-q40-a32-r3-a3/server_r6.log
+  a0ed9c2348683eb24dbf07f89133e18978fb84f6b3bcb5b846a8dc6a71824be7  arena3/nh4-q40-a32-r3-a3/tests_final.md5
+  c4ba11dcd443f092f10481a0bfad912bf29352b84bbafacf1335d02e078d88bc  arena3/nh4-q40-a32-r3-a3/turns.log
+  e5705126ff50ab57970c4b83f14cd0e49f3272241658c6480de5298d38d3d524  arena4/nh4-q40-a32-r1-a4-32k/env.txt
+  e0a6ea218ea5d725ce7272da8d68d45a029e489423e03af6960c7bff0f7fe414  arena4/nh4-q40-a32-r1-a4-32k/pytest.log
+  683c0b92525cd7d50d692e5a5853312a46651757ff289d9ad975494139127fbd  arena4/nh4-q40-a32-r1-a4-32k/server.log
+  6e3969ae446206404872b491a67924fc9cc42e5cb0cbee844ca585aa9f997f35  arena4/nh4-q40-a32-r1-a4-32k/turns.log
+  e9e88fe619992fe5384782df2fb471e81f4567a7f79e6752f0e20abcbeea0771  arena4/nh4-q40-a32-r2-a4-32k/env.txt
+  c2cba0e5b1275bde99432021fd22a26635493fa35d0886fcd5cd38708b0f7cca  arena4/nh4-q40-a32-r2-a4-32k/pytest.log
+  5492793406ec006ee30de1d7e1bc5b8c65dd50a871518bf4056f0e887e63ec73  arena4/nh4-q40-a32-r2-a4-32k/server.log
+  00a5e6b6082d1fb7f112f0c7934c1697d68547015fb9a717d6fae79d0eb258ed  arena4/nh4-q40-a32-r2-a4-32k/turns.log
+  1d4439dca7d801a35ba401aa72f0c6ea55f01c6a9c0391b2bc7c15ebf925b78f  arena4/nh4-q40-a32-r3-a4-32k/env.txt
+  e0a6ea218ea5d725ce7272da8d68d45a029e489423e03af6960c7bff0f7fe414  arena4/nh4-q40-a32-r3-a4-32k/pytest.log
+  2d11c90f4032b921d265c63b44db47bb17f37b269b85d664dc1aec69fb3a2fcc  arena4/nh4-q40-a32-r3-a4-32k/server.log
+  93f574c8daff89cff405b1e4520ef2006fb9ae66d2cbde26b3ce174aa10b55f9  arena4/nh4-q40-a32-r3-a4-32k/turns.log
+  8c800d396f751e2bc350d1c02e7467ca6f495d830d525d1697194776453c9f9b  lifetimes/nh4-q40-a32-r1-1-1/fastrpc-journal.txt
+  0b67b382352fdce5dbed7d6ce5e15f9e2c16819c19d600edd04904cec65024b9  lifetimes/nh4-q40-a32-r1-1-1/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r1-1-1/journal-err.txt
+  9a9c4ee36c7ae6eba049d4a7000b48ab4642731b986f4fd307d39a3920b98408  lifetimes/nh4-q40-a32-r1-1-1/kernel-audit.txt
+  d2c5ae329202511d6886a377a11e37c6117bf23a7c2ba94af5d4743d34a72526  lifetimes/nh4-q40-a32-r1-1-1/memfloor-admit.txt
+  6d4ab32cc16abf0f7e813aa85e2d03a848b81e642ea30cbcd27d4f29e9c0796b  lifetimes/nh4-q40-a32-r1-1-1/run.txt
+  008bb545c7ad683a97b88fb054dceebf6a5fef9bb9cebbb78874312d94f42f0d  lifetimes/nh4-q40-a32-r1-2-1/fastrpc-journal.txt
+  00b5cfb8d333ab5ce22a792e2f89e05c02310da64fc6e076d85e3e59584034a8  lifetimes/nh4-q40-a32-r1-2-1/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r1-2-1/journal-err.txt
+  aad9c110df51c2b95baebe1756e58770c807891e9e0a38cac12bacb66d1d3dc9  lifetimes/nh4-q40-a32-r1-2-1/kernel-audit.txt
+  6a748474032be0a0b60ce3f60dccc942e6e8c41eb59fd9f4cc4058daf55f328e  lifetimes/nh4-q40-a32-r1-2-1/memfloor-admit.txt
+  0c823a2a305da2cd3c62235ebbbf8e14ae05345ec90f05a2237dd3c72344dd89  lifetimes/nh4-q40-a32-r1-2-1/run.txt
+  89f1e0a490ed9f5ea0fa78d7b502c803c86fd4a714eb161b752d73bc4ca02615  lifetimes/nh4-q40-a32-r1-3-1/fastrpc-journal.txt
+  8e5b6432f4888ba66c0d4b62275e5d10f504dacc81e9ca88be0bb7b239912ed1  lifetimes/nh4-q40-a32-r1-3-1/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r1-3-1/journal-err.txt
+  67d71029aa1dc8d2ace9551cbc2a477996af4f4b42654b0316cce9ef1f11b943  lifetimes/nh4-q40-a32-r1-3-1/kernel-audit.txt
+  00824675db95eb8ea0536f178d8a5d4f188b94b42b935bfba4dac620d5795038  lifetimes/nh4-q40-a32-r1-3-1/memfloor-admit.txt
+  acb55d431e1abe86ad8de0eef0ee10a55a0848ffc1d818a24faf7b4c6d4cf9b1  lifetimes/nh4-q40-a32-r1-3-1/run.txt
+  10ab219b7dbc68a69b637684ef9517f773f32245517c4eea0b91d722b1cd5ddd  lifetimes/nh4-q40-a32-r1-3-2/fastrpc-journal.txt
+  d32b5d745e6dbcc683139b39fe82b8bbb69902ac45de79176961b57596118811  lifetimes/nh4-q40-a32-r1-3-2/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r1-3-2/journal-err.txt
+  ac1e72dc4f8ab473a5a69a16cec8075360e94764b88700c126e2094a77c885ef  lifetimes/nh4-q40-a32-r1-3-2/kernel-audit.txt
+  f73aca6ec3576deca1ff61e91a1c8a8d45c11f43937c1163c22a51c8de28bb29  lifetimes/nh4-q40-a32-r1-3-2/memfloor-admit.txt
+  362ddc48cfc58fab54086cf883b0728a6eab756afe64ce9173f1c29c3423e768  lifetimes/nh4-q40-a32-r1-3-2/run.txt
+  a925b5248114a7de39e0b58ea0dbe47865c9ae6ccd9878e0c1d8b12c89be305f  lifetimes/nh4-q40-a32-r1-3-3/fastrpc-journal.txt
+  961d93126a65dc54d13c8693bb087e5afba3598145fd1813741d6dfe8df32f29  lifetimes/nh4-q40-a32-r1-3-3/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r1-3-3/journal-err.txt
+  14a126eb9240ebe73517ddd14a054d798287a074cf0ebc924eddd1b3d457ddd0  lifetimes/nh4-q40-a32-r1-3-3/kernel-audit.txt
+  3a391c672aedec22664bb7c6837c6ad0c8cfafe1203ad0364e6e78bced237796  lifetimes/nh4-q40-a32-r1-3-3/memfloor-admit.txt
+  a1fe26ef8b0c8fdcecaf5cfc4c928ed09b7ac78ccfabd852cce59781630e80c7  lifetimes/nh4-q40-a32-r1-3-3/run.txt
+  44672569048d619a7d9a2198294b9feff26a4526232c66f1430f9dc49952d32b  lifetimes/nh4-q40-a32-r1-3-4/fastrpc-journal.txt
+  254f067ea61505d89f06af99032b06cff6fa0cbaf16db8c3af0ae576d10c5a9c  lifetimes/nh4-q40-a32-r1-3-4/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r1-3-4/journal-err.txt
+  abe98860b00dd12d00e833e048087a76ed6299c66f13770cded8b3de825e88df  lifetimes/nh4-q40-a32-r1-3-4/kernel-audit.txt
+  1e187dafb2f092fa5c74838ef9f9342b8b8e2a8cea33326cffb75640c2af96f4  lifetimes/nh4-q40-a32-r1-3-4/memfloor-admit.txt
+  9efced604fb21cc88b5f0d5d1a549e8badadeb5142ecefafb0ba6aa5f989d655  lifetimes/nh4-q40-a32-r1-3-4/run.txt
+  ff9dd332375dfd8129a46ba560e7a23cf2308cb3d8a053e409bb9caf0af9eb7b  lifetimes/nh4-q40-a32-r1-3-5/fastrpc-journal.txt
+  0459459013e4b05edc44718c1586715daeac998a7c6fb1e529f48f367ebe3a7b  lifetimes/nh4-q40-a32-r1-3-5/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r1-3-5/journal-err.txt
+  ab2b2498a982947664cccca4591790e731776f933c4ab235cfaf8f26c7fc2628  lifetimes/nh4-q40-a32-r1-3-5/kernel-audit.txt
+  d2384fb97964322906a907fad804df8bab4ca172c4267938092d911be9b63cde  lifetimes/nh4-q40-a32-r1-3-5/memfloor-admit.txt
+  e10239676206a6b094f85a2eb8a4823f10514f373f92f6669de399fe310cfffb  lifetimes/nh4-q40-a32-r1-3-5/run.txt
+  49634293ed90f82d6b19c6cd48f399b2e251a86cc5709bc0e7e2ba11ec4d3a2c  lifetimes/nh4-q40-a32-r1-3-6/fastrpc-journal.txt
+  88121b665fcfde8f9c2d4c9f4db8f431c0550f580ae5d3aa22ccae02010e9997  lifetimes/nh4-q40-a32-r1-3-6/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r1-3-6/journal-err.txt
+  6fb4f9f14b5fe4ead49b73303902fb5de048c137a424a84194ff9fb02167ebd9  lifetimes/nh4-q40-a32-r1-3-6/kernel-audit.txt
+  a29656761181d8bc521185712fea8c71b994c9e45044620f5cd72928fabdbe88  lifetimes/nh4-q40-a32-r1-3-6/memfloor-admit.txt
+  4576e06a6c7a829bd47f391abceafdf065d3753756ecef1f84adf13fbbc92164  lifetimes/nh4-q40-a32-r1-3-6/run.txt
+  233688a7e29d7c0c8b273ef672d9ace31e26d02e07b7f1fb8fea641ae6ddc37d  lifetimes/nh4-q40-a32-r1-3-7/fastrpc-journal.txt
+  2846e91c7d6382e2f8c0595d8ec40e527d89347973b9eaee81555eb88e411fbc  lifetimes/nh4-q40-a32-r1-3-7/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r1-3-7/journal-err.txt
+  51cab7bab449a0d38253ab9db3ea327eeecdd2707e8d51e97fb9bf6cd6e6f1d2  lifetimes/nh4-q40-a32-r1-3-7/kernel-audit.txt
+  e9f18320d2aef3152db8c26e213b73439bfa0cb96bde50dc96e0bc8b067ae7f7  lifetimes/nh4-q40-a32-r1-3-7/memfloor-admit.txt
+  eee6df5429bda681fa49db677c2c292431da4d154ca8d8dd21e5be84218c954e  lifetimes/nh4-q40-a32-r1-3-7/run.txt
+  416b57db9156dee9ede13ca18548205c90e5cc644981ab36b93f465405374d28  lifetimes/nh4-q40-a32-r1-4s-1/fastrpc-journal.txt
+  033ca9c2dcfef1762e3cd4bb0109ee1b763e4a31507983a93dfbdd9a6b0f9f63  lifetimes/nh4-q40-a32-r1-4s-1/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r1-4s-1/journal-err.txt
+  524fddbc74679af702865e6f3f14d704a20770ad252e6eae13b4b5bad4db275a  lifetimes/nh4-q40-a32-r1-4s-1/kernel-audit.txt
+  83f957af86ca54ce740660b44a6ff1a49ed1599bf7a2c1eaf036d538531227d5  lifetimes/nh4-q40-a32-r1-4s-1/memfloor-admit.txt
+  80bad51f3322c453a258d8a14e1c0b9a01a5de8602f147f45765207fdec0e967  lifetimes/nh4-q40-a32-r1-4s-1/run.txt
+  05173e9a5145e48f3b9412150debf4aae5d33f19efb9803cc491f99d97ce7cdd  lifetimes/nh4-q40-a32-r2-1-1/fastrpc-journal.txt
+  9f0d82c28c7c78b2362cc923ae5f2ac6f34639551412bb9bc8f046d791678cb7  lifetimes/nh4-q40-a32-r2-1-1/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r2-1-1/journal-err.txt
+  7bd80d312af40201beb0891cc1365e6433f3fb3b7dd6bd8fd52a7c4756c6c61a  lifetimes/nh4-q40-a32-r2-1-1/kernel-audit.txt
+  25ef5f71c59c5f6e2c091708db0737aaefa2d10905bdb796b82f90ff271df93b  lifetimes/nh4-q40-a32-r2-1-1/memfloor-admit.txt
+  f04757bd7e69e82b6e7be545f74e1a652f68c96b276fabae5adfd52bae65a956  lifetimes/nh4-q40-a32-r2-1-1/run.txt
+  501fcbe36014ccfd9bd87a19ff242701291d8244bf7b1f0884566f803a2687ec  lifetimes/nh4-q40-a32-r2-2-1/fastrpc-journal.txt
+  0b3b04d8a9ad5f9e8a864d827a13d5eba142f3200a5e32c3822b3f83043ef904  lifetimes/nh4-q40-a32-r2-2-1/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r2-2-1/journal-err.txt
+  a066b6d651e58d0ff157a4e95ca89070cbd3f80eb1ce5df3d19d6e5b0ae47a3d  lifetimes/nh4-q40-a32-r2-2-1/kernel-audit.txt
+  47b7cc35b4c2b4f7eedaa2be83866d5fc7b8a19d218bf3a7d5027ce59eac2dd3  lifetimes/nh4-q40-a32-r2-2-1/memfloor-admit.txt
+  ced31fe8513249a043dad0cf58d75e4bea8789dc9d89b2c7ef5fd4b97473bcf5  lifetimes/nh4-q40-a32-r2-2-1/run.txt
+  f3a6227791905ef5ff4e88d6eda7f393bd2b2da9fb75e52dd73f3458b2271127  lifetimes/nh4-q40-a32-r2-3-1/fastrpc-journal.txt
+  df743dd93559641c6e62422b8871bbfb79b8448f06a6c3246e4ea537c8aa2371  lifetimes/nh4-q40-a32-r2-3-1/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r2-3-1/journal-err.txt
+  fa7bcbec6f5ad977a6a30ce838f7c63f5246e494d6a5fd3689a996bfc96a4d93  lifetimes/nh4-q40-a32-r2-3-1/kernel-audit.txt
+  678da5cbdc26d73fa72114450b0e613523aa8822822f8c7c83da07b4c1f950a3  lifetimes/nh4-q40-a32-r2-3-1/memfloor-admit.txt
+  2df273e4d01d71b992e9dd5f9deaa3872e99f4716d184fa482ca374a4da19aed  lifetimes/nh4-q40-a32-r2-3-1/run.txt
+  a1c81ed97991a233e2fbbb503778b01e3cf2757504c7f4d8d7df9671f368c58a  lifetimes/nh4-q40-a32-r2-3-2/fastrpc-journal.txt
+  8f0fccf0ce35dbcb9305882bb7a69efebe69c382d5d4069f062e23c79adf74a2  lifetimes/nh4-q40-a32-r2-3-2/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r2-3-2/journal-err.txt
+  5abfd0b01f759f8f1f162710076d770f77e41c6f5c968310b844c7e3bc61c840  lifetimes/nh4-q40-a32-r2-3-2/kernel-audit.txt
+  b0762fc91ebc8ac3c123e3a100685b023e449ebd18984d0438931b6db30c006d  lifetimes/nh4-q40-a32-r2-3-2/memfloor-admit.txt
+  73a075e5300736fccf6c0a121c1ac442eb228eff2376120882f9fd617804214a  lifetimes/nh4-q40-a32-r2-3-2/run.txt
+  a2fa012d719aceab6567b232b6a4ba41e0ec93a40bf9858fae32428d40756166  lifetimes/nh4-q40-a32-r2-3-3/fastrpc-journal.txt
+  a88f11b626bc561f08d118af09dc1f5b79ba8c854cd7aeb6b73f234285c1d1a1  lifetimes/nh4-q40-a32-r2-3-3/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r2-3-3/journal-err.txt
+  711631990e690767590d43e490a65515b8acaa10c7b665bca703f8abed960aad  lifetimes/nh4-q40-a32-r2-3-3/kernel-audit.txt
+  2e459879fe593b51eb3305d6e9e3262c266b4f84dce3d586e986ab046765bea9  lifetimes/nh4-q40-a32-r2-3-3/memfloor-admit.txt
+  e388065123385fab4f0316e13b180ee74f7e23dc7634b1fb8b726ec984650813  lifetimes/nh4-q40-a32-r2-3-3/run.txt
+  b8ac4b8917d0301a960ad03a6c68d514dd07ca323ab991684234c9b2a63af4af  lifetimes/nh4-q40-a32-r2-3-4/fastrpc-journal.txt
+  506e67b64001d5381294e22713eeb8628821bb0b02ec9482e1acda7b280b405e  lifetimes/nh4-q40-a32-r2-3-4/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r2-3-4/journal-err.txt
+  646e10ed6b9ebd8fed3fa13df06028c95b296112058775e3748320c6a713f098  lifetimes/nh4-q40-a32-r2-3-4/kernel-audit.txt
+  119220ac30160ce4ffc2ea851d12ff82093fb967b35a1574473887bf075d2629  lifetimes/nh4-q40-a32-r2-3-4/memfloor-admit.txt
+  ea026f67c407e28e2198a34dcaed4b5a4276b8ea606ea2525e2406bd6283ce45  lifetimes/nh4-q40-a32-r2-3-4/run.txt
+  e88b4186feb3c1a273c886f03c231a16f7cab84b18e46f55dac179781717afc7  lifetimes/nh4-q40-a32-r2-3-5/fastrpc-journal.txt
+  04e485a71e46cfc7495a078e00b1334978142ec8f5cb8d5020b13b5c07e83c3f  lifetimes/nh4-q40-a32-r2-3-5/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r2-3-5/journal-err.txt
+  e98441beb490ec51f8a8ecc6083197e5bc9d35a4ad8f5f15fce10abacdcb7714  lifetimes/nh4-q40-a32-r2-3-5/kernel-audit.txt
+  82267ef8e3e0bc05b5736c9f810686f15e329c58f8d5f71062d4426ea97370de  lifetimes/nh4-q40-a32-r2-3-5/memfloor-admit.txt
+  f9868eb83d4a4d49169d59e837e3f8cd041a0f09abf14c26c5515fbd13f827a2  lifetimes/nh4-q40-a32-r2-3-5/run.txt
+  2a3c07c7db36674268d955867a284fc2d80c423084ae254762d66da7dd2be9f1  lifetimes/nh4-q40-a32-r2-3-6/fastrpc-journal.txt
+  3d10e77a2fa8d0d5665ffdfc1299584caa046776462c3681da3daf8c57db482d  lifetimes/nh4-q40-a32-r2-3-6/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r2-3-6/journal-err.txt
+  15143cc3f727e55bf0a32323d61e03a4ec1c74e9c1674a426b0df0b044eed5f7  lifetimes/nh4-q40-a32-r2-3-6/kernel-audit.txt
+  af30505bb408df84462af326aa39d62e7d3ce9da76ebfee86b48b12270a4d2d9  lifetimes/nh4-q40-a32-r2-3-6/memfloor-admit.txt
+  49dc6b3d9aae823076b0f02451c59789aac15152484190d154f1d2508b5bd3b2  lifetimes/nh4-q40-a32-r2-3-6/run.txt
+  8828b0c8e2fc3284d8389177085dd3ca68337c12d5fae888b48a35c5970d8321  lifetimes/nh4-q40-a32-r2-3-7/fastrpc-journal.txt
+  74942e0711c9957da5a0d2ebbbb1482a8b5e25d38a025d96fa03061494d6b583  lifetimes/nh4-q40-a32-r2-3-7/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r2-3-7/journal-err.txt
+  115299dd3b15c86fbf03c8f9a08cf12a795c004258ed963916285facf01a7382  lifetimes/nh4-q40-a32-r2-3-7/kernel-audit.txt
+  36c0c1c3811bd5dc8bc0c8b28c11ebe42c3946ad326c340aeebfd719f8f436dd  lifetimes/nh4-q40-a32-r2-3-7/memfloor-admit.txt
+  6bac3cfb23bde6438e62d79a7841a742998ac2738f67a597179980d9858ac0bb  lifetimes/nh4-q40-a32-r2-3-7/run.txt
+  fde6ee8c6422e8147f5a7e1464427692602f7cbed0a036c9b0d76806b23aa077  lifetimes/nh4-q40-a32-r2-3-8/fastrpc-journal.txt
+  8b2698e9a32fbd7b132990c37a04e3607884313c9d7f263cd6b3f3b1cfecbc02  lifetimes/nh4-q40-a32-r2-3-8/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r2-3-8/journal-err.txt
+  0004beeb53adc1cf0abff9f580cddc5ec509852d9aef0eff495c0bf6831b87c0  lifetimes/nh4-q40-a32-r2-3-8/kernel-audit.txt
+  f28e47483883f75ca76c28b278cbdc68367dfc90cf7656be7628243018544142  lifetimes/nh4-q40-a32-r2-3-8/memfloor-admit.txt
+  d9aec47943e5e78cc783ef0db90fdda74e2ff6fa744093ff37fe659ede24d8de  lifetimes/nh4-q40-a32-r2-3-8/run.txt
+  7a8a56f28a6646e38bcada950e16c1bbade8d1c0da6e40913d99b6c6bd24dc85  lifetimes/nh4-q40-a32-r2-4s-1/fastrpc-journal.txt
+  d60142aae5e376b5626e30760d8f34f258606bed1730bb845488557a052deb25  lifetimes/nh4-q40-a32-r2-4s-1/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r2-4s-1/journal-err.txt
+  7db94401623a7f15e51c4b5329c9750638a6c14caece23cdacb92a8f7d5c1eb4  lifetimes/nh4-q40-a32-r2-4s-1/kernel-audit.txt
+  3be31af368658da853f25b565df058b251a876a3ef414519e3686ac20bff1866  lifetimes/nh4-q40-a32-r2-4s-1/memfloor-admit.txt
+  57f8ceb3bf055effc517219dbcc0c1b3b964ffafc48f4219fbb28e4ee9ac1408  lifetimes/nh4-q40-a32-r2-4s-1/run.txt
+  5448b86ba99e42a3c966f7822d47427c3fb1a4351cb8221827a0290dc977c11d  lifetimes/nh4-q40-a32-r3-1-1/fastrpc-journal.txt
+  c4e8106f316c80a77369c1e7ca84d279bf5cd335df3573b2c97ea1d5f8c0c9ea  lifetimes/nh4-q40-a32-r3-1-1/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r3-1-1/journal-err.txt
+  6207cf4dca5b6ce6e5e35400584be270c5ee36fa68ed0630d3d4d127a13e1d5c  lifetimes/nh4-q40-a32-r3-1-1/kernel-audit.txt
+  52798658c1195469c524b54f4e0bbea2baec71c9a95474a4f93782d901c125cd  lifetimes/nh4-q40-a32-r3-1-1/memfloor-admit.txt
+  bd4098f8ff3d65231720fcb782a6cd63ee096d7f89b2ac1b778f2396d016f0ec  lifetimes/nh4-q40-a32-r3-1-1/run.txt
+  0ecdad05f26325b3b1460854fd9791874e13e61b8dc1a38d47aacb9ffa2585c3  lifetimes/nh4-q40-a32-r3-1-2/fastrpc-journal.txt
+  9099d6cefad50810326feebc1e1a8483a713e8079a4b44d41edba7e66292b75c  lifetimes/nh4-q40-a32-r3-1-2/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r3-1-2/journal-err.txt
+  5c978ab0a31d6220cc1608b52c7a2f807f5827e292e5f2a83562dbfc579081d0  lifetimes/nh4-q40-a32-r3-1-2/kernel-audit.txt
+  e84795f02731188d37c1fd07e9794eda409afb066b8d034f37bdccbc71509521  lifetimes/nh4-q40-a32-r3-1-2/memfloor-admit.txt
+  4d7fb243eb8c73e58863d36cedb38a8fbb3fcce2a54f94941f5cb742a8ca5afa  lifetimes/nh4-q40-a32-r3-1-2/run.txt
+  6acaf130e556b811bceb2980065052f669bf325cbd166ab21b0b90ad36e62cb8  lifetimes/nh4-q40-a32-r3-2-1/fastrpc-journal.txt
+  50987e71606a08e83aab175737e168d43d1de8b7eabe0c1ed89f5fd21352ca67  lifetimes/nh4-q40-a32-r3-2-1/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r3-2-1/journal-err.txt
+  da0574b4a3894053504c720ce3584bad7453b1ff0fb74391527101dcb5b2893b  lifetimes/nh4-q40-a32-r3-2-1/kernel-audit.txt
+  db7605915d9f9588f01b8e7696e0356f6c0b041402352f5f16ac5009dc59fa5c  lifetimes/nh4-q40-a32-r3-2-1/memfloor-admit.txt
+  b9c1314d744ea001eeef7a88c2ef5b227826fc0e103805b85b36ed1c694cc622  lifetimes/nh4-q40-a32-r3-2-1/run.txt
+  4f46ca07e604fe75f44ca852de56a6d71900c1baaefaf6374c037c14d79e4554  lifetimes/nh4-q40-a32-r3-3-1/fastrpc-journal.txt
+  f3765e2cbd53debfbde38ca2972047119f4cff304e6789e049c0ce8c2885215e  lifetimes/nh4-q40-a32-r3-3-1/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r3-3-1/journal-err.txt
+  1286afc2e88ed6d301fce651458cba7e68094c5d63c98666427998bc0cc80a5d  lifetimes/nh4-q40-a32-r3-3-1/kernel-audit.txt
+  41e43026fd42ab642432f818ab97a857053b74ec7439fb1b317a84dc7d91693c  lifetimes/nh4-q40-a32-r3-3-1/memfloor-admit.txt
+  21fe3874289d466f42aba1aac41d61ed9cf039a5e2091cef9824eee2cb41f2ac  lifetimes/nh4-q40-a32-r3-3-1/run.txt
+  2d98aab8a9653b5536ab0dc65dca1e0fb3114e7291fff12f51be54df664b7373  lifetimes/nh4-q40-a32-r3-3-2/fastrpc-journal.txt
+  c78d886702680e3865ae466beddc46f360bea724b3eee98fcf414b924a966c40  lifetimes/nh4-q40-a32-r3-3-2/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r3-3-2/journal-err.txt
+  cddbf72c752581f692b77af9db424f73683650b5bba1a876a3f9ce9f581834d7  lifetimes/nh4-q40-a32-r3-3-2/kernel-audit.txt
+  1bd4ca93668ae707b633562fdfecd269b14272efaeeb2e85ecb098dfbd9c09a9  lifetimes/nh4-q40-a32-r3-3-2/memfloor-admit.txt
+  d4a399ae920a9844bdec88bdc711ebe44a5baa231bb3ebcc1da7cc10316c1c4d  lifetimes/nh4-q40-a32-r3-3-2/run.txt
+  a211cd8efe553b91e0befdea4be749fa9e793af1042ed622bb9a76ccbba317f4  lifetimes/nh4-q40-a32-r3-3-3/fastrpc-journal.txt
+  1ac4865349cb0208bc1eda4f86086417f5ba95b05ac78fe3df271d1d4d040ee1  lifetimes/nh4-q40-a32-r3-3-3/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r3-3-3/journal-err.txt
+  85a3c2104c1fe43099e50f82d7c409133c5572a116445c9829dc1a06984eea26  lifetimes/nh4-q40-a32-r3-3-3/kernel-audit.txt
+  e95ca7a8075d009feece97f065ef0a01ec8ad42b0a76bc93777c1ed430f6a158  lifetimes/nh4-q40-a32-r3-3-3/memfloor-admit.txt
+  386d25789c772db02ecd658f0ea012b5b22141a03354f8e63af4e53486d19e3c  lifetimes/nh4-q40-a32-r3-3-3/run.txt
+  e94c7ea2fb53a65def01c8f9f2560feff96660d2a35cf3faa7a6e357911ecead  lifetimes/nh4-q40-a32-r3-3-4/fastrpc-journal.txt
+  c50a8f22d9253ebb7fa4d3beaa6e4abcdfb68960702aef76e6e739c7bb0b4bba  lifetimes/nh4-q40-a32-r3-3-4/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r3-3-4/journal-err.txt
+  60e44ba75b7cce033cb4abd59080e4ebfc24dd9a750cb869dd9992fc6a136d65  lifetimes/nh4-q40-a32-r3-3-4/kernel-audit.txt
+  bc130cf23d58dd9cff1908d5a6b1de9ca6d072b2abba7be737d5ea5979a5238a  lifetimes/nh4-q40-a32-r3-3-4/memfloor-admit.txt
+  9a7d79979aa403e11d2ea8d3ea5663135a90e1d629805eeba1b202e2006adf30  lifetimes/nh4-q40-a32-r3-3-4/run.txt
+  4b765f37ce42151eb736b5eda81e17becc088f8558c2224fff394a930dffc595  lifetimes/nh4-q40-a32-r3-3-5/fastrpc-journal.txt
+  4c4bbf9839a5703e9d4f71a3d0f782faec687c96b3fcaf1dd7368286ba83865c  lifetimes/nh4-q40-a32-r3-3-5/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r3-3-5/journal-err.txt
+  1855e52a1cff7cbb904195f19e4cd9c34856d04a4cb61357a3ed47ed61bcdb64  lifetimes/nh4-q40-a32-r3-3-5/kernel-audit.txt
+  01abfce4fd7316875b01c42a3e63d82b6d143ec1897caaccc734104f35afa21e  lifetimes/nh4-q40-a32-r3-3-5/memfloor-admit.txt
+  ec028044e66fc7caf615b1c6ea2d946c093504062afd54bb0fb4d1ce6a9bb92c  lifetimes/nh4-q40-a32-r3-3-5/run.txt
+  1fdc11445de9f20432ed299714f3f17fe433596a1ecdef27501723e3886f86c2  lifetimes/nh4-q40-a32-r3-3-6/fastrpc-journal.txt
+  e0e5a3b50e9daf2a9de6305cdf79c98013a8e44b8b5dfca1d2f61307985e851e  lifetimes/nh4-q40-a32-r3-3-6/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r3-3-6/journal-err.txt
+  0153384a2f7f7f2559a5f673ce3bfad1884ab7bbaacb9bf62972505355bf7635  lifetimes/nh4-q40-a32-r3-3-6/kernel-audit.txt
+  d069ec9c98098001eeacb5fa6c563527a795a5f46f488e86d9d60ed07655e88c  lifetimes/nh4-q40-a32-r3-3-6/memfloor-admit.txt
+  5dfeb042b59f50b65bb555c825b0a447c660a7013cc91835474e013b61bbbd44  lifetimes/nh4-q40-a32-r3-3-6/run.txt
+  a1af222d4b0a4204630a279031a0273a0f0fb7a53e33fafaa55a092358d385c8  lifetimes/nh4-q40-a32-r3-3-7/fastrpc-journal.txt
+  748383bbfef1334136ff471eed2ed72d0c40d66f723c0e48691e2ef2ea60e755  lifetimes/nh4-q40-a32-r3-3-7/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r3-3-7/journal-err.txt
+  67b771afdf5d58143cf067e111589c2ccf6ce4d6f16154f831e28fa511adcd2d  lifetimes/nh4-q40-a32-r3-3-7/kernel-audit.txt
+  5e4f78fd9c9884d6ca5b25798bd60984907aa2de92523fbe33d694a8e8268cf4  lifetimes/nh4-q40-a32-r3-3-7/memfloor-admit.txt
+  b4d6b93033b3f29a8b008a5498320a64490cb163f1129a7f310214ada545416d  lifetimes/nh4-q40-a32-r3-3-7/run.txt
+  93a8927e1e4299496da2cf9136a8ab83729fed4cba11a05b8cbace40ee04598e  lifetimes/nh4-q40-a32-r3-4s-1/fastrpc-journal.txt
+  8edda178ea0f95e6de756b7a14738edd43a4c8d0f3e05296339e06402568cd3b  lifetimes/nh4-q40-a32-r3-4s-1/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  lifetimes/nh4-q40-a32-r3-4s-1/journal-err.txt
+  39a5b7ca897d955f19b074fe6239c0469085204a3c87168c115cecb8b5f86c81  lifetimes/nh4-q40-a32-r3-4s-1/kernel-audit.txt
+  26a389c6c50b79f970da32d904bb2e7cc08fa07ff6016409d59d15ae272593cc  lifetimes/nh4-q40-a32-r3-4s-1/memfloor-admit.txt
+  e06a035da19966c9def47c47f185ef93b8f3c69c7ab26a1490c8c535aa640998  lifetimes/nh4-q40-a32-r3-4s-1/run.txt
+  7f53e1e4c435899b8beb5a6ae89dd7606e9020eca7e81ffc461afd16e01dbd9d  status.txt
+  99bb7122cb8001edc46ea5f6f49f3579345fd243260dcbd3457314fb4b75be1b  ledger.txt
+  aa0074780c18e4db99b757849cefa8a20e196f432da20094129bea43729d94b7  results.txt
+  7fe01ff155ee8567419685e85f4a3c1dddf0946cca3275a6b0d67e8b38addc76  version.txt
+  976667d941bbb1f6fb838da8b09fb6f54e5b2ee117b30ec958051afcd0633c13  probes/pkg-identity-last.txt
+  f1e4addd283022286014ca4dd7b98bc8e77aa35a73e2dc9371456001c4eb9bde  probes/probe-082523/corpus-check.txt
+  7db73b9669b22e9dbf7c25effa799aa06cbac72c769a83e7ba71b430724ce161  probes/probe-082523/fastrpc-journal.txt
+  3484b371b6027e024675f2c44a5199f3fc811fcd18855f41b032c1177251da87  probes/probe-082523/free-end.txt
+  b1c3f1cb7f4e3ee4f986c7d5878b25fa060b969707a3c0a1c3a0d0d4020fedd5  probes/probe-082523/free-start.txt
+  9f56e761d79bfdb34304a012586cb04d16b435ef6130091a97702e559260a2f2  probes/probe-082523/health-verdict.txt
+  58a7e5edf0b943970581f9aa03e66f57754cbc492d101d62e80e84fac61259d8  probes/probe-082523/health.txt
+  aa34080f3d3bcea66f9c36ea61c36167050c61c433f7b8b8935807bf3702e820  probes/probe-082523/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  probes/probe-082523/journal-err.txt
+  b577d6736ebf2f4f846cb73cb9f08a51bbe8ffba7b933ad085d04cbccf704d9c  probes/probe-082523/kernel-audit.txt
+  bd39cb7670ac1082cd952489d26c747cb71d3ba7432b410fcfe2053ea5d71cfb  probes/probe-082523/probe.txt
+  e4e355f755653aa5b31109d90bd71e14e45b14e01c03d26d980ca7bcd9781ba2  probes/probe-082523/procs.txt
+  4d354492e0cb333a8cd7f26db8493a8a8b78c880db7c34c3d9c2fd1ae38323cc  probes/probe-082523/run.txt
+  d28eeb0c5825906f7a486d27f0a540d9a8dc096fce6308b1f5ce9b65be51e135  probes/probe-082523/server.log
+  03ad67b9f1ce0649edb32ffd24b57b233bd7997cf3dbaa5b9859571e85d0e8b5  probes/probe-082523/vmhwm.txt
+  09bb05bee3b7e6c319789faba851fcb5b4fa448ad9f7d4ac154d7d0dc881faab  probes/probe-111849/corpus-check.txt
+  07891a6ad77639df36c38fa8d9d28c5d4bb860884b8b65de0bda39633fda4c65  probes/probe-111849/fastrpc-journal.txt
+  95e242ea2b544fae2fcf1cc977ccd2602f41e93e15927336e6eea8960e04fa6b  probes/probe-111849/free-end.txt
+  dd5f398ca02b7197482bda437a85f2ac771b6172382e62db5465ed04c6744266  probes/probe-111849/free-start.txt
+  9f56e761d79bfdb34304a012586cb04d16b435ef6130091a97702e559260a2f2  probes/probe-111849/health-verdict.txt
+  aec585b8ab04bc0d0228bd56771ec3a638666a2991cd059f3536692fac00dd38  probes/probe-111849/health.txt
+  022e5028b16d58d873ea1bf3e0d4abcc96d86348e53d1fc24b511eea2a3f6811  probes/probe-111849/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  probes/probe-111849/journal-err.txt
+  44280cec15f73335e552b3a4fd26d6f3398b14fb66c7da50b71548711140a948  probes/probe-111849/kernel-audit.txt
+  d05d3eb8a595487f70b483171540a3a80a9fddb2ef84d92612b1c4b24e1f8551  probes/probe-111849/probe.txt
+  ef1fe7d0e0f8f48bbde027afe7c3bf3a88ce4444f2a7fbe0a4d65bf615e2c201  probes/probe-111849/procs.txt
+  ded1c9f4e3fa59acd7d1661aad15d48a11fbac4869ab84daadd4fb17fe5c778d  probes/probe-111849/run.txt
+  7737961754553f0a3164a85e118e57b2757130b9de7f4a5b9d3bd73e51187f53  probes/probe-111849/server.log
+  07ad2e7113e0d07615adc6ec820b9a1cd2e2a4e601818077e251685a99b9c2e8  probes/probe-111849/vmhwm.txt
+  63c82e63d21d3e726f44d11133506e9d0f63e19b8a0474c74a34cc918b43ca88  probes/probe-141657/corpus-check.txt
+  c806ed50f46b7a53ae18106b832188f9f89aaf805414052422510d3777d355d9  probes/probe-141657/fastrpc-journal.txt
+  186b5d2e41601be54f0995a083815ea68b70dbb5f2d30a670435ae2f24cc6c23  probes/probe-141657/free-end.txt
+  21d3b46e4b0bf703d425ef93e54d3114ac9ac71a95f939a17f41eace482560bd  probes/probe-141657/free-start.txt
+  9f56e761d79bfdb34304a012586cb04d16b435ef6130091a97702e559260a2f2  probes/probe-141657/health-verdict.txt
+  213af6d8e02e99bc5b60f0fa3f455594b1de4f490d40a513f3d20c4ea8bb202e  probes/probe-141657/health.txt
+  cd611e481e1291a6fcb41fc65e12f0a5b5b0518b7aa1b18405de04558c173ace  probes/probe-141657/journal-check.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  probes/probe-141657/journal-err.txt
+  6f29a84bde4f1731f969d65792756e2110374b0e4e489ae11ad2f874e3ffdb72  probes/probe-141657/kernel-audit.txt
+  ae70c9adf0b827d106b06960b2846b14ed1ada8a9f6c2bb4dc27135a54a3d069  probes/probe-141657/probe.txt
+  0dcc4ab731944c5470e57d6c35261fabad7d2ace5e01db99665d21b41d4cb086  probes/probe-141657/procs.txt
+  152ef8b4a99c2cad5eda0defe415ce2be5b44e002bfce1eee60fe7f939413a87  probes/probe-141657/run.txt
+  8cf0d6ebaacd35acdbf22a8993c6654ccaae9f91f11dfc777a7f220f962b8618  probes/probe-141657/server.log
+  eb747ffbde95f875f9027a88df99411a74f2a01f0788575112a65baf20e480d7  probes/probe-141657/vmhwm.txt
+  eb51cc779996bd38098f3fdd3af8db0887ea42e9b9fd43a836ae0bd9391717ec  probes/speed.txt
+
+## build defaults (the command sets no -np, -fa or --jinja, as qualified in V0e; the server log's startup lines,
+## the count of the batch's server logs carrying each)
+  32 of 32: n_parallel is set to auto, using n_parallel = 4 and kv_unified = true
+  32 of 32: flash_attn            = auto
+  32 of 32: chat template, thinking = 1
+  32 of 32: K (f16):  512.00 MiB, V (f16):  512.00 MiB
+  32 of 32: offloaded 32/33 layers to GPU

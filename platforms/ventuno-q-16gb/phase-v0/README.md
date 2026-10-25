@@ -3,7 +3,7 @@
 Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
 v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
 headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D189).
+[`decisions.txt`](decisions.txt) (D1–D190).
 
 **Status (2026-10-11 15:30): the NPU hang is diagnosed (D127: htp_main_thread exits on a dspqueue_peek AEE_ENOMORE)
 and mitigated by a retry patch to the DSP library (D131-D133; upstream ggml-org/llama.cpp#30309). With that library,
