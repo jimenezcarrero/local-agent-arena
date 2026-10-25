@@ -1,0 +1,43 @@
+.....F..........F...                                                     [100%]
+=================================== FAILURES ===================================
+___________________ test_changelog_exists_and_mentions_work ____________________
+
+    def test_changelog_exists_and_mentions_work():
+>       assert os.path.exists("CHANGELOG.md")
+E       AssertionError: assert False
+E        +  where False = <function exists at 0xffff84df3600>('CHANGELOG.md')
+E        +    where <function exists at 0xffff84df3600> = <module 'posixpath' (frozen)>.exists
+E        +      where <module 'posixpath' (frozen)> = os.path
+
+tests/test_turn10.py:3: AssertionError
+____________________________ test_parse_orders_csv _____________________________
+
+    def test_parse_orders_csv():
+>       orders = parse_orders_csv(CSV)
+
+tests/test_turn7.py:7: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+orders/csvio.py:41: in parse_orders_csv
+    dt = _parse_iso_datetime(datetime_str)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+s = '2026-07-18T12:00:00'
+
+    def _parse_iso_datetime(s: str) -> datetime | None:
+        """Parse an ISO 8601 datetime string. Return None if invalid."""
+        m = _DATETIME_PATTERN.match(s)
+        if not m:
+            return None
+        year, month, day = m.group(1), m.group(2), m.group(3)
+        # Handle timezone offset with optional colon
+        tz = m.group(6)
+        if tz is None:
+            from datetime import datetime as dt
+>           return dt(int(year), int(month), int(day), 0, 0)
+E           ValueError: invalid literal for int() with base 10: '2026-07-18'
+
+orders/csvio.py:60: ValueError
+=========================== short test summary info ============================
+FAILED tests/test_turn10.py::test_changelog_exists_and_mentions_work - Assert...
+FAILED tests/test_turn7.py::test_parse_orders_csv - ValueError: invalid liter...
+2 failed, 18 passed in 0.06s

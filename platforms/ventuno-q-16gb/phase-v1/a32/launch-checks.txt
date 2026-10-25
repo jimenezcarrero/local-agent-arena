@@ -1,0 +1,18 @@
+V1 A32-5 launch checks, 2026-10-25 06:24-08:25 +01:00 (owner's go 2026-10-25: "Ok go"; nothing ran on the NPU before)
+- Run checkout: ~/v1/checkout-a32, git worktree detached at 45acaf9 (PR #113 merge; driver and launchers as PR #112,
+  plan #111), clean.
+- Deployed copies: 107 ~/v0 and ~/v0/monitor files equal to 45acaf9's phase-v0/tools (0 differ).
+- No llama-server or llama-bench running. Health sampler running (pid 2041). NPU stall watchdog running since
+  2026-10-23 07:52:25 (pid 776345, started by hand for B9).
+- A32-5 identity: OK A32-5 package PASS (133 files, 15 links, 1 external; 0 mismatches), htp-retry sha256
+  aa2ae2a978d95935..., farf 0x1f, model sha256 f822fa2602af45d8... test_a32_identity_check.sh: failures 0.
+- Measured checkout ~/v0/measure 7badb21, clean. pi local32k: contextWindow 32768, maxTokens 8192.
+- Disk: 8.6 GB free at 06:24 (< 10 GB). Owner's choice: the finished B9 and B4 run worktrees removed (~/v1/checkout
+  e3bde61, ~/v1/checkout-4b b9a4f8a, both clean; 9.7 GB), then the Ornith-1.0-9B pure Q4_0 file, all three hard links
+  (~/v0/models/REMOVED-20261025.txt; sha256 checked first). 15 GB free at 08:24.
+- Health 08:25:00: pass, 0 ALERT lines, no package drift (health-precheck.txt).
+- Sampling audit (OPERATING rule 6, before the first run): suite/check_sampling.sh from the run checkout,
+  2026-10-25T08:25:00+01:00, TokenRhythm/NeoHorse-1-4B-GGUF (rev 3c5d58ca82e5) with TokenRhythm/NeoHorse-1-4B
+  (rev 56f0584bb405): no embedded sampling, so llama.cpp's defaults apply (temp 0.8, top_k 40, top_p 0.95, min_p 0.05,
+  no penalties), as in V0e and as the plan states; the card's protocol (temp 1.0, top_p 0.95, top_k 20, min_p 0,
+  presence_penalty 1.5) is not applied. sampling-audit.txt.
