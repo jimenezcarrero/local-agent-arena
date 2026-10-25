@@ -66,8 +66,24 @@ for d in runs:
             elif p: state = f'reading its prompt, progress {p[1]}'
             elif started and t(c[-1]) is not None: state = f'started {t(c[-1]) - started[-1]:.1f} s before, no progress line yet'
             else: state = 'no progress line'
+        # the prompts of the requests started in the timed-out turn (its budget back from the cancel line); turns.log's
+        # prefill_tokens is cumulative over a turn's requests, not one prompt's size (review of d205e3e)
+        budget = int(re.search(r' at=(\d+)', r)[1]) - int(re.search(r'turn_start=(\d+)', r)[1])
+        tc = t(c[-1]) if c else None; sizes = []
+        for l in L:
+            m = re.search(r'new prompt, .*task\.n_tokens = (\d+)', l)
+            if m and tc is not None and t(l) is not None and tc - budget <= t(l) <= tc:
+                sizes.append(int(m[1]))
+        prompts = f'{len(sizes)} prompts {min(sizes)}-{max(sizes)} tokens' if sizes else 'no prompts'
         print(f'{run:24s} restart {k} turn {turn:2d} ({turns.get(turn, "-")}): alive={alive}; cancelled task {task}: '
-              f'{state}; largest log gap {gap:.1f} s; 8192-token replies {full}')
+              f'{state}; {prompts}; largest log gap {gap:.1f} s; 8192-token replies {full}')
+for d in runs:
+    for log in sorted(glob.glob(f'{d}/server*.log')):
+        for l in lines(log):
+            m = re.search(r'request \((\d+) tokens\) exceeds the available context size \((\d+) tokens\)', l)
+            if m:
+                print(f'# rejected by the server: {os.path.basename(d)} {os.path.basename(log)}: a {m[1]}-token request '
+                      f'over the {m[2]}-token context')
 q = lambda v: f'{min(v):.1f}-{max(v):.1f}, median {statistics.median(v):.1f} ({len(v)})' if v else 'none'
 print(f'# generation tok/s, replies of 100+ tokens: {q(gen)}')
 for _, b in BUCKETS:
