@@ -1,0 +1,604 @@
+0.00.023.330 I ggml-hex: Loading driver libcdsprpc.so
+0.00.029.187 I ggml-hex: Hexagon backend (experimental) : allocating new registry : ndev 1
+0.00.029.222 I ggml-hex: Hexagon Arch version v75, DMA64 disabled
+0.00.029.226 I ggml-hex: device 0: HTP0:0 (phys=0, virt=0, domain=cdsp:3)
+0.00.047.750 I srv  llama_server: initializing ...
+0.00.047.841 I cmn  common_param: common_params_print_info: build 11721 (ff5a23376) with Clang 21.1.8 for Linux arm64
+0.00.047.843 I cmn  common_param: common_params_print_info: verbosity = 4 (adjust with the `-lv N` CLI arg)
+0.00.047.845 I cmn  common_param: device_info:
+0.00.047.872 I cmn  common_param:   - HTP0:0  : Hexagon (0 MiB, 0 MiB free)
+0.00.047.943 I cmn  common_param:   - CPU     : CPU (15284 MiB, 15284 MiB free)
+0.00.048.226 I cmn  common_param: system_info: n_threads = 8 (n_threads_batch = 8) / 8 | CPU : NEON = 1 | ARM_FMA = 1 | FP16_VA = 1 | DOTPROD = 1 | REPACK = 1 | 
+0.00.050.868 I srv          init: using 7 threads for HTTP server
+0.00.051.254 W srv  llama_server: security: no API key is set and CORS allows all origins (see https://github.com/ggml-org/llama.cpp/pull/25655)
+0.00.055.898 I srv    load_model: loading model '/home/arduino/npu-dev/b1/models/Ternary-Bonsai-2-4B-Q2_0.gguf'
+0.00.055.941 I srv    load_model: local path '/home/arduino/npu-dev/b1/models/Ternary-Bonsai-2-4B-Q2_0.gguf'
+0.00.056.025 I cmn  common_init_: fitting params to device memory ...
+0.00.056.027 I cmn  common_init_: (for bugs during this step try to reproduce them with -fit off, or provide --verbose logs if the bug only occurs with -fit on)
+0.00.056.270 I common_params_fit_impl: getting device memory data for initial parameters:
+0.00.918.611 W common_get_device_memory_data_impl: device HTP0:0 did not report memory; --fit will not use it
+0.00.918.718 I common_memory_breakdown_print: | memory breakdown [MiB] | total   free    self   model   context   compute    unaccounted |
+0.00.918.719 I common_memory_breakdown_print: |   - HTP0:0 (Hexagon)   |     0 =    0 + (1845 =  1145 +     594 +     106) +       -1845 |
+0.00.918.719 I common_memory_breakdown_print: |   - Host               |                  222 =   170 +       0 +      52                |
+0.01.066.763 I common_params_fit_impl: projected to use 1845 MiB of device memory vs. 0 MiB of free device memory
+0.01.066.788 I common_params_fit_impl: cannot meet free memory target of 1024 MiB, need to reduce device memory by 2869 MiB
+0.01.066.788 I common_params_fit_impl: context size set by user to 32768 -> no change
+0.01.066.925 W common_fit_params: failed to fit params to free device memory: n_gpu_layers already set by user to 999, abort
+0.01.066.939 I common_fit_params: fitting params to free memory took 1.01 seconds
+0.01.131.654 I llama_model_loader: loaded meta data with 50 key-value pairs and 426 tensors from /home/arduino/npu-dev/b1/models/Ternary-Bonsai-2-4B-Q2_0.gguf (version GGUF V3 (latest))
+0.01.131.687 I llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+0.01.131.693 I llama_model_loader: - kv   0:                       general.architecture str              = qwen35
+0.01.131.694 I llama_model_loader: - kv   1:                               general.type str              = model
+0.01.131.699 I llama_model_loader: - kv   2:                     general.sampling.min_p f32              = 0.000000
+0.01.131.700 I llama_model_loader: - kv   3:                               general.name str              = Ternary-Bonsai-2-4B
+0.01.131.701 I llama_model_loader: - kv   4:                         general.size_label str              = 4B
+0.01.131.702 I llama_model_loader: - kv   5:                         qwen35.block_count u32              = 32
+0.01.131.703 I llama_model_loader: - kv   6:                      qwen35.context_length u32              = 262144
+0.01.131.703 I llama_model_loader: - kv   7:                    qwen35.embedding_length u32              = 2560
+0.01.131.704 I llama_model_loader: - kv   8:                 qwen35.feed_forward_length u32              = 9216
+0.01.131.704 I llama_model_loader: - kv   9:                qwen35.attention.head_count u32              = 16
+0.01.131.705 I llama_model_loader: - kv  10:             qwen35.attention.head_count_kv u32              = 4
+0.01.131.716 I llama_model_loader: - kv  11:             qwen35.rope.dimension_sections arr[i32,4]       = [11, 11, 10, 0]
+0.01.131.719 I llama_model_loader: - kv  12:                      qwen35.rope.freq_base f32              = 10000000.000000
+0.01.131.720 I llama_model_loader: - kv  13:    qwen35.attention.layer_norm_rms_epsilon f32              = 0.000001
+0.01.131.721 I llama_model_loader: - kv  14:                qwen35.attention.key_length u32              = 256
+0.01.131.721 I llama_model_loader: - kv  15:              qwen35.attention.value_length u32              = 256
+0.01.131.722 I llama_model_loader: - kv  16:                     qwen35.ssm.conv_kernel u32              = 4
+0.01.131.722 I llama_model_loader: - kv  17:                      qwen35.ssm.state_size u32              = 128
+0.01.131.723 I llama_model_loader: - kv  18:                     qwen35.ssm.group_count u32              = 16
+0.01.131.723 I llama_model_loader: - kv  19:                  qwen35.ssm.time_step_rank u32              = 32
+0.01.131.724 I llama_model_loader: - kv  20:                      qwen35.ssm.inner_size u32              = 4096
+0.01.131.724 I llama_model_loader: - kv  21:             qwen35.full_attention_interval u32              = 4
+0.01.131.725 I llama_model_loader: - kv  22:                qwen35.rope.dimension_count u32              = 64
+0.01.131.726 I llama_model_loader: - kv  23:                 prism.hadamard.tied_output bool             = true
+0.01.131.726 I llama_model_loader: - kv  24:                     prism.hadamard.version u32              = 2
+0.01.131.727 I llama_model_loader: - kv  25:                  prism.hadamard.block_size u32              = 512
+0.01.131.728 I llama_model_loader: - kv  26:                   prism.hadamard.transform str              = normalized-sylvester-walsh-hadamard
+0.01.131.729 I llama_model_loader: - kv  27:                        prism.hadamard.axis str              = input-last-dimension
+0.01.131.729 I llama_model_loader: - kv  28:                   prism.hadamard.sign_mode str              = explicit
+0.01.131.777 I llama_model_loader: - kv  29:                prism.hadamard.weight_names arr[str,200]     = ["blk.0.attn_qkv.weight", "blk.0.attn...
+0.01.131.779 I llama_model_loader: - kv  30:                 prism.hadamard.sign_widths arr[i32,3]       = [2560, 4096, 9216]
+0.01.132.463 I llama_model_loader: - kv  31:                 prism.hadamard.sign_values arr[i32,15872]   = [-1, -1, -1, 1, 1, 1, -1, -1, 1, 1, -...
+0.01.132.467 I llama_model_loader: - kv  32:        prism.hadamard.inverse_weight_names arr[str,1]       = ["token_embd.weight"]
+0.01.132.468 I llama_model_loader: - kv  33:               prism.hadamard.gdn_v_grouped bool             = true
+0.01.132.468 I llama_model_loader: - kv  34:                       tokenizer.ggml.model str              = gpt2
+0.01.132.469 I llama_model_loader: - kv  35:                         tokenizer.ggml.pre str              = qwen35
+0.01.168.068 I llama_model_loader: - kv  36:                      tokenizer.ggml.tokens arr[str,248320]  = ["!", "\"", "#", "$", "%", "&", "'", ...
+0.01.178.713 I llama_model_loader: - kv  37:                  tokenizer.ggml.token_type arr[i32,248320]  = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ...
+0.01.214.213 I llama_model_loader: - kv  38:                      tokenizer.ggml.merges arr[str,247587]  = ["Ġ Ġ", "ĠĠ ĠĠ", "i n", "Ġ t",...
+0.01.214.237 I llama_model_loader: - kv  39:                tokenizer.ggml.eos_token_id u32              = 248046
+0.01.214.238 I llama_model_loader: - kv  40:            tokenizer.ggml.padding_token_id u32              = 248044
+0.01.214.239 I llama_model_loader: - kv  41:               tokenizer.ggml.add_bos_token bool             = false
+0.01.214.244 I llama_model_loader: - kv  42:                    tokenizer.chat_template str              = {%- set image_count = namespace(value...
+0.01.214.244 I llama_model_loader: - kv  43:               general.quantization_version u32              = 2
+0.01.214.245 I llama_model_loader: - kv  44:                          general.file_type u32              = 41
+0.01.214.246 I llama_model_loader: - kv  45:                tokenizer.ggml.bos_token_id u32              = 248044
+0.01.214.250 I llama_model_loader: - kv  46:                      general.sampling.temp f32              = 1.000000
+0.01.214.252 I llama_model_loader: - kv  47:                     general.sampling.top_p f32              = 0.950000
+0.01.214.252 I llama_model_loader: - kv  48:                     general.sampling.top_k i32              = 20
+0.01.214.253 I llama_model_loader: - kv  49:            general.sampling.penalty_repeat f32              = 1.000000
+0.01.214.255 I llama_model_loader: - type  f32:  225 tensors
+0.01.214.256 I llama_model_loader: - type q2_0:  201 tensors
+0.01.214.258 I print_info: file format = GGUF V3 (latest)
+0.01.214.258 I print_info: file type   = Q2_0
+0.01.214.259 I print_info: file size   = 1.12 GiB (2.28 BPW) 
+0.01.214.268 I llama_prepare_model_devices: using device HTP0:0 (Hexagon) (unknown id) - 0 MiB free
+0.01.553.517 I load: 0 unused tokens
+0.01.621.471 I load: printing all EOG tokens:
+0.01.621.489 I load:   - 248044 ('<|endoftext|>')
+0.01.621.490 I load:   - 248046 ('<|im_end|>')
+0.01.621.490 I load:   - 248063 ('<|fim_pad|>')
+0.01.621.491 I load:   - 248064 ('<|repo_name|>')
+0.01.621.491 I load:   - 248065 ('<|file_sep|>')
+0.01.622.029 I load: special tokens cache size = 33
+0.01.723.728 I load: token to piece cache size = 1.7581 MB
+0.01.723.758 I print_info: arch                  = qwen35
+0.01.723.760 I print_info: vocab_only            = 0
+0.01.723.761 I print_info: no_alloc              = 0
+0.01.723.761 I print_info: n_ctx_train           = 262144
+0.01.723.762 I print_info: n_embd_inp            = 2560
+0.01.723.762 I print_info: n_embd                = 2560
+0.01.723.763 I print_info: n_embd_out            = 2560
+0.01.723.763 I print_info: n_layer               = 32
+0.01.723.763 I print_info: n_layer_all           = 32
+0.01.723.776 I print_info: n_head                = 16
+0.01.723.777 I print_info: n_head_kv             = 4
+0.01.723.778 I print_info: n_rot                 = 64
+0.01.723.778 I print_info: n_swa                 = 0
+0.01.723.779 I print_info: is_swa_any            = 0
+0.01.723.779 I print_info: non_causal_type       = 0
+0.01.723.779 I print_info: n_embd_head_k         = 256
+0.01.723.780 I print_info: n_embd_head_v         = 256
+0.01.723.781 I print_info: n_gqa                 = 4
+0.01.723.782 I print_info: n_embd_k_gqa          = 1024
+0.01.723.783 I print_info: n_embd_v_gqa          = 1024
+0.01.723.785 I print_info: f_norm_eps            = 0.0e+00
+0.01.723.786 I print_info: f_norm_rms_eps        = 1.0e-06
+0.01.723.787 I print_info: f_clamp_kqv           = 0.0e+00
+0.01.723.787 I print_info: f_max_alibi_bias      = 0.0e+00
+0.01.723.788 I print_info: f_logit_scale         = 0.0e+00
+0.01.723.788 I print_info: f_attn_scale          = 0.0e+00
+0.01.723.788 I print_info: f_attn_value_scale    = 0.0000
+0.01.723.790 I print_info: n_ff                  = 9216
+0.01.723.790 I print_info: n_expert              = 0
+0.01.723.790 I print_info: n_expert_used         = 0
+0.01.723.791 I print_info: n_expert_groups       = 0
+0.01.723.791 I print_info: n_group_used          = 0
+0.01.723.791 I print_info: causal attn           = 1
+0.01.723.792 I print_info: pooling type          = -1
+0.01.723.792 I print_info: rope type             = 40
+0.01.723.792 I print_info: rope scaling          = linear
+0.01.723.795 I print_info: freq_base_train       = 10000000.0
+0.01.723.795 I print_info: freq_scale_train      = 1
+0.01.723.796 I print_info: n_ctx_orig_yarn       = 262144
+0.01.723.796 I print_info: rope_yarn_log_mul     = 0.0000
+0.01.723.797 I print_info: rope_finetuned        = unknown
+0.01.723.797 I print_info: mrope sections        = [11, 11, 10, 0]
+0.01.723.798 I print_info: ssm_d_conv            = 4
+0.01.723.798 I print_info: ssm_d_inner           = 4096
+0.01.723.798 I print_info: ssm_d_state           = 128
+0.01.723.799 I print_info: ssm_dt_rank           = 32
+0.01.723.799 I print_info: ssm_n_group           = 16
+0.01.723.799 I print_info: ssm_dt_b_c_rms        = 0
+0.01.723.800 I print_info: model type            = 4B
+0.01.723.801 I print_info: model params          = 4.21 B
+0.01.723.801 I print_info: general.name          = Ternary-Bonsai-2-4B
+0.01.723.802 I print_info: vocab type            = BPE
+0.01.723.803 I print_info: n_vocab               = 248320
+0.01.723.803 I print_info: n_merges              = 247587
+0.01.723.804 I print_info: BOS token             = 248044 '<|endoftext|>'
+0.01.723.804 I print_info: EOS token             = 248046 '<|im_end|>'
+0.01.723.805 I print_info: EOT token             = 248046 '<|im_end|>'
+0.01.723.805 I print_info: PAD token             = 248044 '<|endoftext|>'
+0.01.723.806 I print_info: LF token              = 198 'Ċ'
+0.01.723.806 I print_info: FIM PRE token         = 248060 '<|fim_prefix|>'
+0.01.723.807 I print_info: FIM SUF token         = 248062 '<|fim_suffix|>'
+0.01.723.807 I print_info: FIM MID token         = 248061 '<|fim_middle|>'
+0.01.723.807 I print_info: FIM PAD token         = 248063 '<|fim_pad|>'
+0.01.723.808 I print_info: FIM REP token         = 248064 '<|repo_name|>'
+0.01.723.808 I print_info: FIM SEP token         = 248065 '<|file_sep|>'
+0.01.723.809 I print_info: EOG token             = 248044 '<|endoftext|>'
+0.01.723.809 I print_info: EOG token             = 248046 '<|im_end|>'
+0.01.723.810 I print_info: EOG token             = 248063 '<|fim_pad|>'
+0.01.723.810 I print_info: EOG token             = 248064 '<|repo_name|>'
+0.01.723.810 I print_info: EOG token             = 248065 '<|file_sep|>'
+0.01.723.811 I print_info: max token length      = 256
+0.01.723.813 I load_tensors: loading model tensors, this can take a while... (load_mode = none)
+0.01.793.285 I load_tensors: offloading output layer to GPU
+0.01.793.303 I load_tensors: offloading 31 repeating layers to GPU
+0.01.793.303 I load_tensors: offloaded 33/33 layers to GPU
+0.01.793.310 I load_tensors:          CPU model buffer size =   170.51 MiB
+0.01.793.312 I load_tensors:       HTP0:0 model buffer size =  1145.43 MiB
+0.05.279.561 I load_tensors_hadamard: loaded 202 Hadamard-folded weight(s) (1 inverse-lookup) using 1 rotation(s) and 3 sign vector(s)
+0.05.285.946 I cmn  common_init_: added <|endoftext|> logit bias = -inf
+0.05.285.965 I cmn  common_init_: added <|im_end|> logit bias = -inf
+0.05.285.966 I cmn  common_init_: added <|fim_pad|> logit bias = -inf
+0.05.285.967 I cmn  common_init_: added <|repo_name|> logit bias = -inf
+0.05.285.967 I cmn  common_init_: added <|file_sep|> logit bias = -inf
+0.05.286.087 I llama_context: constructing llama_context
+0.05.286.089 I llama_context: n_seq_max             = 1
+0.05.286.090 I llama_context: n_ctx                 = 32768
+0.05.286.090 I llama_context: n_ctx_seq             = 32768
+0.05.286.090 I llama_context: n_batch               = 2048
+0.05.286.091 I llama_context: n_ubatch              = 512
+0.05.286.091 I llama_context: causal_attn           = 1
+0.05.286.092 I llama_context: flash_attn            = enabled
+0.05.286.092 I llama_context: kv_unified            = false
+0.05.286.097 I llama_context: freq_base             = 10000000.0
+0.05.286.097 I llama_context: freq_scale            = 1
+0.05.286.098 I llama_context: n_rs_seq              = 0
+0.05.286.098 I llama_context: n_outputs_max         = 1
+0.05.286.098 I llama_context: n_outputs_max_per_seq = 1
+0.05.286.099 I llama_context: n_ctx_seq (32768) < n_ctx_train (262144) -- the full capacity of the model will not be utilized
+0.05.286.150 I llama_context:        CPU  output buffer size =     0.95 MiB
+0.05.318.352 I llama_kv_cache:     HTP0:0 KV buffer size =   544.00 MiB
+0.05.335.153 I llama_kv_cache: size =  544.00 MiB ( 32768 cells,   8 layers,  1/1 seqs), K (q8_0):  272.00 MiB, V (q8_0):  272.00 MiB
+0.05.335.183 I llama_kv_cache: n_rot_k = 256, n_embd_head_k_all = 256
+0.05.335.183 I llama_kv_cache: n_rot_v = 64, n_embd_head_k_all = 256
+0.05.339.947 I llama_memory_recurrent:     HTP0:0 RS buffer size =    50.25 MiB
+0.05.339.987 I llama_memory_recurrent: size =   50.25 MiB (     1 cells,  32 layers,  1 seqs  0 rs_seq), R (f32):    2.25 MiB, S (f32):   48.00 MiB, P (f32):    0.00 MiB
+0.05.339.997 I sched_reserve: reserving ...
+0.05.342.106 I resolve_fused_ops: resolving fused DeepSeek V4 HC support:
+0.05.344.407 I resolve_fused_ops: fused DeepSeek V4 HC pre enabled
+0.05.346.763 I resolve_fused_ops: fused DeepSeek V4 HC comb enabled
+0.05.348.988 I resolve_fused_ops: fused DeepSeek V4 HC post enabled
+0.05.365.335 I sched_reserve:     HTP0:0 compute buffer size =   111.29 MiB
+0.05.365.369 I sched_reserve:        CPU compute buffer size =    52.29 MiB
+0.05.365.373 I sched_reserve: graph: nodes = 2645, splits = 2, input objects = 4, input tensors = 12
+0.05.365.375 I sched_reserve: reserve took 25.38 ms, sched copies = 1
+0.05.365.552 I cmn          init: llama threadpool init, n_threads = 8
+0.05.366.200 I cmn  common_init_: warming up the model with an empty run - please wait ... (--no-warmup to disable)
+0.05.594.680 I cmn  common_conte: the context does not support partial sequence removal
+0.05.618.059 I srv    load_model: speculative decoding will use checkpoints
+0.05.618.085 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 32768, kv_unified = 'false'
+0.05.618.130 I spec common_specu: no implementations specified for speculative decoding
+0.05.618.134 I slot   load_model: id  0 | task -1 | new slot, n_ctx = 32768
+0.05.618.154 I srv    load_model: prompt cache is enabled, size limit: 5120 MiB
+0.05.618.154 I srv    load_model: use `--cache-ram 0` to disable the prompt cache
+0.05.618.155 I srv    load_model: for more info see https://github.com/ggml-org/llama.cpp/pull/16391
+0.05.618.155 I srv    load_model: context checkpoints disabled
+0.05.618.180 I srv          init: idle slots will be saved to prompt cache upon starting a new task
+0.05.624.508 I srv          init: init: chat template, example_format: '<|im_start|>system
+You are a helpful assistant<|im_end|>
+<|im_start|>user
+Hello<|im_end|>
+<|im_start|>assistant
+Hi there<|im_end|>
+<|im_start|>user
+How are you?<|im_end|>
+<|im_start|>assistant
+<think>
+'
+0.05.625.263 I srv          init: init: chat template, thinking = 1
+0.05.625.282 I srv          init: preserve_reasoning kwarg: not supported by template
+0.05.625.326 I srv  llama_server: model loaded
+0.05.625.333 I srv  llama_server: listening on http://127.0.0.1:8080
+0.05.625.532 I srv  update_slots: all slots are idle
+0.07.253.736 I srv  update_slots: all slots are idle
+0.09.070.283 I srv  server_strea: conv_id= (empty=1)
+0.09.114.382 I slot get_availabl: id  0 | task -1 |  - skipping, slot is empty
+0.09.114.415 I slot get_availabl: id  0 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.09.114.416 I srv  get_availabl: updating prompt cache
+0.09.114.429 I srv          load:  - looking for better prompt, base f_keep = -1.000, f_sim = 0.000
+0.09.114.486 I srv        update:  - cache state: 0 prompts, 0.000 MiB (limits: 5120.000 MiB, 32768 tokens, 5368709120 est)
+0.09.114.489 I srv  get_availabl: prompt cache update took 0.07 ms
+0.09.114.674 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> ?min-p -> ?xtc -> ?temp-ext -> dist 
+0.09.114.694 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 20, top_p = 0.950, min_p = 0.000, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 1.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+0.09.114.697 I slot launch_slot_: id  0 | task 1 | processing task, is_child = 0
+0.09.114.714 I slot   operator(): id  0 | task 1 | new prompt, n_ctx_slot = 32768, n_keep = 0, task.n_tokens = 3212
+0.09.114.739 I slot   operator(): id  0 | task 1 | cached n_tokens = 0, memory_seq_rm [0, end)
+0.10.639.183 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 1, n_diff = 0
+0.12.163.125 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 2, n_diff = 0
+0.13.728.887 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 3, n_diff = 0
+0.15.319.145 I slot print_timing: id  0 | task 1 | prompt processing, n_tokens =   2048, progress = 0.64, t =   6.20 s / 330.09 tokens per second
+0.15.319.155 I slot   operator(): id  0 | task 1 | cached n_tokens = 2048, memory_seq_rm [2048, end)
+0.15.319.918 I slot init_sampler: id  0 | task 1 | init sampler, took 0.69 ms, tokens: text = 3212, total = 3212
+0.15.323.928 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 4, n_diff = 0
+0.16.943.414 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 5, n_diff = 0
+0.28.201.105 I slot print_timing: id  0 | task 1 | n_gen =    100, tg =  11.04 t/s, tg_3s =  11.15 t/s
+0.31.220.389 I slot print_timing: id  0 | task 1 | n_gen =    137, tg =  11.35 t/s, tg_3s =  12.25 t/s
+0.34.253.814 I slot print_timing: id  0 | task 1 | n_gen =    174, tg =  11.52 t/s, tg_3s =  12.20 t/s
+0.37.255.676 I slot print_timing: id  0 | task 1 | n_gen =    210, tg =  11.60 t/s, tg_3s =  11.99 t/s
+0.40.288.869 I slot print_timing: id  0 | task 1 | n_gen =    243, tg =  11.49 t/s, tg_3s =  10.88 t/s
+0.43.356.885 I slot print_timing: id  0 | task 1 | n_gen =    276, tg =  11.40 t/s, tg_3s =  10.76 t/s
+0.46.421.759 I slot print_timing: id  0 | task 1 | n_gen =    309, tg =  11.33 t/s, tg_3s =  10.77 t/s
+0.49.473.130 I slot print_timing: id  0 | task 1 | n_gen =    342, tg =  11.28 t/s, tg_3s =  10.81 t/s
+0.52.547.067 I slot print_timing: id  0 | task 1 | n_gen =    378, tg =  11.32 t/s, tg_3s =  11.71 t/s
+0.55.550.893 I slot print_timing: id  0 | task 1 | n_gen =    413, tg =  11.34 t/s, tg_3s =  11.65 t/s
+0.58.612.027 I slot print_timing: id  0 | task 1 | n_gen =    449, tg =  11.38 t/s, tg_3s =  11.76 t/s
+1.01.688.131 I slot print_timing: id  0 | task 1 | n_gen =    483, tg =  11.35 t/s, tg_3s =  11.05 t/s
+1.04.721.804 I slot print_timing: id  0 | task 1 | n_gen =    515, tg =  11.30 t/s, tg_3s =  10.55 t/s
+1.07.759.060 I slot print_timing: id  0 | task 1 | n_gen =    547, tg =  11.25 t/s, tg_3s =  10.54 t/s
+1.10.759.317 I slot print_timing: id  0 | task 1 | n_gen =    579, tg =  11.22 t/s, tg_3s =  10.67 t/s
+1.13.770.307 I slot print_timing: id  0 | task 1 | n_gen =    612, tg =  11.20 t/s, tg_3s =  10.96 t/s
+1.16.854.148 I slot print_timing: id  0 | task 1 | n_gen =    644, tg =  11.16 t/s, tg_3s =  10.38 t/s
+1.18.193.085 I slot print_timing: id  0 | task 1 | prompt eval time =   10119.96 ms /  3212 tokens (    3.15 ms per token,   317.39 tokens per second)
+1.18.193.128 I slot print_timing: id  0 | task 1 |        eval time =   58958.28 ms /   658 tokens (   89.74 ms per token,    11.14 tokens per second)
+1.18.193.134 I slot print_timing: id  0 | task 1 |       total time =   69078.24 ms /  3870 tokens
+1.18.193.157 I slot print_timing: id  0 | task 1 |    graphs reused =        654
+1.18.193.161 I slot print_timing: id  0 | task 1 |   graph reallocs =          5    /     0        (same size) / (changed size)
+1.18.194.333 I slot      release: id  0 | task 1 | stop processing: n_tokens = 3869, truncated = 0
+1.18.194.417 I srv  update_slots: all slots are idle
+1.18.442.318 I srv  server_strea: conv_id= (empty=1)
+1.18.495.813 I slot get_availabl: id  0 | task -1 |  - checking sim = 0.000 (3/22520) > 0.100
+1.18.495.867 I slot get_availabl: id  0 | task -1 | selected slot by LRU, n_tokens = 3869, t_last = 164419038920
+1.18.495.871 I srv  get_availabl: updating prompt cache
+1.18.498.048 I srv   prompt_save:  - saving prompt with length 3869, total state size = 114.571 MiB (draft: 0.000 MiB)
+1.18.638.992 I srv          load:  - looking for better prompt, base f_keep = 0.001, f_sim = 0.000
+1.18.639.022 I srv          load:    - prompt with length    3869, lcp =       3, f_keep = 0.001, f_sim = 0.000
+1.18.639.026 I srv        update:  - cache state: 1 prompts, 114.571 MiB (limits: 5120.000 MiB, 32768 tokens, 172899 est)
+1.18.639.028 I srv        update:    - prompt 0xaaaad5ac2d70:    3869 tokens, checkpoints:  0,   114.571 MiB
+1.18.639.030 I srv  get_availabl: prompt cache update took 143.16 ms
+1.18.639.373 I cmn  common_reaso: activated, budget=2147483647 tokens
+1.18.639.425 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> ?min-p -> ?xtc -> ?temp-ext -> dist 
+1.18.639.465 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 20, top_p = 0.950, min_p = 0.000, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 1.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+1.18.639.470 I slot launch_slot_: id  0 | task 661 | processing task, is_child = 0
+1.18.639.483 I slot   operator(): id  0 | task 661 | new prompt, n_ctx_slot = 32768, n_keep = 0, task.n_tokens = 22520
+1.18.639.488 I slot   operator(): id  0 | task 661 | forcing full prompt re-processing due to lack of cache data (likely due to SWA or hybrid/recurrent memory, see https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+1.18.639.509 I slot   operator(): id  0 | task 661 | cached n_tokens = 0, memory_seq_rm [0, end)
+1.20.157.062 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 6, n_diff = 0
+1.21.683.853 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 7, n_diff = 0
+1.23.250.726 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 8, n_diff = 0
+1.24.853.258 I slot print_timing: id  0 | task 661 | prompt processing, n_tokens =   2048, progress = 0.09, t =   6.21 s / 329.60 tokens per second
+1.24.853.306 I slot   operator(): id  0 | task 661 | cached n_tokens = 2048, memory_seq_rm [2048, end)
+1.24.904.405 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 9, n_diff = 0
+1.26.541.032 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 10, n_diff = 0
+1.28.191.220 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 11, n_diff = 0
+1.29.869.624 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 12, n_diff = 0
+1.31.691.985 I slot print_timing: id  0 | task 661 | prompt processing, n_tokens =   4096, progress = 0.18, t =  13.05 s / 313.81 tokens per second
+1.31.692.009 I slot   operator(): id  0 | task 661 | cached n_tokens = 4096, memory_seq_rm [4096, end)
+1.31.702.190 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 13, n_diff = 0
+1.33.562.363 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 14, n_diff = 0
+1.35.473.558 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 15, n_diff = 0
+1.37.420.270 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 16, n_diff = 0
+1.39.397.502 I slot print_timing: id  0 | task 661 | prompt processing, n_tokens =   6144, progress = 0.27, t =  20.76 s / 295.98 tokens per second
+1.39.397.540 I slot   operator(): id  0 | task 661 | cached n_tokens = 6144, memory_seq_rm [6144, end)
+1.39.406.999 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 17, n_diff = 0
+1.41.427.613 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 18, n_diff = 0
+1.43.491.501 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 19, n_diff = 0
+1.45.591.992 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 20, n_diff = 0
+1.47.744.551 I slot print_timing: id  0 | task 661 | prompt processing, n_tokens =   8192, progress = 0.36, t =  29.11 s / 281.46 tokens per second
+1.47.744.561 I slot   operator(): id  0 | task 661 | cached n_tokens = 8192, memory_seq_rm [8192, end)
+1.47.755.234 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 21, n_diff = 0
+1.49.938.608 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 22, n_diff = 0
+1.52.162.344 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 23, n_diff = 0
+1.54.425.953 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 24, n_diff = 0
+1.56.735.068 I slot print_timing: id  0 | task 661 | prompt processing, n_tokens =  10240, progress = 0.45, t =  38.10 s / 268.80 tokens per second
+1.56.735.094 I slot   operator(): id  0 | task 661 | cached n_tokens = 10240, memory_seq_rm [10240, end)
+1.56.781.080 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 25, n_diff = 0
+1.59.151.731 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 26, n_diff = 0
+2.01.537.691 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 27, n_diff = 0
+2.03.963.414 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 28, n_diff = 0
+2.06.422.460 I slot print_timing: id  0 | task 661 | prompt processing, n_tokens =  12288, progress = 0.55, t =  47.78 s / 257.16 tokens per second
+2.06.422.471 I slot   operator(): id  0 | task 661 | cached n_tokens = 12288, memory_seq_rm [12288, end)
+2.06.433.936 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 29, n_diff = 0
+2.08.944.840 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 30, n_diff = 0
+2.11.487.573 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 31, n_diff = 0
+2.14.071.076 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 32, n_diff = 0
+2.16.691.941 I slot print_timing: id  0 | task 661 | prompt processing, n_tokens =  14336, progress = 0.64, t =  58.05 s / 246.95 tokens per second
+2.16.691.990 I slot   operator(): id  0 | task 661 | cached n_tokens = 14336, memory_seq_rm [14336, end)
+2.16.745.026 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 33, n_diff = 0
+2.19.466.153 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 34, n_diff = 0
+2.22.213.768 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 35, n_diff = 0
+2.24.962.035 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 36, n_diff = 0
+2.27.754.097 I slot print_timing: id  0 | task 661 | prompt processing, n_tokens =  16384, progress = 0.73, t =  69.11 s / 237.06 tokens per second
+2.27.754.147 I slot   operator(): id  0 | task 661 | cached n_tokens = 16384, memory_seq_rm [16384, end)
+2.27.804.546 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 37, n_diff = 0
+2.30.677.417 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 38, n_diff = 0
+2.33.577.623 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 39, n_diff = 0
+2.36.486.523 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 40, n_diff = 0
+2.39.440.616 I slot print_timing: id  0 | task 661 | prompt processing, n_tokens =  18432, progress = 0.82, t =  80.80 s / 228.12 tokens per second
+2.39.440.634 I slot   operator(): id  0 | task 661 | cached n_tokens = 18432, memory_seq_rm [18432, end)
+2.39.455.073 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 41, n_diff = 0
+2.42.450.193 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 42, n_diff = 0
+2.45.475.682 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 43, n_diff = 0
+2.48.544.143 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 44, n_diff = 0
+2.51.648.613 I slot print_timing: id  0 | task 661 | prompt processing, n_tokens =  20480, progress = 0.91, t =  93.01 s / 220.19 tokens per second
+2.51.648.634 I slot   operator(): id  0 | task 661 | cached n_tokens = 20480, memory_seq_rm [20480, end)
+2.51.656.872 I slot init_sampler: id  0 | task 661 | init sampler, took 8.08 ms, tokens: text = 22520, total = 22520
+2.51.667.388 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 45, n_diff = 0
+2.54.822.073 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 46, n_diff = 0
+2.58.007.535 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 47, n_diff = 0
+3.27.102.197 I slot print_timing: id  0 | task 661 | n_gen =    100, tg =   4.38 t/s, tg_3s =   4.42 t/s
+3.30.317.365 I slot print_timing: id  0 | task 661 | n_gen =    114, tg =   4.38 t/s, tg_3s =   4.35 t/s
+3.33.460.899 I slot print_timing: id  0 | task 661 | n_gen =    128, tg =   4.38 t/s, tg_3s =   4.45 t/s
+3.36.609.080 I slot print_timing: id  0 | task 661 | n_gen =    142, tg =   4.39 t/s, tg_3s =   4.45 t/s
+3.39.754.649 I slot print_timing: id  0 | task 661 | n_gen =    156, tg =   4.40 t/s, tg_3s =   4.45 t/s
+3.42.901.736 I slot print_timing: id  0 | task 661 | n_gen =    170, tg =   4.40 t/s, tg_3s =   4.45 t/s
+3.45.932.332 I slot print_timing: id  0 | task 661 | n_gen =    183, tg =   4.39 t/s, tg_3s =   4.29 t/s
+3.48.995.370 I slot print_timing: id  0 | task 661 | n_gen =    196, tg =   4.38 t/s, tg_3s =   4.24 t/s
+3.52.073.720 I slot print_timing: id  0 | task 661 | n_gen =    209, tg =   4.37 t/s, tg_3s =   4.22 t/s
+3.55.153.269 I slot print_timing: id  0 | task 661 | n_gen =    222, tg =   4.36 t/s, tg_3s =   4.22 t/s
+3.58.226.017 I slot print_timing: id  0 | task 661 | n_gen =    235, tg =   4.35 t/s, tg_3s =   4.23 t/s
+4.01.416.918 I slot print_timing: id  0 | task 661 | n_gen =    249, tg =   4.36 t/s, tg_3s =   4.39 t/s
+4.04.489.055 I slot print_timing: id  0 | task 661 | n_gen =    262, tg =   4.35 t/s, tg_3s =   4.23 t/s
+4.07.614.930 I slot print_timing: id  0 | task 661 | n_gen =    275, tg =   4.34 t/s, tg_3s =   4.16 t/s
+4.08.551.779 I cmn  common_reaso: deactivated (natural end)
+4.10.831.045 I slot print_timing: id  0 | task 661 | n_gen =    289, tg =   4.34 t/s, tg_3s =   4.35 t/s
+4.14.015.163 I slot print_timing: id  0 | task 661 | n_gen =    303, tg =   4.34 t/s, tg_3s =   4.40 t/s
+4.17.208.943 I slot print_timing: id  0 | task 661 | n_gen =    317, tg =   4.35 t/s, tg_3s =   4.38 t/s
+4.20.388.706 I slot print_timing: id  0 | task 661 | n_gen =    331, tg =   4.35 t/s, tg_3s =   4.40 t/s
+4.23.578.846 I slot print_timing: id  0 | task 661 | n_gen =    345, tg =   4.35 t/s, tg_3s =   4.39 t/s
+4.26.745.160 I slot print_timing: id  0 | task 661 | n_gen =    359, tg =   4.35 t/s, tg_3s =   4.42 t/s
+4.29.819.243 I slot print_timing: id  0 | task 661 | n_gen =    372, tg =   4.35 t/s, tg_3s =   4.23 t/s
+4.32.870.130 I slot print_timing: id  0 | task 661 | n_gen =    385, tg =   4.34 t/s, tg_3s =   4.26 t/s
+4.35.901.820 I slot print_timing: id  0 | task 661 | n_gen =    398, tg =   4.34 t/s, tg_3s =   4.29 t/s
+4.39.021.703 I slot print_timing: id  0 | task 661 | n_gen =    411, tg =   4.34 t/s, tg_3s =   4.17 t/s
+4.42.128.097 I slot print_timing: id  0 | task 661 | n_gen =    424, tg =   4.33 t/s, tg_3s =   4.18 t/s
+4.45.351.845 I slot print_timing: id  0 | task 661 | n_gen =    438, tg =   4.33 t/s, tg_3s =   4.34 t/s
+4.48.541.085 I slot print_timing: id  0 | task 661 | n_gen =    452, tg =   4.33 t/s, tg_3s =   4.39 t/s
+4.51.617.289 I slot print_timing: id  0 | task 661 | n_gen =    465, tg =   4.33 t/s, tg_3s =   4.23 t/s
+4.54.655.267 I slot print_timing: id  0 | task 661 | n_gen =    478, tg =   4.33 t/s, tg_3s =   4.28 t/s
+4.57.845.058 I slot print_timing: id  0 | task 661 | n_gen =    492, tg =   4.33 t/s, tg_3s =   4.39 t/s
+5.01.026.151 I slot print_timing: id  0 | task 661 | n_gen =    506, tg =   4.33 t/s, tg_3s =   4.40 t/s
+5.04.227.999 I slot print_timing: id  0 | task 661 | n_gen =    520, tg =   4.33 t/s, tg_3s =   4.37 t/s
+5.07.431.739 I slot print_timing: id  0 | task 661 | n_gen =    534, tg =   4.34 t/s, tg_3s =   4.37 t/s
+5.10.645.087 I slot print_timing: id  0 | task 661 | n_gen =    548, tg =   4.34 t/s, tg_3s =   4.36 t/s
+5.13.863.646 I slot print_timing: id  0 | task 661 | n_gen =    562, tg =   4.34 t/s, tg_3s =   4.35 t/s
+5.17.072.191 I slot print_timing: id  0 | task 661 | n_gen =    576, tg =   4.34 t/s, tg_3s =   4.36 t/s
+5.20.074.026 I slot print_timing: id  0 | task 661 | n_gen =    589, tg =   4.34 t/s, tg_3s =   4.33 t/s
+5.23.292.129 I slot print_timing: id  0 | task 661 | n_gen =    603, tg =   4.34 t/s, tg_3s =   4.35 t/s
+5.26.498.244 I slot print_timing: id  0 | task 661 | n_gen =    617, tg =   4.34 t/s, tg_3s =   4.37 t/s
+5.29.696.950 I slot print_timing: id  0 | task 661 | n_gen =    631, tg =   4.34 t/s, tg_3s =   4.38 t/s
+5.32.907.716 I slot print_timing: id  0 | task 661 | n_gen =    645, tg =   4.34 t/s, tg_3s =   4.36 t/s
+5.33.594.918 I slot print_timing: id  0 | task 661 | prompt eval time =  105849.65 ms / 22520 tokens (    4.70 ms per token,   212.75 tokens per second)
+5.33.594.936 I slot print_timing: id  0 | task 661 |        eval time =  149105.72 ms /   648 tokens (  230.46 ms per token,     4.34 tokens per second)
+5.33.594.938 I slot print_timing: id  0 | task 661 |       total time =  254955.38 ms / 23168 tokens
+5.33.594.940 I slot print_timing: id  0 | task 661 |    graphs reused =       1297
+5.33.594.942 I slot print_timing: id  0 | task 661 |   graph reallocs =         47    /     0        (same size) / (changed size)
+5.33.596.618 I slot      release: id  0 | task 661 | stop processing: n_tokens = 23167, truncated = 0
+5.33.596.658 I srv  update_slots: all slots are idle
+5.33.902.780 I srv  server_strea: conv_id= (empty=1)
+5.33.956.274 I slot get_availabl: id  0 | task -1 |  - checking sim = 0.999 (23167/23196) > 0.100
+5.33.956.288 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 0.999 (> 0.100 thold), f_keep = 1.000
+5.33.956.600 I cmn  common_reaso: activated, budget=2147483647 tokens
+5.33.956.658 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> ?min-p -> ?xtc -> ?temp-ext -> dist 
+5.33.956.666 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 20, top_p = 0.950, min_p = 0.000, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 1.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+5.33.956.670 I slot launch_slot_: id  0 | task 1320 | processing task, is_child = 0
+5.33.956.678 I slot   operator(): id  0 | task 1320 | new prompt, n_ctx_slot = 32768, n_keep = 0, task.n_tokens = 23196
+5.33.956.708 I slot   operator(): id  0 | task 1320 | cached n_tokens = 23167, memory_seq_rm [23167, end)
+5.33.961.810 I slot init_sampler: id  0 | task 1320 | init sampler, took 5.06 ms, tokens: text = 23196, total = 23196
+5.37.415.255 I cmn  common_reaso: deactivated (natural end)
+5.45.545.013 I slot print_timing: id  0 | task 1320 | prompt eval time =     707.61 ms /    29 tokens (   24.40 ms per token,    40.98 tokens per second)
+5.45.545.059 I slot print_timing: id  0 | task 1320 |        eval time =   10880.59 ms /    48 tokens (  231.50 ms per token,     4.32 tokens per second)
+5.45.545.066 I slot print_timing: id  0 | task 1320 |       total time =   11588.19 ms /    77 tokens
+5.45.545.070 I slot print_timing: id  0 | task 1320 |    graphs reused =       1343
+5.45.545.074 I slot print_timing: id  0 | task 1320 |   graph reallocs =         47    /     0        (same size) / (changed size)
+5.45.551.675 I slot      release: id  0 | task 1320 | stop processing: n_tokens = 23243, truncated = 0
+5.45.551.769 I srv  update_slots: all slots are idle
+5.46.172.821 I srv  server_strea: conv_id= (empty=1)
+5.46.228.535 I slot get_availabl: id  0 | task -1 |  - checking sim = 0.998 (23243/23279) > 0.100
+5.46.228.591 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 0.998 (> 0.100 thold), f_keep = 1.000
+5.46.230.283 I cmn  common_reaso: activated, budget=2147483647 tokens
+5.46.230.627 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> ?min-p -> ?xtc -> ?temp-ext -> dist 
+5.46.230.673 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 20, top_p = 0.950, min_p = 0.000, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 1.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+5.46.230.696 I slot launch_slot_: id  0 | task 1369 | processing task, is_child = 0
+5.46.230.730 I slot   operator(): id  0 | task 1369 | new prompt, n_ctx_slot = 32768, n_keep = 0, task.n_tokens = 23279
+5.46.230.949 I slot   operator(): id  0 | task 1369 | cached n_tokens = 23243, memory_seq_rm [23243, end)
+5.46.257.107 I slot init_sampler: id  0 | task 1369 | init sampler, took 25.81 ms, tokens: text = 23279, total = 23279
+5.51.221.984 I cmn  common_reaso: deactivated (natural end)
+5.58.148.736 I slot print_timing: id  0 | task 1369 | prompt eval time =     782.06 ms /    36 tokens (   21.72 ms per token,    46.03 tokens per second)
+5.58.148.755 I slot print_timing: id  0 | task 1369 |        eval time =   11135.89 ms /    49 tokens (  232.00 ms per token,     4.31 tokens per second)
+5.58.148.757 I slot print_timing: id  0 | task 1369 |       total time =   11917.95 ms /    85 tokens
+5.58.148.759 I slot print_timing: id  0 | task 1369 |    graphs reused =       1389
+5.58.148.760 I slot print_timing: id  0 | task 1369 |   graph reallocs =         47    /     0        (same size) / (changed size)
+5.58.150.398 I slot      release: id  0 | task 1369 | stop processing: n_tokens = 23327, truncated = 0
+5.58.150.566 I srv  update_slots: all slots are idle
+5.58.417.757 I srv  server_strea: conv_id= (empty=1)
+5.58.472.338 I slot get_availabl: id  0 | task -1 |  - checking sim = 0.994 (23327/23469) > 0.100
+5.58.472.352 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 0.994 (> 0.100 thold), f_keep = 1.000
+5.58.472.656 I cmn  common_reaso: activated, budget=2147483647 tokens
+5.58.472.714 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> ?min-p -> ?xtc -> ?temp-ext -> dist 
+5.58.472.722 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 20, top_p = 0.950, min_p = 0.000, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 1.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+5.58.472.725 I slot launch_slot_: id  0 | task 1419 | processing task, is_child = 0
+5.58.472.733 I slot   operator(): id  0 | task 1419 | new prompt, n_ctx_slot = 32768, n_keep = 0, task.n_tokens = 23469
+5.58.472.764 I slot   operator(): id  0 | task 1419 | cached n_tokens = 23327, memory_seq_rm [23327, end)
+5.58.478.772 I slot init_sampler: id  0 | task 1419 | init sampler, took 5.96 ms, tokens: text = 23469, total = 23469
+6.02.357.242 I cmn  common_reaso: deactivated (natural end)
+6.23.157.139 I slot print_timing: id  0 | task 1419 | n_gen =    100, tg =   4.22 t/s, tg_3s =   4.26 t/s
+6.26.325.537 I slot print_timing: id  0 | task 1419 | n_gen =    113, tg =   4.21 t/s, tg_3s =   4.10 t/s
+6.29.486.381 I slot print_timing: id  0 | task 1419 | n_gen =    126, tg =   4.20 t/s, tg_3s =   4.11 t/s
+6.31.913.932 I slot print_timing: id  0 | task 1419 | prompt eval time =    1236.51 ms /   142 tokens (    8.71 ms per token,   114.84 tokens per second)
+6.31.913.980 I slot print_timing: id  0 | task 1419 |        eval time =   32204.57 ms /   136 tokens (  238.55 ms per token,     4.19 tokens per second)
+6.31.913.987 I slot print_timing: id  0 | task 1419 |       total time =   33441.08 ms /   278 tokens
+6.31.913.992 I slot print_timing: id  0 | task 1419 |    graphs reused =       1522
+6.31.913.996 I slot print_timing: id  0 | task 1419 |   graph reallocs =         47    /     0        (same size) / (changed size)
+6.31.920.353 I slot      release: id  0 | task 1419 | stop processing: n_tokens = 23604, truncated = 0
+6.31.920.499 I srv  update_slots: all slots are idle
+6.31.942.030 I srv  server_strea: conv_id= (empty=1)
+6.31.949.071 I slot get_availabl: id  0 | task -1 |  - checking sim = 0.002 (3/1867) > 0.100
+6.31.949.127 I slot get_availabl: id  0 | task -1 | selected slot by LRU, n_tokens = 23604, t_last = 164732764945
+6.31.949.130 I srv  get_availabl: updating prompt cache
+6.31.959.937 I srv   prompt_save:  - saving prompt with length 23604, total state size = 442.654 MiB (draft: 0.000 MiB)
+6.32.279.513 I srv          load:  - looking for better prompt, base f_keep = 0.000, f_sim = 0.002
+6.32.279.530 I srv          load:    - prompt with length    3869, lcp =      73, f_keep = 0.019, f_sim = 0.039
+6.32.279.532 I srv          load:    - prompt with length   23604, lcp =       3, f_keep = 0.000, f_sim = 0.002
+6.32.279.535 I srv        update:  - cache state: 2 prompts, 557.225 MiB (limits: 5120.000 MiB, 32768 tokens, 252432 est)
+6.32.279.537 I srv        update:    - prompt 0xaaaad5ac2d70:    3869 tokens, checkpoints:  0,   114.571 MiB
+6.32.279.538 I srv        update:    - prompt 0xaaaad5abed30:   23604 tokens, checkpoints:  0,   442.654 MiB
+6.32.279.540 I srv  get_availabl: prompt cache update took 330.41 ms
+6.32.279.692 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> ?min-p -> ?xtc -> ?temp-ext -> dist 
+6.32.279.701 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 20, top_p = 0.950, min_p = 0.000, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 1.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+6.32.279.706 I slot launch_slot_: id  0 | task 1556 | processing task, is_child = 0
+6.32.279.719 I slot   operator(): id  0 | task 1556 | new prompt, n_ctx_slot = 32768, n_keep = 0, task.n_tokens = 1867
+6.32.279.724 I slot   operator(): id  0 | task 1556 | forcing full prompt re-processing due to lack of cache data (likely due to SWA or hybrid/recurrent memory, see https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+6.32.279.736 I slot   operator(): id  0 | task 1556 | cached n_tokens = 0, memory_seq_rm [0, end)
+6.32.282.950 I slot init_sampler: id  0 | task 1556 | init sampler, took 0.38 ms, tokens: text = 1867, total = 1867
+6.33.810.964 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 48, n_diff = 0
+6.35.337.809 I sched_graph_realloc: graph reallocation: nodes = 2701 (changed = 0), splits = 16, n_same = 49, n_diff = 0
+6.45.614.702 I slot print_timing: id  0 | task 1556 | n_gen =    100, tg =  13.03 t/s, tg_3s =  13.16 t/s
+6.48.656.227 I slot print_timing: id  0 | task 1556 | n_gen =    141, tg =  13.16 t/s, tg_3s =  13.48 t/s
+6.51.678.685 I slot print_timing: id  0 | task 1556 | n_gen =    178, tg =  12.95 t/s, tg_3s =  12.24 t/s
+6.54.733.774 I slot print_timing: id  0 | task 1556 | n_gen =    216, tg =  12.86 t/s, tg_3s =  12.44 t/s
+6.57.792.060 I slot print_timing: id  0 | task 1556 | n_gen =    256, tg =  12.89 t/s, tg_3s =  13.08 t/s
+7.00.860.696 I slot print_timing: id  0 | task 1556 | n_gen =    293, tg =  12.78 t/s, tg_3s =  12.06 t/s
+7.03.931.397 I slot print_timing: id  0 | task 1556 | n_gen =    330, tg =  12.69 t/s, tg_3s =  12.05 t/s
+7.06.969.147 I slot print_timing: id  0 | task 1556 | n_gen =    369, tg =  12.71 t/s, tg_3s =  12.84 t/s
+7.10.050.841 I slot print_timing: id  0 | task 1556 | n_gen =    406, tg =  12.64 t/s, tg_3s =  12.01 t/s
+7.13.081.783 I slot print_timing: id  0 | task 1556 | n_gen =    443, tg =  12.60 t/s, tg_3s =  12.21 t/s
+7.16.082.600 I slot print_timing: id  0 | task 1556 | n_gen =    483, tg =  12.66 t/s, tg_3s =  13.33 t/s
+7.19.148.371 I slot print_timing: id  0 | task 1556 | n_gen =    522, tg =  12.67 t/s, tg_3s =  12.72 t/s
+7.22.222.618 I slot print_timing: id  0 | task 1556 | n_gen =    558, tg =  12.60 t/s, tg_3s =  11.71 t/s
+7.25.292.393 I slot print_timing: id  0 | task 1556 | n_gen =    594, tg =  12.54 t/s, tg_3s =  11.73 t/s
+7.28.348.094 I slot print_timing: id  0 | task 1556 | n_gen =    630, tg =  12.50 t/s, tg_3s =  11.78 t/s
+7.31.371.074 I slot print_timing: id  0 | task 1556 | n_gen =    670, tg =  12.54 t/s, tg_3s =  13.23 t/s
+7.34.414.102 I slot print_timing: id  0 | task 1556 | n_gen =    710, tg =  12.57 t/s, tg_3s =  13.14 t/s
+7.37.486.080 I slot print_timing: id  0 | task 1556 | n_gen =    750, tg =  12.59 t/s, tg_3s =  13.02 t/s
+7.40.495.393 I slot print_timing: id  0 | task 1556 | n_gen =    789, tg =  12.61 t/s, tg_3s =  12.96 t/s
+7.43.507.205 I slot print_timing: id  0 | task 1556 | n_gen =    828, tg =  12.63 t/s, tg_3s =  12.95 t/s
+7.46.520.022 I slot print_timing: id  0 | task 1556 | n_gen =    867, tg =  12.64 t/s, tg_3s =  12.94 t/s
+7.49.573.707 I slot print_timing: id  0 | task 1556 | n_gen =    904, tg =  12.62 t/s, tg_3s =  12.12 t/s
+7.52.599.569 I slot print_timing: id  0 | task 1556 | n_gen =    939, tg =  12.58 t/s, tg_3s =  11.57 t/s
+7.55.661.394 I slot print_timing: id  0 | task 1556 | n_gen =    973, tg =  12.52 t/s, tg_3s =  11.10 t/s
+7.58.168.112 I slot print_timing: id  0 | task 1556 | prompt eval time =    5734.40 ms /  1867 tokens (    3.07 ms per token,   325.58 tokens per second)
+7.58.168.158 I slot print_timing: id  0 | task 1556 |        eval time =   80153.85 ms /  1001 tokens (   80.15 ms per token,    12.48 tokens per second)
+7.58.168.166 I slot print_timing: id  0 | task 1556 |       total time =   85888.25 ms /  2868 tokens
+7.58.168.170 I slot print_timing: id  0 | task 1556 |    graphs reused =       2517
+7.58.168.174 I slot print_timing: id  0 | task 1556 |   graph reallocs =         49    /     0        (same size) / (changed size)
+7.58.169.031 I slot      release: id  0 | task 1556 | stop processing: n_tokens = 2867, truncated = 0
+7.58.169.117 I srv  update_slots: all slots are idle
+7.58.181.779 I srv  server_strea: conv_id= (empty=1)
+7.58.184.393 I slot get_availabl: id  0 | task -1 |  - checking sim = 0.144 (70/486) > 0.100
+7.58.184.631 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 0.144 (> 0.100 thold), f_keep = 0.024
+7.58.184.635 I srv  get_availabl: updating prompt cache
+7.58.186.313 I srv   prompt_save:  - saving prompt with length 2867, total state size = 97.913 MiB (draft: 0.000 MiB)
+7.58.309.890 I srv          load:  - looking for better prompt, base f_keep = 0.024, f_sim = 0.144
+7.58.309.922 I srv          load:    - prompt with length    3869, lcp =      70, f_keep = 0.018, f_sim = 0.144
+7.58.309.924 I srv          load:    - prompt with length   23604, lcp =       3, f_keep = 0.000, f_sim = 0.006
+7.58.309.925 I srv          load:    - prompt with length    2867, lcp =      70, f_keep = 0.024, f_sim = 0.144
+7.58.309.929 I srv        update:  - cache state: 3 prompts, 655.138 MiB (limits: 5120.000 MiB, 32768 tokens, 237111 est)
+7.58.309.930 I srv        update:    - prompt 0xaaaad5ac2d70:    3869 tokens, checkpoints:  0,   114.571 MiB
+7.58.309.931 I srv        update:    - prompt 0xaaaad5abed30:   23604 tokens, checkpoints:  0,   442.654 MiB
+7.58.309.932 I srv        update:    - prompt 0xaaaad5ac5720:    2867 tokens, checkpoints:  0,    97.913 MiB
+7.58.309.934 I srv  get_availabl: prompt cache update took 125.30 ms
+7.58.310.069 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> ?min-p -> ?xtc -> ?temp-ext -> dist 
+7.58.310.079 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 20, top_p = 0.950, min_p = 0.000, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 1.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+7.58.310.083 I slot launch_slot_: id  0 | task 2558 | processing task, is_child = 0
+7.58.310.095 I slot   operator(): id  0 | task 2558 | new prompt, n_ctx_slot = 32768, n_keep = 0, task.n_tokens = 486
+7.58.310.101 I slot   operator(): id  0 | task 2558 | forcing full prompt re-processing due to lack of cache data (likely due to SWA or hybrid/recurrent memory, see https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+7.58.310.122 I slot   operator(): id  0 | task 2558 | cached n_tokens = 0, memory_seq_rm [0, end)
+7.58.310.732 I slot init_sampler: id  0 | task 2558 | init sampler, took 0.12 ms, tokens: text = 486, total = 486
+7.58.314.785 I sched_graph_realloc: graph reallocation: nodes = 2669 (changed = 0), splits = 2, n_same = 50, n_diff = 0
+8.06.540.373 I slot print_timing: id  0 | task 2558 | n_gen =    100, tg =  14.69 t/s, tg_3s =  14.84 t/s
+8.09.572.628 I slot print_timing: id  0 | task 2558 | n_gen =    143, tg =  14.53 t/s, tg_3s =  14.18 t/s
+8.12.590.590 I slot print_timing: id  0 | task 2558 | n_gen =    186, tg =  14.46 t/s, tg_3s =  14.25 t/s
+8.15.642.635 I slot print_timing: id  0 | task 2558 | n_gen =    236, tg =  14.83 t/s, tg_3s =  16.38 t/s
+8.18.657.351 I slot print_timing: id  0 | task 2558 | n_gen =    286, tg =  15.11 t/s, tg_3s =  16.59 t/s
+8.21.704.729 I slot print_timing: id  0 | task 2558 | n_gen =    334, tg =  15.20 t/s, tg_3s =  15.75 t/s
+8.24.737.100 I slot print_timing: id  0 | task 2558 | n_gen =    377, tg =  15.08 t/s, tg_3s =  14.18 t/s
+8.27.781.247 I slot print_timing: id  0 | task 2558 | n_gen =    419, tg =  14.94 t/s, tg_3s =  13.80 t/s
+8.30.825.234 I slot print_timing: id  0 | task 2558 | n_gen =    461, tg =  14.83 t/s, tg_3s =  13.80 t/s
+8.33.837.830 I slot print_timing: id  0 | task 2558 | n_gen =    504, tg =  14.78 t/s, tg_3s =  14.27 t/s
+8.36.852.629 I slot print_timing: id  0 | task 2558 | n_gen =    545, tg =  14.68 t/s, tg_3s =  13.60 t/s
+8.39.882.411 I slot print_timing: id  0 | task 2558 | n_gen =    586, tg =  14.60 t/s, tg_3s =  13.53 t/s
+8.42.895.159 I slot print_timing: id  0 | task 2558 | n_gen =    632, tg =  14.64 t/s, tg_3s =  15.27 t/s
+8.45.912.800 I slot print_timing: id  0 | task 2558 | n_gen =    675, tg =  14.62 t/s, tg_3s =  14.25 t/s
+8.48.927.965 I slot print_timing: id  0 | task 2558 | n_gen =    722, tg =  14.68 t/s, tg_3s =  15.59 t/s
+8.51.963.731 I slot print_timing: id  0 | task 2558 | n_gen =    764, tg =  14.63 t/s, tg_3s =  13.84 t/s
+8.55.028.535 I slot print_timing: id  0 | task 2558 | n_gen =    804, tg =  14.54 t/s, tg_3s =  13.05 t/s
+8.58.094.944 I slot print_timing: id  0 | task 2558 | n_gen =    846, tg =  14.50 t/s, tg_3s =  13.70 t/s
+9.01.133.250 I slot print_timing: id  0 | task 2558 | n_gen =    887, tg =  14.45 t/s, tg_3s =  13.49 t/s
+9.04.140.417 I slot print_timing: id  0 | task 2558 | n_gen =    932, tg =  14.47 t/s, tg_3s =  14.96 t/s
+9.07.174.274 I slot print_timing: id  0 | task 2558 | n_gen =    977, tg =  14.49 t/s, tg_3s =  14.83 t/s
+9.10.221.699 I slot print_timing: id  0 | task 2558 | n_gen =   1021, tg =  14.48 t/s, tg_3s =  14.44 t/s
+9.13.275.603 I slot print_timing: id  0 | task 2558 | n_gen =   1062, tg =  14.44 t/s, tg_3s =  13.43 t/s
+9.14.627.914 I slot print_timing: id  0 | task 2558 | prompt eval time =    1490.06 ms /   486 tokens (    3.07 ms per token,   326.16 tokens per second)
+9.14.627.958 I slot print_timing: id  0 | task 2558 |        eval time =   74827.62 ms /  1079 tokens (   69.41 ms per token,    14.41 tokens per second)
+9.14.627.966 I slot print_timing: id  0 | task 2558 |       total time =   76317.68 ms /  1565 tokens
+9.14.627.970 I slot print_timing: id  0 | task 2558 |    graphs reused =       3589
+9.14.627.974 I slot print_timing: id  0 | task 2558 |   graph reallocs =         50    /     0        (same size) / (changed size)
+9.14.628.262 I slot      release: id  0 | task 2558 | stop processing: n_tokens = 1564, truncated = 0
+9.14.628.342 I srv  update_slots: all slots are idle
+9.14.877.217 I srv  update_slots: all slots are idle
+9.15.329.826 I srv    operator(): operator(): cleaning up before exit...
+9.15.332.944 I common_memory_breakdown_print: | memory breakdown [MiB] | total   free    self   model   context   compute    unaccounted |
+9.15.332.978 I common_memory_breakdown_print: |   - HTP0:0 (Hexagon)   |     0 =    0 + (1852 =  1146 +     594 +     111) +       -1852 |
+9.15.332.981 I common_memory_breakdown_print: |   - Host               |                  222 =   170 +       0 +      52                |
