@@ -1,332 +1,97 @@
-# Phase V0 — VENTUNO Q (16GB): sanity check and capability matrix
+# Ventuno Q, phase V0: can this board run a local coding agent?
 
-Arduino VENTUNO Q (Qualcomm QCS8275, 2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz, 15.3 GiB, Hexagon
-v75 NPU, Adreno 623). Ubuntu 24.04.5, kernel 6.8.0-1084-qcom. Official 65 W supply (barrel jack), stock fan,
-headless, eMMC only (no NVMe). Runbook: [`RUNBOOK.md`](../RUNBOOK.md). Every decision and deviation:
-[`decisions.txt`](decisions.txt) (D1–D191).
+Before any arena ran, phase V0 asked which runtime, model and settings on the Arduino VENTUNO Q could serve the `pi`
+coding agent fast enough, reliably enough and within memory. Every route the [runbook](../RUNBOOK.md) lists was
+measured against gates frozen before the first measurement; the configurations that passed were then qualified in
+real pi sessions. Three configurations qualified, all on the NPU, and went on to phase V1
+([results](../phase-v1/README.md)).
 
-**Status (2026-10-11 15:30): the NPU hang is diagnosed (D127: htp_main_thread exits on a dspqueue_peek AEE_ENOMORE)
-and mitigated by a retry patch to the DSP library (D131-D133; upstream ggml-org/llama.cpp#30309). With that library,
-A re-passed V0d admission (AR, D139: 16K 318.4/8.40, 10/10, 3/3, 0 faults) but is NOT QUALIFIED in V0e (D139): no
-NPU hang in about 3 h of NPU use (13 AEE_ENOMORE events, each retried once), but pi rarely gets a tool call from
-the model (S1 pi smoke 1/7 checks; S2 56 cycles: 5 pass, 46 no tool call, 1 wrong order, 4 pi timeouts during long
-generations; the direct streaming tool gates pass 10/10 and 3/3), and after S2's workload completed, its health verdict
-stopped the driver: MemAvailable 1.06 GiB < 1.5 GiB with the prompt cache near its 7,942 MiB cap (D139-D140).
-pi diagnostic (D144): pi's first request replayed 20 times per step gets a tool call in 3/20 on the NPU (2/20 with
-the card's sampling) but 20/20 on the CPU with the same Q4_0 file (and 20/20 with Q4_K_M); same template and sampling:
-a lead that the Hexagon backend's numerics are behind the pi failures. Narrowed (D145-D156), not localized (D170): the
-NPU's logits depart from the CPU's only with multi-token ubatches and full offload; with -ngl 32 (block 0 on the CPU; blocks 1-31 and the output layer on the NPU, D170 corrects the earlier "output layer on the CPU") pi's request gets a tool call 20/20 and pi
-smoke passes 10/10 (D6), at 272 vs 359 tok/s prompt. A32 (AR with -ngl 32, --cache-ram 5120; v0e-plan-A32.txt, D157) was admitted (gate PASS, 235.7/5.25) but is NOT QUALIFIED at 32768 (D159): S1 failed cache reuse and compaction (in this transcript pi's size estimate stayed under its 20,000-token keep, so no compaction could start; D160), and the baseline probe before S2 hung. The second V0e attempt (A32-2, v0e-plan-A32-2.txt, D161, D163-D165) is also NOT QUALIFIED: compaction now passes and S2 passes (42 cycles, sustained VALID, 42/42 pi smoke, no fault), but S1's window and cache items failed: the window's continuation check is a confirmed defect (it counts reasoning tokens the template does not send back), the cache item's first turn declined to call bash (suspected prompt ambiguity or model refusal, not isolated; D165, D166). The third attempt (A32-3, v0e-plan-A32-3.txt, D167-D169) is also NOT QUALIFIED: S0 (neutral cache wording 8/8, current 5/8) and S2 (41 cycles, sustained VALID, 41/41 pi smoke) pass with no fault, but S1's window check has a confirmed defect (its tool-message ablation is refused by the server with HTTP 400), and the cache item's turns were re-read in full on this hybrid model with --ctx-checkpoints 0 (suspected as the whole cause, not isolated). The owner chose to measure re-reading instead of requiring reuse (D171): V0e step 3 is now a multi-turn correctness and cost check (reuse reported, a 300 s time-to-first-token limit per request), and a fourth attempt (A32-4, v0e-plan-A32-4.txt, D174) is also NOT QUALIFIED: S2 passes (41 cycles, sustained VALID, 41/41 pi smoke), S1's window (corrected continuation) and compaction (gated recall) pass, but the new turns item had a sizing defect (later corpus slices tokenize denser; the last request no longer fitted the window and was refused before sending); fixed offline (sizing D174, validated token counts D175). The fifth attempt (A32-5, v0e-plan-A32-5.txt, D176-D177; the release package checked as built at every launch) is **QUALIFIED at 32768**: S1 passes every item (turns 52/52, the last request 30,312 tokens; window 4/4; compaction with recall; 10/10, 3/3, 7/7) and S2 passes (42 cycles, sustained VALID, 42/42 pi smoke), 0 faults, 0 DSP retry events; qualification is not a GO (the owner's decision). State restoration stays a separate goal. B4 (Ternary-Bonsai-2-4B Q2_0 on one NPU session with a q8_0 KV cache, package ff5a2337; v0e-plan-B4.txt, D178-D179) is admitted (gate PASS, 229.7/5.12) and **QUALIFIED at 32768**: S1 passes every item (turns 52/52, the largest request 30,317 tokens; window 4/4; compaction with recall; 10/10, 3/3, 7/7) and S2 passes (70 cycles, sustained VALID, pi smoke 69/70: one cycle's extra write call overwrote the counted file), 0 faults, 0 DSP retry events on the unpatched library. B9 (Ternary-Bonsai-2-9B Q2_0 on two NPU sessions, -ts 18,15, the input embedding on the CPU, F16 KV, package ff5a2337 with its htp_main_thread retry build; v0e-plan-B9.txt, D180-D181) is admitted (gate PASS, 190.5/7.58) and **QUALIFIED at 32768**: S1 passes every item (turns 52/52, the largest request 30,309 tokens; window 4/4; compaction with recall; 10/10, 3/3, 7/7) and S2 passes (52 cycles, sustained VALID, pi smoke 52/52), 0 faults; S2 logged 15 DSP retry events (0x2f, each 1 in a row, service continued after each). Earlier: H2 NOT QUALIFIED (D112-D117, loads), A NOT QUALIFIED on the release library (D118-D120, hang). **GO for B9** (D184, owner 2026-10-23), at window 32768 only; V1 plan: [`../phase-v1/v1-plan-B9.txt`](../phase-v1/v1-plan-B9.txt). **V1 done** (D186): arenas 1, 2 and 4 3/3 PASS, arena 3 32/33 turns; [`../phase-v1/README.md`](../phase-v1/README.md).**
+**Board:** Arduino VENTUNO Q, Qualcomm QCS8275 (2×A78C 2.11 GHz + 2×A78C 2.36 GHz + 4×A55 1.96 GHz), 15.3 GiB RAM,
+Hexagon v75 NPU, Adreno 623 GPU; Ubuntu 24.04.5, kernel 6.8.0-1084-qcom; official 65 W supply, stock fan, eMMC only.
 
+## Outcome
 
-**Admitted configuration (frozen, D184):** B9, Ternary-Bonsai-2-9B Q2_0 (sha256 `1f884aa5…384d`) on llama.cpp
-ggml-hexagon package ff5a2337 with its htp_main_thread retry DSP library (`65e50e67…`), two NPU sessions `-ts 18,15`,
-input embedding on the CPU, F16 KV, `-fa on`, `-np 1`, `--ctx-checkpoints 0`, default batch sizes, llama-server default
-sampling; the command in [`v0e-plan-B9.txt`](v0e-plan-B9.txt) section 3. Window: 32768 (V0e, D181). Tier `--cache-ram`:
-5120 MiB. Memory: memfloor `--admit 5120` on every step; lowest L_min in V0e 8,414,649 kB (S2). V2 rows with an admitted
-configuration: none.
-
-| Set (D85) | 16K median prefill/decode | 8K / 32K median decode | Tools | Memory (lowest margin) | Outcome |
+| Configuration | Model | Runtime | 16K prefill / decode (gate 145 / 4.4 tok/s) | Qualification in pi sessions (V0e) | Status |
 |---|---|---|---|---|---|
-| A: NeoHorse-1-4B, 2 NPU sessions, `--cache-ram 7942` | 317.4/8.22 | 9.80 / 7.21 | 10/10, 3/3 | all runs admitted (28 MB, tool gate) | **admitted, 0 faults: provisionally eligible** |
-| AM: A + base-model MTP head drafted on a 3rd NPU session, n=1, `--cache-ram 4188` | 178.4/8.64 | 9.76 / 7.71 | 10/10, 3/3 | all runs admitted (245 MiB) | **admitted, 0 faults: provisionally eligible** |
-| H: Ornith-1.0-9B, 3 sessions, `--no-host`, `--cache-ram 5364` | r1, r2: 150.3/4.96, 151.8/4.90 | — | not reached | runs admitted (933 MiB) | **stopped: r3 failed to load twice**; 3 of 6 H loads failed to map (D90) |
-| H2: H with a cDSP restart + 30 s settle before every probe and load (root helper, D92–D104) | 151.1/4.95 | 5.55 / 4.31 | 10/10, 3/3 | all runs admitted (884 MiB) | **admitted in attempt 2, 1 fault (r1 hung at 32K in attempt 1): provisionally eligible, restart required** (D109) |
-| AR: A with the retry-patched DSP library (D137-D139), `--cache-ram 7942` | 318.4/8.40 | 9.34 / 7.03 | 10/10, 3/3 | all runs admitted (101,343 kB, tool gate) | **admitted, 0 faults, gate PASS; V0e at 32768 NOT QUALIFIED** (pi tool calls; post-run health floor, cache near its cap) |
-| A32: AR with `-ngl 32` (block 0 on the CPU, the output layer on the NPU; D170) and `--cache-ram 5120` (D157-D174) | 235.7/5.25 | 5.73 / 4.72 | 10/10, 3/3 | all runs admitted (2,978,227 kB, warm-up) | **admitted, 0 faults, gate PASS; V0e at 32768 NOT QUALIFIED four times** (attempt 1: S1 cache, compaction, baseline probe hung before S2; A32-2: compaction and S2 PASS; S1 window check defective, cache turn 1 no tool call; D165-D166; A32-3: S0 and S2 PASS, S1 window check defective, no prefix reuse with --ctx-checkpoints 0; D169; A32-4: turns item sizing defect, D174); **A32-5 QUALIFIED at 32768** (S1 and S2 PASS, 0 faults; D177) |
-| B4: Ternary-Bonsai-2-4B Q2_0, one NPU session, q8_0 KV, `-fa on`, `-np 1`, package ff5a2337, `--cache-ram 5120` (D178-D179; admission at `-c 32768`, depths to 28,672, D2 a) | 229.7/5.12 | 8.64 / 3.66 (28,672) | 10/10, 3/3 | all runs admitted (6,345,944 kB, r2) | **admitted, 0 faults, gate PASS; V0e at 32768 QUALIFIED** (S1 and S2 PASS, 0 faults, 0 DSP retry events; D179) |
-| B9: Ternary-Bonsai-2-9B Q2_0, two NPU sessions `-ts 18,15`, input embedding on the CPU, F16 KV, `-fa on`, `-np 1`, package ff5a2337 with its retry build, `--cache-ram 5120` (D180-D181; admission at `-c 32768`, depths to 28,672, as B4) | 190.5/7.58 | 8.67 / 6.79 (28,672) | 10/10, 3/3 | all runs admitted (3,914,712 kB, r2) | **admitted, 0 faults, gate PASS; V0e at 32768 QUALIFIED** (S1 and S2 PASS, 0 faults, 15 DSP retry events in S2, none more than 1 in a row; D181) |
+| **B9** | Ternary-Bonsai-2-9B Q2_0 | llama.cpp ggml-hexagon ff5a2337, two NPU sessions, retry-patched DSP library | 190.5 / 7.58 | QUALIFIED at 32K (D181): S1 every item; S2 52 cycles, pi smoke 52/52; 0 faults | **GO** (D184); [V1 record](../phase-v1/b9/README.md) |
+| **B4** | Ternary-Bonsai-2-4B Q2_0 | ggml-hexagon ff5a2337, one NPU session, q8_0 KV | 229.7 / 5.12 | QUALIFIED at 32K (D179): S1 every item; S2 70 cycles, pi smoke 69/70; 0 faults | **GO** (D187); [V1 record](../phase-v1/b4/README.md) |
+| **A32-5** | NeoHorse-1-4B pure Q4_0 | ggml-hexagon 836d57176, two NPU sessions, `-ngl 32`, retry-patched DSP library | 235.7 / 5.25 | QUALIFIED at 32K (D177), fifth attempt: S1 every item; S2 42 cycles, pi smoke 42/42; 0 faults | **GO** (D187); [V1 record](../phase-v1/a32/README.md) |
 
-Per-depth medians (min–max) of the measured repeats, prefill / decode tok/s (D90; H: r1–r2 only; H2: attempt-2
-r1–r3, D109):
+All three run at window 32768 with `--cache-ram 5120` and `--ctx-checkpoints 0`; their exact commands are in
+[`v0e-plan-B9.txt`](v0e-plan-B9.txt), [`v0e-plan-B4.txt`](v0e-plan-B4.txt) and
+[`v0e-plan-A32-5.txt`](v0e-plan-A32-5.txt) (section 3 of each). Speeds are the median of three repeats at a ~16K-token
+prompt in the admission set (V0d). The runbook's intended native file, Ornith-1.0-9B pure Q4_0, never qualified, and
+its parity file (Ornith-1.0 IQ3_M) is not viable on this board; B9 takes the native lane by the owner's GO (D184).
+The two Ternary-Bonsai configurations came out of the NPU development work in [`../npu-dev/`](../npu-dev/)
+(`b1-bonsai/`).
 
-| Depth | A (r1–r3) | AM (r1–r3) | H (r1–r2) | H2 (r1–r3) |
-|---|---|---|---|---|
-| 512 | 343.9 (336.6–348.7) / 10.19 (10.05–10.42) | 189.1 (184.9–189.8) / 10.17 (10.03–10.29) | 157.5 (157.1–157.9) / 5.84 (5.74–5.94) | 157.6 (143.6–158.3) / 5.92 (5.77–5.93) |
-| 8K | 345.4 (341.1–347.0) / 9.80 (9.32–9.86) | 189.6 (186.7–189.8) / 9.76 (9.66–11.09) | 155.3 (155.1–155.6) / 5.76 (5.63–5.89) | 158.9 (155.1–159.1) / 5.55 (5.53–5.62) |
-| 16K | 317.4 (312.5–317.5) / 8.22 (8.14–8.28) | 178.4 (175.9–178.8) / 8.64 (8.56–8.81) | 151.1 (150.3–151.8) / 4.93 (4.90–4.96) | 151.1 (149.8–152.1) / 4.95 (4.81–5.11) |
-| 32K | 282.3 (279.2–282.9) / 7.21 (7.12–7.23) | 165.6 (163.7–166.1) / 7.71 (7.02–7.81) | 142.4 (142.0–142.9) / 4.52 (4.47–4.57) | 143.3 (142.3–144.1) / 4.31 (4.24–4.55) |
+**Frozen for V1 (RUNBOOK V0d):** the three admitted configurations above, each exactly as qualified (its plan's
+section 3 command, model hash and package identity), at window 32768 only; the tier's `--cache-ram` is 5120 MiB; the
+memory rule is memfloor `--admit 5120` on every run (L_min at least 5120 MiB + 0.33 GiB, no swap growth). V2 rows with
+an admitted configuration: none.
 
-H2 ran on 2026-10-08 after a reboot and package updates (D101 environment cohort), a day after A, AM and H.
+## What V0 found
 
-A and AM ran as consecutive sets (17:39–18:27, then 18:31–19:36), not interleaved, so their differences mix
-configuration with time; at 32K AM's decode range overlaps A's. The interleaved comparison (D97, D99) is
-incomplete under its declared rule: A hung on the first request of its second run, so one pair has no A result. In the
-two complete pairs AM decoded faster at 8K, 16K and 32K (+3 % to +14 %). That A hang is the first fault on a server's
-first request; A's admission set stands, but the hang is on record for V0e.
+1. **Only the NPU is fast enough.** Every CPU and GPU route was far below the 145 tok/s prefill gate or failed
+   outright: the best CPU route read prompts at about 24 tok/s at 8K (4B) and 16 tok/s (9B); the GPU routes locked
+   up (OpenCL) or faulted at the first compute (Vulkan); GenieX could not load the 4B or 9B on the NPU or GPU at its
+   defaults. The NPU (llama.cpp's ggml-hexagon backend) read prompts at 280-350 tok/s with the 4B.
+2. **The NPU hang was diagnosed and patched.** Early configurations hung the NPU intermittently, on first and later
+   requests alike. The cause:
+   the DSP's main thread exits when `dspqueue_peek` returns `AEE_ENOMORE` (D127). A retry patch in the DSP library
+   removes the hang (D131-D133); it is reported upstream as
+   [ggml-org/llama.cpp#30309](https://github.com/ggml-org/llama.cpp/issues/30309). B9 and A32-5 run patched libraries
+   and logged occasional single retries, never two in a row; B4 qualified on an unpatched library with no retry event.
+3. **Full NPU offload broke pi's tool calls on NeoHorse.** With every layer on the NPU, pi's first request got a tool
+   call 3 times in 20, against 20 in 20 on the CPU with the same file (D144). Keeping block 0 on the CPU (`-ngl 32`)
+   restored 20/20 (D155; its placement corrected in D170). The NPU's outputs depart from the CPU's only with multi-token batches and full offload; the
+   exact cause is narrowed, not localized.
+4. **Memory is budgeted, not assumed.** The prompt cache grows to its cap, so each configuration's `--cache-ram` is
+   computed from a measured memory floor (D65, D67), and every run must show the floor kept: L_min, the lowest
+   MemAvailable plus the held prompt cache, at least `--cache-ram` + 0.33 GiB, with no swap growth.
+5. **Two settings are required on the NPU.** Context checkpoints abort the server (`dsp-error NO-SUPPORT`, D43), so
+   all configurations run `--ctx-checkpoints 0`; on these hybrid models that makes prompt-cache reuse across turns
+   partial, and V0e measures the cost instead of requiring reuse (D171).
+6. **Qualification in real pi sessions caught what the speed gates did not.** Configurations that passed every
+   speed and tool gate still failed in pi: no tool call from the model, an NPU hang, the memory floor reached after
+   a long session. A32 needed five attempts; attempts 2-4 each failed at least in part on a defect in the
+   qualification checks themselves, found and fixed for the next attempt (D165-D175).
 
-Gates at 16K: 145/4.4. AM trades 44 % of prefill and 3.7 GiB of prompt cache for +5 % median decode at 16K (ranges
-do not overlap); at 8K it is level with A, and at 32K the +7 % median is within run-to-run spread (ranges overlap).
-Under the runbook ranking (prefill first) A ranks first; AM is a separately eligible alternative (Codex, 20:24Z). No NPU hang or abort occurred in A's or AM's D90 sets. H2's set had one fault (attempt 1 r1 hung at
-32K) and passed on its second attempt (D109). Earlier faults (D66, D69, D71, D83, D99, D105, D109, D120) remain on record: V0e's
-sustained runs must show whether the admitted configurations stay fault-free.
+Decode on this board trails the Jetson Orin Nano's (8.8 tok/s at 16K with Ornith IQ3_M); memory bandwidth is a
+hypothesis, not verified on the NPU (D54, D65).
 
-## What was measured, and how
+## How V0 worked
 
-- **Measurement commit `7badb21`** (`~/v0/measure`, read-only Markdown). Corpus sha256 `3611eb84…`. From
-  2026-10-04 19:52 on, `tools/corpus_check.py` recomputed it before every run; runs before 19:52 were covered by a
-  single check at that time (`git status --ignored` clean, hash unchanged), not checked individually (D31). V0b runs at `58885b8` (identical corpus, older `speed_probe.py`)
-  are kept as labelled evidence.
-- **Probes:** `speed_probe.py` at 512/8K/16K/32K tokens; prefill is prompt tokens over time to first token
-  (server timing beside it). `probe_toolcalls.py` one-shot (10) and agentic (3 loops). VmHWM after the deepest
-  probe. Health sampled every 10 s throughout; each run's window is published (`monitor/*-runs.jsonl`).
-- **Fail-fast rule (D32, owner's decision, a runbook deviation):** 16K/32K are not measured when the valid 8K
-  prefill is below 72.5 tok/s (half the gate). Such cells are **screened out under D32; their 16K/32K performance
-  is unmeasured**, not a measured failure of the 16K gate. The assumption that prefill falls with depth held in the
-  one full-depth slow cell (29.5 → 17.4 → 11.8 → 9.2) and in every NPU cell, but is not proven for every route.
-- **Gates (runbook, frozen):** at 16K (prompt within ±20%), prefill ≥ 145 tok/s and decode ≥ 4.4 tok/s, both
-  tool gates passed, memory floor kept.
-
-## Runtimes, builds and files
-
-| Component | Version / hash |
-|---|---|
-| llama.cpp (native builds) | `836d5717` (build 11381), GCC 13.3; CPU and OpenCL, each at upstream defaults and with `-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16+rcpc` (D24) — `builds/*.txt` |
-| llama.cpp ggml-hexagon | same commit, cross-built on x86_64 (Hexagon SDK 6.6.0.0, Clang 21.1.8); package `5916fed1…`, `llama-server` `815b22bb…`, `libggml-htp-v75.so` `1fd898cc…` (D40) |
-| GenieX | v0.8.0, QAIRT 2.45; llama.cpp plugin version not reported (empty), identified by file hashes (`geniex-install.txt`) |
-| OpenCL driver | `qcom-adreno-cl1` 1.855.3, OpenCL 3.0 build 0855.3 |
-
-| File | Source | sha256 | Quantization |
-|---|---|---|---|
-| Qwen2.5-1.5B-Instruct (V0b) | `Qwen/…-GGUF@91cad51` fp16 `fc89e330…` | `78b8d3c9…` | pure Q4_0, 198/198 weights, 4.50 BPW |
-| NeoHorse-1-4B (~4B) | `TokenRhythm/…-GGUF@3c5d58c` BF16 `b27b4cb2…` | `f822fa26…` | pure Q4_0, 249/249, 4.51 BPW |
-| Ornith-1.0-9B (native) | `protoLabsAI/Ornith-1.0-9B-MTP-GGUF@fd81c7a` BF16 `018d5c0a…` | `d21c19e5…` | pure Q4_0, 258/258, 4.50 BPW |
-| Ornith-1.0-9B (parity) | same repo/revision | `9ef72d9c…677b` | IQ3_M — **identical to the Jetson's copy** (D36) |
-
-## V0b — sanity check against Arduino (Qwen2.5-1.5B pure Q4_0, 512 tokens)
-
-| Route | Placement | Decode tok/s | Prefill tok/s | Arduino | Ratio | Verdict |
-|---|---|---|---|---|---|---|
-| llama.cpp OpenCL | 29/29 layers GPU | 4.92 | 62.3 | 7.4 | 0.66 | PASS |
-| llama.cpp CPU, upstream default | CPU, no DOTPROD | 5.50 | 20.4 | – | – | reference |
-| llama.cpp CPU, ARMv8.2 | CPU, DOTPROD, repack | 12.04 | 80.3 | – | – | reference |
-| GenieX GPU | GPUOpenCL | 7.61 | 61.9 | 9.2 | 0.83 | PASS |
-| GenieX CPU | CPU | 16.54 | 91.2 | 11.4 | 1.45 | PASS |
-| GenieX hybrid | HTP0 + OpenCL + CPU | 11.37 | 171.4 | 13.9 | 0.82 | PASS, hung once in 2 runs |
-| GenieX NPU | HTP0 | 28.81 | 1014.6 | ~25 | 1.15 | PASS |
-| llama.cpp ggml-hexagon | 29/29 layers HTP0 (v75) | 28.26 | 801.6 | ~25 | 1.13 | PASS |
-| llama.cpp Vulkan | Vulkan0 Adreno623, 29/29 layers | – | – | – | – | **FAIL: device lost** (GPU fault at first compute, D48) |
-
-## V0c — capability matrix (`-c`/`--nctx 40960`)
-
-Speeds are prefill / decode tok/s, TTFT-based; prompt sizes are in the per-run evidence. "Screened out (D32)" =
-16K/32K unmeasured under the fail-fast rule.
-
-| Route | NeoHorse-1-4B pure Q4_0 | Ornith-1.0-9B pure Q4_0 | Ornith-1.0-9B IQ3_M (parity) |
-|---|---|---|---|
-| GenieX NPU | **unsupported at defaults**: ~1 GB HTP compute buffer fails to map (D30) | same | not importable (D30) |
-| GenieX hybrid | same mapping failure | same | not importable |
-| GenieX CPU | 512: 29.5/6.12 · 8K: 17.4/2.14 · 16K: 11.8/1.36 · 32K: 9.2/0.85; tools 1/10 (GenieX empty-reply defect, D33), agentic 3/3; VmHWM 6.34 GiB | 512: 14.6/3.66 · 8K: 11.8/1.97 screened out (D32); tools 1/10 (D33), 3/3; VmHWM 10.35 GiB | not importable |
-| GenieX GPU | **unsupported at defaults**: 1280 MiB OpenCL buffer > 1024 MB driver limit (D34) | same (re-run with the owner present, D49; the board did not stop) | not importable |
-| llama.cpp CPU (ARMv8.2) | 512: 29.7/4.66 · 8K: 24.0/2.54 screened out (D32); tools 10/10, 3/3; VmHWM 6.95 GiB | 512: 18.7/2.83 · 8K: 16.3/1.89 screened out (D32); tools 10/10, 3/3; VmHWM 10.88 GiB | 512: 2.7/1.36 · 8K: 2.6/1.10 screened out (D32); tools 10/10, 3/3; VmHWM 7.28 GiB (no fast path for iq3_s) |
-| llama.cpp OpenCL | 512: 21.5/3.16; **GPU lockup** in the 8K prefill, driver killed the server (D37) | 512: 10.4/1.88 (31/34 layers on GPU); **GPU lockup** in the 8K prefill (D49) | partial placement; 512: 2.2/0.71; stopped after 512 (D49) |
-| ggml-hexagon, 1 session | aborts at load: KV 1280 MiB + model exceed the session window (D43) | same | – |
-| ggml-hexagon, 2 sessions, defaults | loads; 512: 288.8/9.97; ~12K prefill at ~390 tok/s, then **aborts on a context checkpoint** (`dsp-error NO-SUPPORT`, D43) | – | – |
-| **ggml-hexagon, 2 sessions, `--ctx-checkpoints 0`** (non-default, D43) | **512: 349.8/10.06 · 8K: 348.4/9.56 · 16K: 318.8/8.25 · 32K: 282.9/7.22; tools 10/10, 3/3; VmHWM 2.09 GiB** | fails to map (2 and 3 sessions, D44) | iq3_s unsupported on HTP, 2.7 GB stays on CPU, mapping fails |
-
-Exploratory (outside V0c, labelled `v0-explore`): 9B with KV q8_0, KV q4_0 (unsupported: `SET_ROWS`), `-ub 128`,
-and KV on CPU — only KV-on-CPU loads, decoding at 2.2 tok/s (D45). 4B with 3 sessions: 16K 282.6/7.12, then an
-NPU hang at 32K (threads in `fastrpc_wait_for_completion`). 4B with `-ub 1024`: fails to map.
-
-## Every runbook route: status
-
-Statuses: **measured** (with its V0b verdict), **unsupported at tested defaults**, **blocked**, **failed**,
-**deferred** (risk; owner present needed), **not run** (decision recorded).
-
-| Runbook route | V0b (Qwen 1.5B) | V0c status |
+| Stage | Question | Result |
 |---|---|---|
-| llama.cpp CPU, upstream defaults | measured, reference (no DOTPROD, D24) | **not run in V0c** (D29: same CPU route rebuilt with the ISA it lacked) |
-| llama.cpp CPU, ARMv8.2 build | measured, reference | measured: 4B, 9B, IQ3_M (all screened out under D32; tool gates pass) |
-| llama.cpp OpenCL (Adreno) | PASS 0.66× | 4B: GPU lockup (D37); 9B: 31/34 layers on GPU, 512 10.4/1.88, GPU lockup in the 8K prefill (D49); IQ3_M: partial placement (2.8 GB iq3_s on CPU), 512 2.2/0.71, stopped after 512 (D49) |
-| llama.cpp Vulkan (Turnip) | **FAIL: GPU fault** (`device lost on Vulkan0`, kernel GPU recover; D48) | not run (route failed V0b) |
-| llama.cpp ggml-hexagon, 1 session | PASS 1.13× | 4B and 9B unsupported at tested defaults (KV mapping, D43) |
-| ggml-hexagon, 2 virtual sessions | – | 4B: loads, aborts on context checkpoint at defaults (D43); with `--ctx-checkpoints 0`: **V0c shortlist candidate**; 9B: does not map (D44); IQ3_M: iq3_s unsupported on HTP |
-| ggml-hexagon, partial layer offload (`-ngl 20`, 2 sessions, ckpt 0) | – | 9B: loads (20/34 layers on HTP0, rest on CPU); 512: 37.1/3.65, 8K: 28.3/2.71, screened out (D32); one-shot 10/10 (D48) |
-| GenieX NPU | PASS 1.15× | 4B and 9B unsupported at defaults (HTP mapping, D30); IQ3_M not importable |
-| GenieX hybrid | PASS 0.82× (hung 1 of 2) | 4B and 9B unsupported at defaults (D30); IQ3_M not importable |
-| GenieX CPU | PASS 1.45× | 4B measured full depth; 9B screened out (D32); one-shot gate failed by a GenieX defect (D33); IQ3_M not importable |
-| GenieX GPU | PASS 0.83× | 4B and 9B unsupported at defaults (1280 MiB OpenCL buffer > 1024 MB limit, D34, D49; the 9B re-run did not stop the board); IQ3_M not importable |
-| GenieX QAIRT runtime | – | not tested (runbook: out of scope, issue #1454) |
+| V0a | What is on the board as shipped? | Inventory and setup recorded ([`inventory.txt`](inventory.txt), [`files.txt`](files.txt)) |
+| V0b | Do the runtimes reproduce Arduino's published figures? (Qwen2.5-1.5B pure Q4_0, 512 tokens) | Every route passed except Vulkan (GPU fault, D48); NPU decode 28.3 tok/s (llama.cpp) and 28.8 (GenieX), against Arduino's ~25 |
+| V0c | Which route can run a 4B and a 9B at the 16K gate? | One candidate: ggml-hexagon, two NPU sessions, `--ctx-checkpoints 0`, NeoHorse-1-4B (16K 318.9 / 7.90); no 9B route |
+| V0d | Final settings, memory floor and admission (three repeats, both tool gates, no fault) | NeoHorse A and AM admitted (D90); Ornith 9B (H) not, it failed to map; later B4, B9 and A32 admitted |
+| V0e | Does the exact configuration hold up in real pi sessions at its window? | S1: pi smoke, streaming tool gates, multi-turn, window and compaction checks; S2: a sustained run of 90+ minutes on one server. A, AR, H2 and A32 attempts 1-4 not qualified; A32-5, B4, B9 qualified |
 
-## V0c shortlist candidate and repeats
+**Gates (frozen by the runbook before any measurement).** At a ~16K-token prompt: median prefill at least 145 tok/s
+and decode at least 4.4 tok/s (half the Jetson reference, 291 / 8.8, [`jetson-reference.txt`](jetson-reference.txt)),
+both tool-call gates (10/10 one-shot, 3/3 agentic loops), and the memory floor kept. Measured from the read-only
+measurement commit `7badb21`, with health sampled every 10 s throughout.
 
-One configuration passed both speed thresholds at 16K and both tool gates in V0c, a **V0c shortlist candidate**
-(not yet provisionally eligible: V0d must fix final settings, declare the memory floor and re-measure): **llama.cpp ggml-hexagon, 2 virtual sessions (`HTP0:0,HTP0:1`),
-`--ctx-checkpoints 0`, NeoHorse-1-4B pure Q4_0**, otherwise llama-server defaults (n_ubatch 512, flash attention
-auto, 4 slots, `--cache-ram 8192`, `-c 40960`). One discarded warm-up, then 3 repeats per depth
-(`runs/v0c-repeats/`):
+**Configurations that did not qualify**, and why:
 
-| Depth | Prompts (r1–r3) | Prefill median (min–max) | Decode median (min–max) |
-|---|---|---|---|
-| 512 | 483–494 | 344.9 (325.8–347.6) | 9.64 (9.33–9.93) |
-| 8K | 7,576–7,582 | 347.5 (340.8–348.7) | 9.00 (9.00–9.11) |
-| **16K** | 18,031–18,039 | **318.9 (312.0–319.2)** | **7.90 (7.82–8.08)** |
-| 32K | 31,704–31,715 | 284.3 (278.5–284.6) | 6.88 (6.70–7.18) |
+| Configuration | Stopped at | Reason |
+|---|---|---|
+| A: NeoHorse-1-4B, two NPU sessions, `--cache-ram 7942` | V0e (D118-D120) | NPU hang on pi's first request (before the retry patch) |
+| AM: A with an MTP draft head on a third session | not taken to V0e | admitted (D90); A ranked first under the runbook |
+| H, H2: Ornith-1.0-9B, three sessions | V0d (H), V0e (H2, D112-D117) | intermittent load failures (NPU mapping); H2 needed a DSP restart before every load |
+| AR: A with the retry-patched library | V0e (D139-D140) | no NPU hang in about 3 h, but pi rarely got a tool call (S2: 5 of 56 cycles), and the memory floor was reached after S2 with the cache near its 7,942 MiB cap |
+| A32 attempts 1-4: AR with `-ngl 32`, `--cache-ram 5120` | V0e (D159-D175) | a hung baseline probe, then defects in the checks (window continuation, an ablation the server refuses, a request sizing error), each fixed for the next attempt |
 
-Memory (observed, not a declared floor): min MemAvailable 6.11 GiB (V0c cell with tool probes), 7.29–7.33 GiB
-in the repeats; no swap at any point; NPU sensor ≤ 50.5 °C. Against the frozen thresholds: median prefill 318.9
-(≥ 145) and decode 7.90 (≥ 4.4) at 16K, both tool gates passed. The memory floor is declared in V0d.
+## Records
 
-**9B: no viable configuration observed among the tested configurations** (not an exhaustive exclusion). On the
-NPU, the 9B's KV cache cannot be mapped at 40960 (an NPU-wide mapping ceiling between ~4.7 and ~5.3 GB is
-inferred, not verified); partial offload (20 of 34 layers on the NPU) loads but decodes below the gate; every measured non-NPU route is 9–56× below the prefill gate (16.3 tok/s at best, 2.6 at worst, at 8K).
-
-## V0d — tuning, final settings and re-measurement
-
-Tuning sweep (D53), CPU thread placement (D55), unlock tests (D59), placement variants (D63) and re-measurements
-(D58, D60, D64, and D65 running); method and analysis in [`v0d-investigation.md`](v0d-investigation.md). Every
-re-measurement: discarded warm-up, 3 repeats (medians below), both tool gates, from measurement commit 7badb21,
-ggml-hexagon 836d5717, pure Q4_0, `--ctx-checkpoints 0 -c 40960`, otherwise llama-server defaults.
-
-**Earlier re-measurements, with `--cache-ram 8192`** (evidence only; superseded by D65):
-
-| Configuration | 512 | 8K | **16K** | 32K | Tools | min MemAvailable (32K runs / tools) | Status |
-|---|---|---|---|---|---|---|---|
-| ~4B A: NeoHorse-1-4B, 2 sessions, `-ngl 99` (D58) | 326.4/9.54 | 342.6/9.31 | **312.9/8.06** | 279.3/6.71 | 10/10; 3 passed, 1 inconclusive | 7.10 / 6.10 GiB | historical (2026-10-06); superseded by the D90 admission set |
-| 9B G′: Ornith-1.0-9B, 3 sessions, `GGML_HEXAGON_MBUF=256 -ngl 33 --no-op-offload -t 4 --cpu-mask 0xF --cpu-strict 1` (D60) | 163.5/6.29 | 166.7/6.02 | **159.4/5.49** | 150.1/4.95 | 10/10; 3/3 | 5.10 / 4.05 GiB | **withdrawn** (strict pinning, D63) |
-| 9B H: G′ with `-t 4` only (D64) | warm-up + r1 only: r1 158.5/6.01 | 160.0/5.76 | 153.9/5.27 | 144.8/4.75 | not run | — | historical (2026-10-06); superseded by D90 (H not admitted) |
-
-Prefill/decode in tok/s; gates at 16K: 145/4.4.
-
-**Memory floor (D65, [`memfloor/memory-floor.txt`](memfloor/memory-floor.txt)).** Computed, not chosen. L_min is
-MemAvailable plus the prompt cache held, at its lowest point in the run. It must cover:
-- the prompt cache filling to `--cache-ram` (the MiB cap binds; llama.cpp source);
-- pi with its pytest and bash children: 0.19 GiB peak, measured against a mock server, flat up to a ~120K-token
-  context;
-- transients the cache doesn't explain: 0.14 GiB, the largest drop between health samples.
-
-With 8192 MiB neither A nor the 9B was estimated OOM-safe.
-
-**Per-configuration caps (owner decision).** Each configuration gets floor(L_min − 0.33 GiB), computed in exact kB
-(D67; D65's 7,946/5,365/5,724 came from rounded values and are superseded):
-
-| Configuration | `--cache-ram` |
-|---|---|
-| A | 7,942 MiB |
-| 9B H | 5,364 MiB |
-| AM (A + NPU-drafted MTP) | 4,188 MiB (provisional: its only run had no tool gate; A's speed-to-tool drop applied, D85) |
-| 4B at 65K | 5,727 MiB (provisional; not in admission) |
-
-This deviates from the runbook's single tier value.
-
-**Admission rule** (`tools/memfloor.py --admit`): every final run needs L_min ≥ `--cache-ram` + 0.33 GiB, with swap
-growth 0. Missing samples never admit (D75). The policy is an estimate, to be confirmed by real pi sessions in V0e.
-
-**9B unlock (D59, D73, D75).** The 9B's 546 MiB token-embedding table sits in a DSP-shared host buffer. The 9B
-does not load with 2 sessions, or without `--no-op-offload`. Even with 3 sessions it maps only intermittently (D61, D64,
-D73). With `--no-host` added, the table stays in plain CPU memory and H loaded on the first try (16K 147.0/5.07, single
-run, D75).
-Without any CPU placement it decodes below the gate (16K 143.5/3.90).
-
-**NPU faults** (exploratory counts across different configurations, depths and recovery states; not a controlled
-rate):
-- **With `--cpu-strict 1`:** hangs in 3 of 5 loaded servers (D57, D62, D63). Strict pinning is excluded.
-- **Before 10:40, without strict pinning, at the final settings:** none in about 28 servers (historical count,
-  D63).
-- **Since then, without strict pinning:**
-  - A hung in its final r1 (D66);
-  - the unchanged 4B baseline probe hung twice (D69, spec round 2 at 16:17);
-  - a 4B server with the prompt cache off aborted with `dspqueue_read failed` (D71);
-  - A hung on the **first request** of a freshly loaded server in the interleaved comparison (A-2, D99), after
-    passing its D90 admission.
-  - in cDSP-restart screen 2 the unchanged 4B baseline hung on its **first request** after the second restart
-    (task 0, 384 prompt tokens; D105); the recovery probe passed 16 min later without a restart (D106);
-  - H2 attempt 1: r1 hung at 32K on its sixth request (task 661, 31,722 prompt tokens, after the off-depth 512 and
-    8K retries), during decode; the first recovery probe failed to load (degraded mapping, as D61/D64), the second
-    passed (D109, D110). Attempt 2 passed with no fault.
-  - V0e A: the 21st request of a fresh -c 32768 A server (pi's first request, 1,642 prompt tokens) hung during
-    decode after ~278 tokens; watchdog kill after 300 s; the first recovery probe passed without a restart (D120).
-- **Pattern:** through D90 every fault hit a later request on a server that had already answered. D99 and D105
-  break that: a fresh server is not a safeguard, with or without a cDSP restart. The cause is unknown.
-
-**Admission policy (D68, D71, D75; tools/v0d_runner.sh `admit_set`):**
-- A complete set (warm-up, r1–r3, both tool gates, each with the memory check) must finish with no hang or NPU
-  abort.
-- After a fault, the full set restarts once after baseline recovery. A second fault means not eligible in V0d.
-  Faults in readiness or recovery probes during a set count toward the same budget (D89).
-- All faults, readiness probes included, go to the phase's `faults.txt`.
-- A GPU, DSP, SMMU or FastRPC fault line in the run's kernel window is a device fault even when the speed probe
-  passed; an unknown kernel alert stops the sequence (D86, `tools/kernel_audit.py`).
-- Admission sets (D85, `tools/v0d_admit_chain.sh`, in this order): A at 7,942 MiB, AM at 4,188 MiB, 9B H with
-  `--no-host` at 5,364 MiB. The 4B at 65K is not run.
-
-**Speculative decoding** (D70–D84; single exploratory runs, Markdown-continuation probes; the outcome per model):
-
-| Model | Variant | 16K prefill/decode | Acceptance | Note |
-|---|---|---|---|---|
-| 4B | control (same-session reference, round 4 mean) | ~315/7.95 | — | 8K decode 9.04 |
-| 4B | **base-model MTP head, n=1, drafted on a 3rd NPU session** | 176.1/8.72 | 0.81 | +10 % decode at 16K, +6 % at 8K; prefill falls (MTP outputs every prompt position) but stays above 145. Single exploratory run; admitted as AM in D90 (see the status table). |
-| 4B | same, target on 3 sessions + draft on a 4th | 176.3/8.55 | 0.79 | equal; n=2 hung the NPU at 16K (D83) |
-| 4B | base-model MTP, n=1, drafted on the CPU | 95.1/5.57 (4 big cores) | 0.78 | CPU drafting costs about one target step |
-| 4B | 0.8B draft, n=4 | 41.1/2.36 | 0.54 | |
-| 4B | n-gram (`ngram-mod`) | 312.7/8.03 | 0.06 | no gain |
-| 4B | DFlash, n=3 (head on the CPU, the only layout that loads) | 151.2/3.58 | 0.58 | below the decode gate (D84) |
-| 4B | GPU draft (combined NPU+GPU+CPU build v2) | — | — | Adreno lockup on the 8K prompt: GPU device fault, route closed (D82, D86) |
-| 9B | **plain H with `--no-host`** | 147.0/5.07 | — | best 9B; single exploratory run; not admitted in D90 (load failures) |
-| 9B | own MTP, n=1, output head on the CPU | below H | 0.81–0.84 | loads only in this layout; the head on the CPU costs more than MTP gains (D79) |
-
-The combined build v1 failed the parity gate on decode (−5.1 % at 8K, D80); v2 (gcc 13, OpenMP and llamafile off,
-different -march flags) passed it (D82). v2 changed several build options, so the pass supports a build-configuration
-explanation, not one isolated cause (D88). Batch-cost ratios from llama-bench (D83, audited offline in
-`runs/v0d-spec4c/bench-audit.txt`) are derived per-call costs for these layouts and depths, not NPU-only timings.
-
-**Tested, not adopted:**
-
-| Setting | Result |
-|---|---|
-| 4 big-core threads, strict pinning, on the 4B (F) | +4–7 % decode; hung the NPU in 2 of its 4 loaded servers (D57, D62) |
-| KV q8_0 | hangs the NPU |
-| `--cache-ram 0` | 16K about 217/6.4 (3 runs) |
-| ubatch 128/256 | prefill drops |
-| ubatch 1024 | does not map |
-| n-gram speculation | no gain |
-| `--no-host` | no gain |
-| 4B with `-ngl 32` (block 0 on the CPU; recorded until D170 as "the output layer on the CPU") | slower prefill |
-
-**65K window for the 4B:** it loads on 4 sessions (`-ngl 99`). A single run reached a depth of 48.9K tokens
-(244.4/5.67), with a floor of 4.10 GiB. It is a candidate for window qualification in V0e; the 4B's final
-setting stays at 40960.
-
-**Why decode trails the Jetson:**
-- Hypothesis, not verified on the NPU: decode is limited by memory bandwidth. Measured CPU read bandwidth is 25.6 GB/s
-  with 4 threads; the Jetson's is 68 GB/s by specification (not measured here). The NPU path's bandwidth is unknown:
-  the 9B's NPU decode implies a rate above the CPU figure. The platforms also ran different model files, so this
-  does not isolate a hardware cause (D54, revised D65).
-- On the CPU route, llama.cpp's default 8 threads halve decode compared with 4 threads on the big cores (D55).
-
-**Open risk — the NPU's degraded state:**
-- After a hang, or with no hang after successful full 9B loads (after 7, then after 2; D61, D64), no configuration
-  maps until the NPU recovers. About 18 4B-only loads in a row never triggered it.
-- Idle recovery took about 3 h once, then about 16–17 min three times. Otherwise it needs a cDSP restart, which
-  requires root.
-- V0e must define a recovery procedure, and the 9B route must keep one long-lived server or space its restarts.
-
-## Failure classes found
-
-| Class | Where |
-|---|---|
-| Unsupported at defaults (memory mapping) | GenieX npu/hybrid (D30); ggml-hexagon 1 session and the 9B (D43–D45) |
-| Unsupported quantization | IQ3_M on GenieX (import) and on HTP (iq3_s) |
-| Driver allocation limit | GenieX GPU, 1024 MB OpenCL buffer (D34) |
-| Runtime defect | GenieX empty reply on a fully cached prompt (D33); ggml-hexagon context checkpoint `NO-SUPPORT` (D43) |
-| Hangs | GenieX hybrid (V0b, FastRPC wait); ggml-hexagon 3 sessions at 32K (FastRPC wait), KV q8_0 (D53), strict CPU pinning, 4B and 9B (D57, D62, D63), later requests at final settings (D66, D69, D71), MTP n=2 (D83); OpenCL GPU lockup (D37, D82); unexplained board stop (D39) |
-| NPU degraded state | no mapping until idle recovery; after a hang (D53) or after full 9B loads (D61, D64) |
-| Client/tooling | `speed_probe.py` SSE parsing, fixed in #44 (D25) |
-
-## Still pending before any admission
-
-- **V0c coverage:** every runbook route now has a status (the table above). The three cells deferred overnight were
-  run with the owner present (D49). Vulkan failed V0b and is not carried into V0c. The 2026-10-04 board stop (D39)
-  did not reproduce when GenieX GPU × Ornith-9B was re-run; its cause stays unexplained.
-- **V0d:** done for the 4B (A and AM provisionally eligible, D90). The 9B is not admitted (load reliability); another
-  declared attempt is the owner's decision. **V0e** comes next for each exact configuration:
-  - pi's streaming path and a real-pi smoke session;
-  - each intended window at its real size (40960 is not 65K);
-  - cached multi-turn reuse;
-  - a ≥ 90-minute sustained run with no NPU hang;
-  - a recovery procedure for the NPU's degraded state (D61).
-- **9B:** H is a candidate pending its own re-measurement. Its prefill margin is thin (1.03–1.06× in single runs),
-  and it loads only on a clean NPU.
-- **`--ctx-checkpoints 0`** is a non-default setting adopted in V0c (D43); it is part of the candidate's manifest.
-- `speed_probe.py`'s `timeout=3600` is a socket read timeout, not a per-request cap (several 8K requests on the
-  slowest routes took longer than an hour and completed).
+- [`details.md`](details.md): the full stage-by-stage record (every table, measurement and fault, as the phase
+  README carried it until D192).
+- [`decisions.txt`](decisions.txt): every decision and deviation, D1-D192, with the owner's words and the reviews.
+- [`v0d-investigation.md`](v0d-investigation.md): the V0d tuning method and analysis.
+- Plans, declared before each run: `v0e-plan-*.txt`, [`v0p-plan.txt`](v0p-plan.txt) (the pi tool-call diagnostic).
+- Evidence: [`runs/`](runs/) (per run and attempt), [`monitor/`](monitor/) (health exports), [`memfloor/`](memfloor/),
+  [`builds/`](builds/), [`quantize/`](quantize/), [`tools/`](tools/) (every script that ran).
+- Runbook: [`../RUNBOOK.md`](../RUNBOOK.md).
