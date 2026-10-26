@@ -3179,3 +3179,24 @@ D190 2026-10-25 V1 A32-5 batch done (v1-plan-4B.txt; driver and launchers from P
    retry-patched DSP libraries but different builds (B9 the ff5a2337 retry build, sha256 65e50e67…; A32-5 the
    836d57176 one, aa2ae2a9…), so their retry counts are not a same-build comparison; the llama.cpp and DSP library
    build is now among the confounders of the cross-configuration speed comparison.
+D191 2026-10-26 phase-v1 reorganized for publication (owner: phase-v1/README.md "is not intuitive, lack of a coherent
+   structure (first model result in the README and the other 2 by link and lack of conclusion"; it is "the way to show
+   results"). B9's record moved from phase-v1/ to phase-v1/b9/ (git mv; evidence files unchanged, b9/README.md without
+   the phase index, its links and one tool reference in notes.md adjusted), so b9/, b4/ and a32/ are parallel records.
+   phase-v1/README.md is now the phase's results page: the results table, speed by context, conclusions with what they
+   do not show (no factor isolated; three repeats), the three configurations side by side, the method, reliability,
+   and where the records are. No result changed. Tools: v1_replay_monitor.sh takes b9 as B9's record name in place
+   of phase-v1 (45/45 on phase-v1/b9); test_v1_post.sh reads B9's record from phase-v1/b9. The batch-time
+   replay_monitor.sh is kept as it ran and reads phase-v1/, the record's location before this move. Decisions up to
+   D190 cite B9's files by their old paths.
+   Review of ce271a2 (Codex; the move, 244 byte-identical evidence files, replays, tests, links and every table number
+   confirmed), five P2/P3 reporting corrections, no rerun: the introduction no longer says the models ran entirely on
+   the NPU (B9's input embedding and A32-5's block 0 are on the CPU); the results table carries the interruption
+   counts beside every combined count again; conclusion 1 is scoped to the tested configurations and this suite, and
+   Q2_0 is "nominally 2-bit" (2.25 bits per weight in the Bonsai tensor accounting); conclusion 3 says long replies add
+   to budget pressure, unisolated, instead of speed deciding the marathon, and three repeats cannot rule out run-to-run
+   variation instead of "within noise"; L_min is labelled and defined as the admission metric (min of MemAvailable plus
+   the held prompt cache) with the lowest MemAvailable reported separately (B9 4.36 GiB, B4 8.57 GiB, A32-5 4.10 GiB,
+   recomputed from the committed exports), and conclusion 4 no longer claims 8.6 GB free; the DSP retry row counts
+   events and affected lifetimes on the same denominator (B9 22 events, 8 of 14 lifetimes; B4 0 of 32; A32-5 9, 7 of
+   32).

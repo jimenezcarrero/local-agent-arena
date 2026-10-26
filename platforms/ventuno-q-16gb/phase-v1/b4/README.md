@@ -54,7 +54,7 @@ is not established.
 
 ## Layout
 
-As B9's record ([`../README.md`](../README.md)):
+As B9's record ([`../b9/README.md`](../b9/README.md)):
 - `results.txt`: the suite ledger for the three repeats, as written (byte-identical to the original).
 - `runs/<label>/`: env.txt, server logs (`server_r<n>.log` after a restart), turns.log, restarts.log, pytest logs.
 - `lifetimes/<tag>-<arena>-<n>/`: one per server lifetime (32): run.txt, the fastrpc journal export and its check,
