@@ -3,7 +3,8 @@
 # with both roots required: re-run every lifetime's coverage, memory admission and kernel audit and the probes' kernel
 # audits on the record's committed monitor export only (MONITOR_DIR=<record>/monitor), and compare each verdict with
 # the one the batch recorded. The record is a committed phase-v1 layout: lifetimes/, probes/, batch/status.txt,
-# monitor/, runs/. Its configuration comes from its directory name (b4, a32; phase-v1 itself is B9's record), and every
+# monitor/, runs/. Its configuration comes from its directory name (b9, b4, a32; B9's record moved from phase-v1/ to b9/,
+# D191), and every
 # lifetime and status START line must carry that configuration's tag stem.
 # Exit 0 when every replayed verdict matches; 1 when one differs; 2 (nothing replayed) on a missing or foreign input,
 # never falling back to another record.
@@ -13,8 +14,8 @@ refuse() { echo "v1_replay_monitor: REFUSED: $*" >&2; exit 2; }
 [ $# = 2 ] || refuse "usage: v1_replay_monitor.sh <record root> <phase-v0 tools dir>"
 P=$(readlink -f "$1" 2>/dev/null) && [ -d "$P" ] || refuse "no record at '$1'"
 V0T=$(readlink -f "$2" 2>/dev/null) && [ -f "$V0T/memfloor.py" ] && [ -f "$V0T/kernel_audit.py" ] || refuse "no memfloor.py and kernel_audit.py in '$2'"
-case $(basename "$P") in b4) STEM=b4-q20-htp1;; a32) STEM=nh4-q40-a32;; phase-v1) STEM=b9-q20-htp2;;
-  *) refuse "unknown record '$(basename "$P")' (b4, a32 or phase-v1)";; esac
+case $(basename "$P") in b4) STEM=b4-q20-htp1;; a32) STEM=nh4-q40-a32;; b9) STEM=b9-q20-htp2;;
+  *) refuse "unknown record '$(basename "$P")' (b9, b4 or a32)";; esac
 ls "$P"/lifetimes/*/run.txt > /dev/null 2>&1 || refuse "no lifetimes in $P"
 [ -s "$P/batch/status.txt" ] || refuse "no batch/status.txt in $P"
 ls "$P"/monitor/health-*-runs.jsonl > /dev/null 2>&1 && ls "$P"/monitor/kernel-*.jsonl > /dev/null 2>&1 || refuse "no monitor export in $P/monitor"

@@ -45,7 +45,7 @@ recovered each time, and no turn stalled. The other 5 marathon and crusher runs 
 22 logged events (the retry build's rate-limited log of a dspqueue_peek retry, D181) over 14 server lifetimes, each
 1 in a row, so none met the fault rule (more than 1 in a row). All 3 baseline probes logged 0. Per run and turn:
 `checks/dsp-retry-events.txt` (turn N runs from the pi session's Nth user message to the next; arenas 1-2 have one
-turn, shown as `-`), produced by `tools/retry_turns.py`.
+turn, shown as `-`), produced by `../tools/retry_turns.py`.
 
 | Run | Events | Turns |
 |---|---|---|

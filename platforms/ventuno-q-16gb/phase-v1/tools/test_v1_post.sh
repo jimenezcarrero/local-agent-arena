@@ -4,7 +4,8 @@
 # monitor export), each missing or foreign input refused without reading B9's record; v1_retry_turns.py on a synthetic
 # work root, and refusing a missing root, lifetimes or journal.
 set -u
-HERE=$(dirname "$(readlink -f "$0")"); PV1=$(dirname "$HERE"); V0T=$(readlink -f "$PV1/../phase-v0/tools")
+# PV1: B9's committed record (phase-v1/b9 since D191)
+HERE=$(dirname "$(readlink -f "$0")"); PV1=$(dirname "$HERE")/b9; V0T=$(readlink -f "$PV1/../../phase-v0/tools")
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT; pass=0; fail=0
 ok() { if eval "$2"; then pass=$((pass+1)); echo "PASS $1"; else fail=$((fail+1)); echo "FAIL $1"; fi; }
 R=$HERE/v1_replay_monitor.sh
