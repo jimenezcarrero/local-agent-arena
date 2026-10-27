@@ -35,9 +35,10 @@ below 1.5 GiB. V2 rows with an admitted configuration: none.
 
 ## What V0 found
 
-1. **Only NPU configurations qualified.** The CPU routes were screened out under the fail-fast rule (D32): their 8K
-   prefill (about 24 tok/s for the 4B, 16 for the 9B at best) was below half the 145 tok/s gate, so their 16K speed
-   was not measured, not measured as a failure. The GPU routes failed where they were tested: OpenCL locked up in the
+1. **Only NPU configurations qualified.** One CPU cell was measured at every depth and was far below the gate
+   (GenieX CPU with NeoHorse-1-4B: 16K 11.8 / 1.36 tok/s). The other CPU cells were screened out under the fail-fast
+   rule (D32): their 8K prefill (about 24 tok/s for the 4B, 16 for the 9B at best) was below half the 145 tok/s
+   gate, so their 16K speed was not measured. The GPU routes failed where they were tested: OpenCL locked up in the
    8K prefill, Vulkan faulted at the first compute in V0b; GenieX could not load the 4B or 9B on the NPU or GPU at
    its defaults. The NPU (llama.cpp's ggml-hexagon backend) read prompts at 280-350 tok/s with the 4B.
 2. **One NPU hang mechanism was diagnosed and mitigated.** Early configurations hung the NPU intermittently, on
@@ -90,7 +91,7 @@ measurement commit `7badb21`, with health sampled every 10 s throughout.
 | AM: A with an MTP draft head on a third session | not taken to V0e | admitted (D90); A ranked first under the runbook |
 | H, H2: Ornith-1.0-9B, three sessions | V0d (H), V0e (H2, D112-D117) | intermittent load failures (NPU mapping); H2 needed a DSP restart before every load |
 | AR: A with the retry-patched library | V0e (D139-D140) | no NPU hang in about 3 h, but pi rarely got a tool call (S2: 5 of 56 cycles), and the memory floor was reached after S2 with the cache near its 7,942 MiB cap |
-| A32 attempts 1-4: AR with `-ngl 32`, `--cache-ram 5120` | V0e (D159-D175) | 1: the cache item missed its then-frozen reuse limit, compaction could not start, and the baseline probe before S2 hung (D159-D160). 2: a confirmed defect in the window check, and the cache item's first turn did not call bash (suspected wording or model refusal; D165-D166). 3: the window check's ablation refused by the server (a defect), and zero prefix reuse, failing the then-required reuse gate (D169). D171 then replaced the reuse gate with a multi-turn correctness and cost check, a methodology amendment; attempts 1-3 keep their verdicts. 4: a request sizing defect in the new check (D174) |
+| A32 attempts 1-4: AR with `-ngl 32`, `--cache-ram 5120` | V0e (D159-D175) | 1: the cache item's first turn made no tool call within its then-512-token output budget, compaction could not start, and the baseline probe before S2 hung (D159-D160). 2: a confirmed defect in the window check, and the cache item's first turn did not call bash (suspected wording or model refusal; D165-D166). 3: the window check's ablation refused by the server (a defect), and zero prefix reuse, failing the then-required reuse gate (D169). D171 then replaced the reuse gate with a multi-turn correctness and cost check, a methodology amendment; attempts 1-3 keep their verdicts. 4: a request sizing defect in the new check (D174) |
 
 ## Records
 
